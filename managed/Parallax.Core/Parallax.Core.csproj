@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- .NET 4.x profile: loads in Unity 2018.1+ Mono games. -->
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">E:\Unity\Editor\2022.3.62f3\Editor\Data\Managed\UnityEngine</UnityManaged>
+    <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)..\..\build\deps\bepinex5\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(BepInExCore)\BepInEx.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(UnityManaged)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.IMGUIModule" HintPath="$(UnityManaged)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(UnityManaged)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(UnityManaged)\UnityEngine.TextRenderingModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

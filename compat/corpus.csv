@@ -1,0 +1,17 @@
+game,unity,backend,online,status
+Lorn's Lure,2019.4,Mono,no,tested
+Phoenix Wright: Ace Attorney Trilogy,2017.4,Mono,no,tested
+Neon White,2020.3,Mono,leaderboards,skipped (online)
+White Knuckle,6000.3,Mono,leaderboards,skipped (online)
+Touhou Dystopian,2022.3,Mono,unknown,skipped (unverified online features)
+Lethal Company,2022.3,Mono,multiplayer,skipped (online)
+REPO,2022.3,Mono,multiplayer,skipped (online)
+PEAK,6000.3,Mono,multiplayer,skipped (online)
+YAPYAP,6000.0,Mono,multiplayer,skipped (online)
+Risk of Rain 2,2021.3,Mono,multiplayer,skipped (online)
+Humanity,2021.3,IL2CPP,no,not supported yet (IL2CPP)
+Megabonk,2023.2,IL2CPP,leaderboards,skipped (online)
+Over The Top WW1,6000.3,IL2CPP,multiplayer,skipped (online)
+REPEATER,2020.3,IL2CPP,no,not supported yet (IL2CPP)
+Peripeteia,2021.3,IL2CPP,no,not supported yet (IL2CPP)
+VRChat,6000.0,IL2CPP,anti-cheat,refused (anti-cheat)
