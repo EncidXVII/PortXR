@@ -15,6 +15,5 @@ fixtures/*/Build/
 fixtures/*/obj/
 fixtures/*/*.csproj
 fixtures/*/*.sln
-fixtures/*/Assets/Scenes*
-fixtures/*/Assets/Materials*
+fixtures/*/Assets/
 compat/results.csv

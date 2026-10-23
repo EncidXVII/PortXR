@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- .NET 4.x profile: loads in Unity 2018.1+ Mono games. -->
-    <TargetFramework>net472</TargetFramework>
+    <!-- .NET 3.5 against Unity 2018.4 engine assemblies: one build loads in both the old (.NET 3.5) and new
+         (.NET 4.x) Mono runtimes. Newer engine APIs are reached by reflection. -->
+    <TargetFramework>net35</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <UnityManaged Condition="'$(UnityManaged)' == ''">E:\Unity\Editor\2022.3.62f3\Editor\Data\Managed\UnityEngine</UnityManaged>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">E:\Unity\Editor\2018.4.36f1\Editor\Data\Managed\UnityEngine</UnityManaged>
     <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)..\..\build\deps\bepinex5\BepInEx\core</BepInExCore>
   </PropertyGroup>
   <ItemGroup>
@@ -14,7 +15,6 @@
     <Reference Include="UnityEngine" HintPath="$(UnityManaged)\UnityEngine.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityManaged)\UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.IMGUIModule" HintPath="$(UnityManaged)\UnityEngine.IMGUIModule.dll" Private="false" />
-    <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(UnityManaged)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
     <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(UnityManaged)\UnityEngine.TextRenderingModule.dll" Private="false" />
   </ItemGroup>
 </Project>

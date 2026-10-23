@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -50,8 +51,10 @@ public class FixturePlayer : MonoBehaviour
         {
             nextLog = Time.unscaledTime + 0.2f;
             var p = transform.position;
-            log.WriteLine(FormattableString.Invariant(
-                $"{{\"t\":{Time.unscaledTime:0.00},\"pos\":[{p.x:0.000},{p.y:0.000},{p.z:0.000}],\"yaw\":{yaw:0.0},\"jumps\":{jumps},\"clicks\":{clicks},\"scene\":{SceneManager.GetActiveScene().buildIndex}}}"));
+            // string.Format, not FormattableString: the F0 fixture runs on the .NET 3.5 runtime.
+            log.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "{{\"t\":{0:0.00},\"pos\":[{1:0.000},{2:0.000},{3:0.000}],\"yaw\":{4:0.0},\"jumps\":{5},\"clicks\":{6},\"scene\":{7}}}",
+                Time.unscaledTime, p.x, p.y, p.z, yaw, jumps, clicks, SceneManager.GetActiveScene().buildIndex));
         }
     }
 }

@@ -14,7 +14,7 @@ XR_FUNCS(XR_DEFINE)
 #undef XR_DEFINE
 
 namespace {
-enum Event { EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4 };
+enum Event { EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4, EvCaptureBackbuffer = 5 };
 constexpr int kSlots = 4;
 
 struct Swapchain {
@@ -32,6 +32,7 @@ std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 bool g_formatSrgb = true;
 Swapchain g_eyes[2], g_quad;
+ComPtr<ID3D11Texture2D> g_backbufferCopy;
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -246,6 +247,40 @@ void do_begin() {
     g_shouldRender = fs.shouldRender;
 }
 
+// Fallback for engines without ScreenCapture.CaptureScreenshotIntoRenderTexture (Unity < 2019.1): at end of frame
+// Unity still has the backbuffer bound, holding the game UI and IMGUI.
+void do_capture_backbuffer() {
+    if (!g_ctx) return;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    g_ctx->OMGetRenderTargets(1, &rtv, nullptr);
+    if (!rtv) return;
+    ComPtr<ID3D11Resource> res;
+    rtv->GetResource(&res);
+    ComPtr<ID3D11Texture2D> src;
+    if (FAILED(res.As(&src))) return;
+    D3D11_TEXTURE2D_DESC desc;
+    src->GetDesc(&desc);
+    D3D11_TEXTURE2D_DESC have{};
+    if (g_backbufferCopy) g_backbufferCopy->GetDesc(&have);
+    if (!g_backbufferCopy || have.Width != desc.Width || have.Height != desc.Height || have.Format != desc.Format) {
+        D3D11_TEXTURE2D_DESC copy = desc;
+        copy.SampleDesc = {1, 0};
+        copy.MipLevels = 1;
+        copy.ArraySize = 1;
+        copy.Usage = D3D11_USAGE_DEFAULT;
+        copy.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        copy.CPUAccessFlags = 0;
+        copy.MiscFlags = 0;
+        g_backbufferCopy.Reset();
+        if (FAILED(g_device->CreateTexture2D(&copy, nullptr, &g_backbufferCopy))) {
+            prx_log("backbuffer copy: format %d not copyable", (int)desc.Format);
+            return;
+        }
+    }
+    if (desc.SampleDesc.Count > 1) g_ctx->ResolveSubresource(g_backbufferCopy.Get(), 0, src.Get(), 0, desc.Format);
+    else g_ctx->CopySubresourceRegion(g_backbufferCopy.Get(), 0, 0, 0, 0, src.Get(), 0, nullptr);
+}
+
 void do_submit(int slot) {
     if (!g_frameBegun) return;
     PrxFrame f;
@@ -281,7 +316,8 @@ void do_submit(int slot) {
             layers[count++] = (XrCompositionLayerBaseHeader*)&proj;
             stereo = true;
         }
-        if (f.quad && f.quadLayer.texture && copy_layer(g_quad, f.quadLayer, path(L"quad.bmp"))) {
+        PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_backbufferCopy.Get(), 0} : f.quadLayer;
+        if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"))) {
             quad.layerFlags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
             quad.space = g_xr.local;
             quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -305,6 +341,7 @@ void do_shutdown() {
     destroy_swapchain(g_eyes[0]);
     destroy_swapchain(g_eyes[1]);
     destroy_swapchain(g_quad);
+    g_backbufferCopy.Reset();
     input_shutdown();
     blit_shutdown();
     if (g_xr.local) xrDestroySpace(g_xr.local);
@@ -323,6 +360,7 @@ void __stdcall on_render_event(int id) {
     case EvBegin: do_begin(); break;
     case EvSubmit: do_submit((id >> 8) % kSlots); break;
     case EvShutdown: do_shutdown(); break;
+    case EvCaptureBackbuffer: do_capture_backbuffer(); break;
     }
 }
 }  // namespace

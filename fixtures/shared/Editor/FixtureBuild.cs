@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -6,19 +7,33 @@ using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
-// Generates the fixture scenes and builds the player: Unity -batchmode -executeMethod FixtureBuild.Build
-public static class FixtureBuild
+// Generates the fixture scenes and builds the player. Driven by fixtures/build.ps1, which runs Configure and Build
+// as two editor launches (a scripting-runtime change only applies after a restart).
+// Written for C# 7.3 so the same file compiles in Unity 2018.4 and 2022.3.
+public static partial class FixtureBuild
 {
     const string Scenes = "Assets/Scenes";
+    const string Materials = "Assets/Materials";
+    static string unlitShader = "Unlit/Color", colorProperty = "_Color";
 
-    public static void Build()
+    // Implemented in FixtureUrp.cs, which build.ps1 copies only into URP fixtures.
+    static partial void ConfigurePipeline();
+    static partial void DecorateScene(Camera camera);
+
+    static string Name => Arg("-fixture") ?? "F1";
+
+    static string Arg(string name)
     {
-        Directory.CreateDirectory(Scenes);
-        AddRightStickAxis();
-        var scenes = new[] { MakeScene("Main", new Color(0.10f, 0.15f, 0.30f)), MakeScene("Second", new Color(0.25f, 0.12f, 0.10f)) };
+        var args = Environment.GetCommandLineArgs();
+        int i = Array.IndexOf(args, name);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
 
+    public static void Configure()
+    {
+        AddRightStickAxis();
         PlayerSettings.companyName = "Parallax";
-        PlayerSettings.productName = "F1";
+        PlayerSettings.productName = Name;
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
         PlayerSettings.defaultScreenWidth = 1280;
         PlayerSettings.defaultScreenHeight = 720;
@@ -26,6 +41,9 @@ public static class FixtureBuild
         PlayerSettings.runInBackground = true;
         PlayerSettings.colorSpace = ColorSpace.Linear;
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+#if !UNITY_2019_3_OR_NEWER
+        PlayerSettings.scriptingRuntimeVersion = Arg("-runtime") == "legacy" ? ScriptingRuntimeVersion.Legacy : ScriptingRuntimeVersion.Latest;
+#endif
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
         PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { GraphicsDeviceType.Direct3D11 });
         for (int i = 0; i < QualitySettings.names.Length; i++)
@@ -34,8 +52,17 @@ public static class FixtureBuild
             QualitySettings.antiAliasing = 4;
             QualitySettings.vSyncCount = 1;
         }
+        ConfigurePipeline();
+        AssetDatabase.SaveAssets();
+    }
 
-        var report = BuildPipeline.BuildPlayer(scenes, "Build/F1.exe", BuildTarget.StandaloneWindows64, BuildOptions.None);
+    public static void Build()
+    {
+        ConfigurePipeline();
+        Directory.CreateDirectory(Scenes);
+        Directory.CreateDirectory(Materials);
+        var scenes = new[] { MakeScene("Main", new Color(0.10f, 0.15f, 0.30f)), MakeScene("Second", new Color(0.25f, 0.12f, 0.10f)) };
+        var report = BuildPipeline.BuildPlayer(scenes, "Build/" + Name + ".exe", BuildTarget.StandaloneWindows64, BuildOptions.None);
         if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
     }
 
@@ -67,9 +94,10 @@ public static class FixtureBuild
         cam.nearClipPlane = 0.05f;
         camGo.AddComponent<AudioListener>();
         player.AddComponent<FixturePlayer>().head = camGo.transform;
+        DecorateScene(cam);
 
         MakeUi(name);
-        var path = $"{Scenes}/{name}.unity";
+        var path = Scenes + "/" + name + ".unity";
         EditorSceneManager.SaveScene(scene, path);
         return path;
     }
@@ -84,7 +112,11 @@ public static class FixtureBuild
         scaler.referenceResolution = new Vector2(1280, 720);
         scaler.matchWidthOrHeight = 1f;
         canvasGo.AddComponent<GraphicRaycaster>();
+#if UNITY_2022_2_OR_NEWER
         var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+#else
+        var font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+#endif
 
         var title = Rect("Title", canvasGo.transform, new Vector2(0.5f, 1f), new Vector2(0, -40), new Vector2(800, 80));
         var text = title.gameObject.AddComponent<Text>();
@@ -122,23 +154,24 @@ public static class FixtureBuild
         return rt;
     }
 
-    static void Box(string name, Vector3 pos, Vector3 size, Color color)
+    static GameObject Box(string name, Vector3 pos, Vector3 size, Color color, PrimitiveType shape = PrimitiveType.Cube)
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        var go = GameObject.CreatePrimitive(shape);
         go.name = name;
         go.transform.position = pos;
         go.transform.localScale = size;
-        Object.DestroyImmediate(go.GetComponent<Collider>());
+        UnityEngine.Object.DestroyImmediate(go.GetComponent<Collider>());
         if (name == "Ground") go.AddComponent<BoxCollider>();
-        var matPath = $"Assets/Materials/{name}.mat";
-        Directory.CreateDirectory("Assets/Materials");
+        var matPath = Materials + "/" + name + ".mat";
         var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
         if (mat == null)
         {
-            mat = new Material(Shader.Find("Unlit/Color")) { color = color };
+            mat = new Material(Shader.Find(unlitShader));
+            mat.SetColor(colorProperty, color);
             AssetDatabase.CreateAsset(mat, matPath);
         }
         go.GetComponent<Renderer>().sharedMaterial = mat;
+        return go;
     }
 
     static void AddRightStickAxis()

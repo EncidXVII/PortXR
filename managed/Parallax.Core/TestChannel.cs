@@ -121,16 +121,26 @@ namespace Parallax
         static BepInEx.Configuration.ConfigEntryBase Entry(string key) =>
             Settings.File[Settings.File.Keys.First(d => d.Key == key)];
 
-        static string V(Vector3 v) => FormattableString.Invariant($"[{v.x:0.####},{v.y:0.####},{v.z:0.####}]");
+        static string V(Vector3 v) => $"[{v.x:0.####},{v.y:0.####},{v.z:0.####}]";
 
-        static string P(Pose p) => FormattableString.Invariant($"[{p.px:0.####},{p.py:0.####},{p.pz:0.####},{p.qx:0.####},{p.qy:0.####},{p.qz:0.####},{p.qw:0.####}]");
+        static string P(Pose p) => $"[{p.px:0.####},{p.py:0.####},{p.pz:0.####},{p.qx:0.####},{p.qy:0.####},{p.qz:0.####},{p.qw:0.####}]";
 
+        // .NET 3.5 has no FormattableString, so the JSON is formatted under a temporarily invariant culture.
         static string Stats(Rig rig)
+        {
+            var thread = System.Threading.Thread.CurrentThread;
+            var culture = thread.CurrentCulture;
+            thread.CurrentCulture = CultureInfo.InvariantCulture;
+            try { return StatsJson(rig); }
+            finally { thread.CurrentCulture = culture; }
+        }
+
+        static string StatsJson(Rig rig)
         {
             var s = rig.GetStats();
             var f = rig.Fovs[0];
             var cam = rig.GameCam;
-            return FormattableString.Invariant($$"""
+            return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
                 "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},
                 "theater":{{(Settings.Theater.Value ? 1 : 0)}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},
@@ -139,7 +149,7 @@ namespace Parallax
                 "fov":[{{f.left:0.#####}},{{f.right:0.#####}},{{f.up:0.#####}},{{f.down:0.#####}}],
                 "eyeSize":[{{rig.EyeSize.x}},{{rig.EyeSize.y}}],"screen":[{{Screen.width}},{{Screen.height}}],
                 "viewL":{{P(rig.Views[0])}},"viewR":{{P(rig.Views[1])}}}
-                """);
+                """;
         }
     }
 }

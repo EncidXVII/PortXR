@@ -23,6 +23,7 @@ struct PrxFrame {
     PrxPose eyePose[2];
     PrxFov eyeFov[2];
     int32_t quad;
+    int32_t quadFromBackbuffer;  // use the texture grabbed by the capture event instead of quadLayer.texture
     PrxLayer quadLayer;
     PrxPose quadPose;
     float quadWidth, quadHeight;

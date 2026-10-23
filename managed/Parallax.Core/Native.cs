@@ -23,6 +23,7 @@ namespace Parallax
         public Pose poseL, poseR;
         public Fov fovL, fovR;
         public int quad;
+        public int quadFromBackbuffer;
         public Layer quadLayer;
         public Pose quadPose;
         public float quadWidth, quadHeight;
@@ -62,7 +63,7 @@ namespace Parallax
     internal static class Native
     {
         const string Dll = "parallax_xr";
-        public const int EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4;
+        public const int EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4, EvCaptureBackbuffer = 5;
         public const uint EvMenuToggle = 1;
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]

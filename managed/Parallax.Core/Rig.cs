@@ -28,6 +28,7 @@ namespace Parallax
         Color savedBackground;
         bool camHidden;
         bool eyesRendered;
+        Camera extrasCamera;
 
         Vector3 originPos;
         Quaternion originYaw = Quaternion.identity;
@@ -43,6 +44,16 @@ namespace Parallax
 
         internal Menu Menu;
         internal TestChannel Test;
+
+        // ScreenCapture.CaptureScreenshotIntoRenderTexture exists from Unity 2019.1; older engines use the native grab.
+        static readonly Action<RenderTexture> captureIntoTexture = FindCapture();
+
+        static Action<RenderTexture> FindCapture()
+        {
+            var method = Type.GetType("UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule")?.GetMethod(
+                "CaptureScreenshotIntoRenderTexture", new[] { typeof(RenderTexture) });
+            return method == null ? null : (Action<RenderTexture>)Delegate.CreateDelegate(typeof(Action<RenderTexture>), method);
+        }
 
         void Start()
         {
@@ -144,6 +155,9 @@ namespace Parallax
                 return;
             }
             HideGameCamera();
+            // Pipeline settings rarely change; a refresh every second catches in-game graphics option changes.
+            bool refreshExtras = extrasCamera != cam || Time.frameCount % 60 == 0;
+            extrasCamera = cam;
             var camT = cam.transform;
             var yaw = Xr.Yaw(camT.rotation);
             var unYaw = Quaternion.Inverse(originYaw);
@@ -158,6 +172,7 @@ namespace Parallax
                 eye.backgroundColor = savedBackground;
                 eye.targetTexture = eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
+                if (refreshExtras) CameraExtras.Copy(cam, eye);
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
                 eye.transform.SetPositionAndRotation(camT.position + yaw * (rel * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
@@ -188,11 +203,16 @@ namespace Parallax
 
         void SubmitFrame()
         {
-            EnsureUiTarget();
             // The game camera drew nothing, so the backbuffer now holds only overlay UI and IMGUI.
-            ScreenCapture.CaptureScreenshotIntoRenderTexture(uiTarget);
+            bool native = captureIntoTexture == null;
+            if (native) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
+            else
+            {
+                EnsureUiTarget();
+                captureIntoTexture(uiTarget);
+            }
             bool stereo = eyesRendered;
-            var f = new Frame { stereo = stereo ? 1 : 0, quad = 1, quadAlpha = stereo ? 1 : 0 };
+            var f = new Frame { stereo = stereo ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
             if (stereo)
             {
                 Mirror();
@@ -226,6 +246,7 @@ namespace Parallax
             var eye = eyeTargets[0];
             float visible = Mathf.Min(1f, (float)eye.width / eye.height / ((float)Screen.width / Screen.height));
             Graphics.Blit(eye, (RenderTexture)null, new Vector2(1, visible), new Vector2(0, (1 - visible) / 2));
+            if (uiTarget == null) return;  // native capture path: the UI only reaches the headset
             RenderTexture.active = null;
             GL.PushMatrix();
             GL.LoadPixelMatrix(0, Screen.width, Screen.height, 0);

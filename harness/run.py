@@ -23,6 +23,7 @@ OUT = os.path.join(ROOT, "harness", "out")
 APP = os.path.join(ROOT, "dist", "Parallax.exe")
 PORT = 47800
 MENU_BIT, A_BIT = 64, 1
+POST_FIXTURES = {"F2"}  # fixtures whose game camera has post-processing to carry over
 user32 = ctypes.windll.user32
 
 
@@ -165,6 +166,18 @@ def gate_stereo(g):
     span = rows.max() - rows.min() + 1
     expected = h * (2.0 / 4.95) / (up - down)
     check("3 scale", abs(span - expected) / expected < 0.03, f"door {span}px expected {expected:.1f}px")
+
+
+def gate_post(g):
+    """URP fixture: bloom around the HDR glow sphere shows the eye cameras inherited the game's post-processing."""
+    (left,) = g.capture("post", ["left.bmp"])
+    ys, xs = np.nonzero(left[..., :3].min(axis=2) > 240)
+    cx, cy, r = xs.mean(), ys.mean(), math.sqrt(len(xs) / math.pi)
+    yy, xx = np.indices(left.shape[:2])
+    d = np.hypot(xx - cx, yy - cy)
+    ring = left[(d > 1.5 * r) & (d < 3 * r)][:, :3]
+    lift = ring.mean() - np.array([26, 38, 77]).mean()
+    check("11 post-processing", lift > 15, f"halo lifts the sky around the glow by {lift:.0f} levels")
 
 
 def gate_tracking(g):
@@ -319,7 +332,10 @@ def main():
             try:
                 g.start()
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 120, "stereo frames")
-                for gate in (gate_stereo, gate_tracking, gate_timing, gate_ui, gate_input, gate_theater, gate_menu):
+                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_input, gate_theater, gate_menu]
+                if args.fixture in POST_FIXTURES:
+                    gates.insert(1, gate_post)
+                for gate in gates:
                     try:
                         gate(g)
                     except Exception as ex:

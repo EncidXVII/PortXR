@@ -26,8 +26,9 @@ Working name, not final.
 
 ## What works today
 
-- Unity Mono games (Unity 2018.1+ with the .NET 4.x runtime), Direct3D 11, built-in render pipeline. URP renders but without its post-processing.
-- Not yet: IL2CPP, Direct3D 12, .NET 3.5 runtime games, HDRP specifics. Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
+- Unity Mono games, Direct3D 11, built-in render pipeline (verified on Unity 2019.4 and 2022.3).
+- In progress, not yet verified: Unity 2017.4/2018.x games on the old .NET 3.5 runtime, and URP / Post Processing v2 effects in the headset.
+- Not yet: IL2CPP, Direct3D 12, HDRP specifics. Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
 - See [COMPAT.md](COMPAT.md).
 
 ## Build
@@ -49,7 +50,7 @@ pip install pillow numpy
 python harness\run.py --soak 600
 ```
 
-Fixture F1 is generated from `fixtures/F1` with Unity 2022.3 (`-executeMethod FixtureBuild.Build`).
+Fixtures are generated from `fixtures/shared`: `fixtures\build.ps1 -Name F1` (F0: Unity 2018.4 on .NET 3.5, F1: 2022.3 built-in, F2: 2022.3 URP with Bloom), then `python harness\run.py --fixture F1`.
 
 ## How it works
 
