@@ -18,9 +18,10 @@ const BG: Color32 = Color32::from_rgb(10, 10, 10);
 const SURFACE: Color32 = Color32::from_rgb(18, 18, 18);
 const RAISED: Color32 = Color32::from_rgb(26, 26, 26);
 const LINE: Color32 = Color32::from_rgb(38, 38, 38);
+const EDGE: Color32 = Color32::from_rgb(94, 94, 94);
 const INK: Color32 = Color32::from_rgb(242, 242, 242);
 const INK2: Color32 = Color32::from_rgb(163, 163, 163);
-const INK3: Color32 = Color32::from_rgb(110, 110, 110);
+const INK3: Color32 = Color32::from_rgb(128, 128, 128);
 const LIME: Color32 = Color32::from_rgb(198, 255, 26);
 const ON_LIME: Color32 = Color32::from_rgb(10, 10, 10);
 const DANGER: Color32 = Color32::from_rgb(255, 90, 60);
@@ -129,27 +130,38 @@ impl App {
         self.page = None;
     }
 
-    // A folder from Add game or the command line: remembered, then its page opens.
+    // A game folder from the command line: remembered if new, then its page opens.
     fn open_dir(&mut self, dir: &Path) {
-        if games::detect(dir).is_none() {
-            self.status = ("No Unity game in that folder. Pick the folder that holds the game's .exe and its _Data folder.".into(), Tone::Bad);
+        let Some(game) = games::detect(dir) else {
+            self.status = ("No Unity game in that folder.".into(), Tone::Bad);
             return;
-        }
-        if !self.games.iter().any(|g| g.dir == dir) {
-            if let Err(e) = games::add_manual(dir) {
+        };
+        if !self.games.iter().any(|g| g.dir == game.dir) {
+            if let Err(e) = games::add_folder(dir) {
                 self.status = (e.to_string(), Tone::Bad);
                 return;
             }
             self.rescan();
         }
-        if let Some(i) = self.games.iter().position(|g| g.dir == dir) {
+        if let Some(i) = self.games.iter().position(|g| g.dir == game.dir) {
             self.open(i);
         }
     }
 
+    // A game's own folder opens its page; any other folder (D:\Games) adds every Unity game inside it.
     fn add_game(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new().set_title("Pick the folder that contains the game's .exe").pick_folder() {
+        let Some(dir) = rfd::FileDialog::new().set_title("Pick a game folder, or a folder that holds several games").pick_folder() else { return };
+        if games::detect(&dir).is_some() {
             self.open_dir(&dir);
+            return;
+        }
+        match games::add_folder(&dir) {
+            Ok(0) => self.status = (format!("No Unity games in {} or the folders inside it.", dir.display()), Tone::Bad),
+            Ok(n) => {
+                self.rescan();
+                self.status = (format!("Added {n} games from {}.", dir.display()), Tone::Good);
+            }
+            Err(e) => self.status = (e.to_string(), Tone::Bad),
         }
     }
 
@@ -161,33 +173,30 @@ impl App {
     }
 
     fn library(&mut self, ui: &mut Ui) {
-        eyebrow(ui, "01", "Library");
         ui.label(RichText::new("YOUR GAMES.").font(display(44.0)).color(INK));
-        ui.add_space(4.0);
-        ui.label(RichText::new("Unity games from your Steam libraries and folders you added. Pick one to set it up and play it in VR.").color(INK2));
-        ui.add_space(24.0);
-
-        let count = |f: Filter| self.games.iter().filter(|g| filter_of(g) == f).count();
-        stat_strip(ui, &[
-            ("Games", self.games.len(), false),
-            ("Ready", count(Filter::Ready), true),
-            ("Installed", count(Filter::Installed), false),
-            ("Unsupported", count(Filter::Unsupported), false),
-        ]);
-        ui.add_space(24.0);
-
+        ui.add_space(16.0);
+        if !self.status.0.is_empty() {
+            ui.label(RichText::new(&self.status.0).color(tone_color(self.status.1)));
+            ui.add_space(16.0);
+        }
         if self.games.is_empty() {
-            self.empty(ui, "NO GAMES FOUND.", "Parallax looks in every Steam library on this PC. Games from other stores: add their folder.", "Add game");
+            self.empty(ui, "NO GAMES FOUND.", "Parallax looks in Steam, Epic Games and GOG. Games from anywhere else: add their folder, or a folder that holds several games.", "Add game");
             return;
         }
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.query).hint_text("Search games").desired_width(280.0).margin(Margin::symmetric(12, 10)));
-            ui.add_space(16.0);
-            let options = [(Filter::All, "All"), (Filter::Ready, "Ready"), (Filter::Installed, "Installed"), (Filter::Unsupported, "Unsupported")];
-            if let Some(f) = segmented(ui, &options, self.filter) {
-                self.filter = f;
-            }
-        });
+        let count = |f: Filter| self.games.iter().filter(|g| filter_of(g) == f).count();
+        let cells = [
+            (Filter::All, "All games", self.games.len()),
+            (Filter::Ready, "Ready", count(Filter::Ready)),
+            (Filter::Installed, "Installed", count(Filter::Installed)),
+            (Filter::Unsupported, "Unsupported", count(Filter::Unsupported)),
+        ];
+        if let Some(f) = stat_strip(ui, &cells, self.filter) {
+            self.filter = f;
+        }
+        ui.add_space(16.0);
+        // Exactly one stat cell wide, so its right edge lines up with the first cell's divider.
+        let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
+        ui.add_sized([ui.available_width() / 4.0, 40.0], search);
         ui.add_space(24.0);
 
         let query = self.query.to_lowercase();
@@ -206,14 +215,17 @@ impl App {
             }
             return;
         }
-        const W: f32 = 168.0;
-        let cols = ((ui.available_width() + 16.0) / (W + 16.0)).floor().max(1.0) as usize;
+        // Columns fill the row exactly, so the grid shares its right edge with the stat strip.
+        const GAP: f32 = 16.0;
+        let avail = ui.available_width();
+        let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
+        let w = ((avail - GAP * (cols - 1) as f32) / cols as f32).floor();
         let mut open = None;
         for row in shown.chunks(cols) {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
+                ui.spacing_mut().item_spacing.x = GAP;
                 for &i in row {
-                    if card(ui, &self.games[i], W).clicked() {
+                    if card(ui, &self.games[i], w).clicked() {
                         open = Some(i);
                     }
                 }
@@ -242,9 +254,9 @@ impl App {
             cover(ui, &g, rect);
             ui.add_space(32.0);
             ui.vertical(|ui| {
-                eyebrow(ui, "02", "Game");
                 ui.add(egui::Label::new(RichText::new(g.name.to_uppercase()).font(display(48.0)).color(INK)).wrap());
-                ui.add_space(12.0);
+                // Anton reserves a tall line; pull the metadata up so it groups with the title.
+                ui.add_space(-10.0);
                 ui.horizontal(|ui| {
                     chip(ui, &format!("Unity {}", g.unity), ChipKind::Plain);
                     chip(ui, g.backend(), ChipKind::Plain);
@@ -256,20 +268,19 @@ impl App {
                 ui.horizontal(|ui| self.actions(ui, &g));
                 ui.add_space(12.0);
                 let (text, tone) = if self.status.0.is_empty() { (warning(&g), Tone::Info) } else { self.status.clone() };
-                let color = match tone {
-                    Tone::Info => INK2,
-                    Tone::Good => LIME,
-                    Tone::Bad => DANGER,
-                };
+                let color = if tone == Tone::Info { INK } else { tone_color(tone) };
                 if !text.is_empty() {
                     ui.label(RichText::new(text).color(color));
+                }
+                if g.compat() != Compat::Supported {
+                    return;
                 }
                 ui.add_space(24.0);
                 hairline(ui);
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        eyebrow(ui, "03", "Settings");
+                        eyebrow(ui, "01", "Settings");
                         ui.label(RichText::new("Saved as you change them. The game picks them up on its next start.").color(INK2));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -284,7 +295,7 @@ impl App {
                 ui.add_space(24.0);
                 hairline(ui);
                 let header = egui::Button::new(
-                    RichText::new(format!("04 // ADVANCED  {}", if self.advanced { "−" } else { "+" })).font(mono(12.0)).color(LIME).extra_letter_spacing(1.5),
+                    RichText::new(format!("02 // ADVANCED  {}", if self.advanced { "−" } else { "+" })).font(mono(12.0)).color(LIME).extra_letter_spacing(1.5),
                 )
                 .frame(false);
                 if ui.add(header).clicked() {
@@ -321,7 +332,10 @@ impl App {
                 self.confirm_uninstall = !self.confirm_uninstall;
             }
         }
-        if secondary(ui, "Export logs").clicked() {
+        if secondary(ui, "Open folder").clicked() {
+            let _ = Command::new("explorer").arg(&g.dir).spawn();
+        }
+        if g.installed() && secondary(ui, "Export logs").clicked() {
             self.report(games::export_logs(g).map(|zip| {
                 let _ = Command::new("explorer").raw_arg(format!("/select,\"{}\"", zip.display())).spawn();
                 "Logs saved to your desktop. Attach the zip to your bug report.".into()
@@ -353,9 +367,9 @@ impl App {
                     }
                     Kind::Toggle => {
                         let on = current.eq_ignore_ascii_case("true");
-                        segmented(ui, &[(false, "Off"), (true, "On")], on).map(|b| b.to_string())
+                        segmented(ui, &[(false, "Off"), (true, "On")], on, Some(false)).map(|b| b.to_string())
                     }
-                    Kind::Choice(options) => segmented(ui, options, options.iter().find(|(v, _)| *v == current).map_or(options[0].0, |o| o.0))
+                    Kind::Choice(options) => segmented(ui, options, options.iter().find(|(v, _)| *v == current).map_or(options[0].0, |o| o.0), None)
                         .map(String::from),
                     Kind::Text => {
                         let mut v = current.clone();
@@ -397,15 +411,18 @@ impl eframe::App for App {
                     }
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if self.page.is_none() && secondary(ui, "Add game  +").clicked() {
-                        self.add_game();
+                    if self.page.is_none() {
+                        if secondary(ui, "Add game  +").clicked() {
+                            self.add_game();
+                        }
+                        if secondary(ui, "Rescan").clicked() {
+                            self.rescan();
+                            self.status = (String::new(), Tone::Info);
+                        }
                     }
                     if let Some(r) = self.update.lock().unwrap().clone() {
                         let text = RichText::new(format!("UPDATE {} ↗", r.tag_name.trim_start_matches('v'))).font(mono(12.0)).color(LIME);
                         ui.hyperlink_to(text, r.html_url);
-                    }
-                    if self.page.is_none() && self.status.1 == Tone::Bad {
-                        ui.label(RichText::new(&self.status.0).color(DANGER));
                     }
                 });
             });
@@ -430,6 +447,21 @@ impl eframe::App for App {
 }
 
 // ---- components -------------------------------------------------------------------------------------------------
+
+fn tone_color(tone: Tone) -> Color32 {
+    match tone {
+        Tone::Info => INK2,
+        Tone::Good => LIME,
+        Tone::Bad => DANGER,
+    }
+}
+
+// Keyboard focus is always visible: a lime ring just outside the control.
+fn focus_ring(ui: &Ui, r: &egui::Response) {
+    if r.has_focus() {
+        ui.painter().rect_stroke(r.rect.expand(3.0), RADIUS, Stroke::new(2.0, LIME), egui::StrokeKind::Outside);
+    }
+}
 
 fn eyebrow(ui: &mut Ui, number: &str, word: &str) {
     ui.horizontal(|ui| {
@@ -457,11 +489,14 @@ fn primary(ui: &mut Ui, text: &str) -> egui::Response {
     if r.hovered() && enabled {
         ui.painter().rect_stroke(r.rect, RADIUS, Stroke::new(1.0, INK), egui::StrokeKind::Inside);
     }
+    focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn secondary(ui: &mut Ui, text: &str) -> egui::Response {
-    ui.add(egui::Button::new(button_text(text, INK)).corner_radius(RADIUS).min_size(vec2(0.0, 40.0))).on_hover_cursor(egui::CursorIcon::PointingHand)
+    let r = ui.add(egui::Button::new(button_text(text, INK)).corner_radius(RADIUS).min_size(vec2(0.0, 40.0)));
+    focus_ring(ui, &r);
+    r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn destructive(ui: &mut Ui, text: &str, armed: bool) -> egui::Response {
@@ -469,21 +504,29 @@ fn destructive(ui: &mut Ui, text: &str, armed: bool) -> egui::Response {
     if armed {
         b = b.fill(DANGER);
     }
-    ui.add(b).on_hover_cursor(egui::CursorIcon::PointingHand)
+    let r = ui.add(b);
+    focus_ring(ui, &r);
+    r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-// Cells side by side, the selected one filled lime.
-fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T) -> Option<T> {
+// Cells side by side, the selected one filled lime; a selected `neutral` value (a toggle's Off) gets an ink outline
+// instead, so lime always means on.
+fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T, neutral: Option<T>) -> Option<T> {
     let mut picked = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         for &(value, label) in options {
             let on = value == current;
-            let mut b = egui::Button::new(button_text(label, if on { ON_LIME } else { INK2 })).corner_radius(0).min_size(vec2(0.0, 36.0));
-            if on {
+            let lit = on && Some(value) != neutral;
+            let mut b = egui::Button::new(button_text(label, if lit { ON_LIME } else if on { INK } else { INK2 })).corner_radius(0).min_size(vec2(0.0, 36.0));
+            if lit {
                 b = b.fill(LIME).stroke(Stroke::new(1.0, LIME));
+            } else if on {
+                b = b.fill(RAISED).stroke(Stroke::new(1.0, INK));
             }
-            if ui.add(b).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+            let r = ui.add(b);
+            focus_ring(ui, &r);
+            if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
                 picked = Some(value);
             }
         }
@@ -491,21 +534,37 @@ fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T
     picked
 }
 
-// One row of numbers sharing hairline dividers; the cell that matters gets the lime number.
-fn stat_strip(ui: &mut Ui, cells: &[(&str, usize, bool)]) {
-    let w = ui.available_width().min(960.0);
+// One row of numbers sharing hairline dividers, full width. Each cell is also the filter for its category: the
+// selected one gets the lime number and a lime bar on top.
+fn stat_strip(ui: &mut Ui, cells: &[(Filter, &str, usize)], current: Filter) -> Option<Filter> {
+    let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, 88.0), Sense::hover());
+    let cell = w / cells.len() as f32;
+    let mut picked = None;
+    for (i, &(filter, label, n)) in cells.iter().enumerate() {
+        let r = Rect::from_min_size(pos2(rect.left() + i as f32 * cell, rect.top()), vec2(cell, rect.height()));
+        let resp = ui.interact(r, ui.scope_id().with(("stat", i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let on = filter == current;
+        let p = ui.painter();
+        if resp.hovered() && !on {
+            p.rect_filled(r, 0.0, RAISED);
+        }
+        if on {
+            p.rect_filled(Rect::from_min_size(r.min, vec2(r.width(), 3.0)), 0.0, LIME);
+        }
+        p.text(pos2(r.left() + 20.0, r.top() + 14.0), Align2::LEFT_TOP, n.to_string(), display(32.0), if on { LIME } else { INK });
+        p.text(pos2(r.left() + 20.0, r.bottom() - 16.0), Align2::LEFT_BOTTOM, label.to_uppercase(), mono(11.0), if on { INK } else { INK3 });
+        focus_ring(ui, &resp);
+        if resp.clicked() {
+            picked = Some(filter);
+        }
+    }
     let p = ui.painter();
     p.rect_stroke(rect, 0.0, Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
-    let cell = w / cells.len() as f32;
-    for (i, &(label, n, key)) in cells.iter().enumerate() {
-        let x = rect.left() + i as f32 * cell;
-        if i > 0 {
-            p.rect_filled(Rect::from_min_size(pos2(x, rect.top()), vec2(1.0, rect.height())), 0.0, LINE);
-        }
-        p.text(pos2(x + 20.0, rect.top() + 14.0), Align2::LEFT_TOP, n.to_string(), display(32.0), if key { LIME } else { INK });
-        p.text(pos2(x + 20.0, rect.bottom() - 16.0), Align2::LEFT_BOTTOM, label.to_uppercase(), mono(11.0), INK3);
+    for i in 1..cells.len() {
+        p.rect_filled(Rect::from_min_size(pos2(rect.left() + i as f32 * cell, rect.top()), vec2(1.0, rect.height())), 0.0, LINE);
     }
+    picked
 }
 
 #[derive(Clone, Copy)]
@@ -572,23 +631,42 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
+    // Ready is the normal case, so it gets no tag; only the exceptions do.
     let chip_text = match g.compat() {
-        Compat::Supported if g.installed() => "Installed",
-        Compat::Supported => "Ready",
-        Compat::AntiCheat => "Anti-cheat",
-        Compat::X86 => "32-bit",
-        Compat::Stripped => "Trimmed",
+        Compat::Supported if g.installed() => Some("Installed"),
+        Compat::Supported => None,
+        Compat::AntiCheat => Some("Anti-cheat"),
+        Compat::X86 => Some("32-bit"),
+        Compat::Stripped => Some("Trimmed"),
     };
-    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), chip_text, chip_kind(g));
+    if let Some(text) = chip_text {
+        paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, chip_kind(g));
+    }
+    focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-// Faint lime light in one corner, the references' "glow" (concentric translucent discs; egui has no gradients).
+// Faint lime light in one corner, the references' "glow": a radial gradient drawn as a fan mesh whose vertex colours
+// fade to transparent, so the GPU interpolates it smoothly (stacked discs showed bands).
 fn glow(p: &Painter, corner: egui::Pos2, strength: f32) {
-    for i in 0..12 {
-        let r = 150.0 - i as f32 * 12.0;
-        p.circle_filled(corner, r, Color32::from_rgba_unmultiplied(198, 255, 26, (3.0 * strength) as u8));
+    const STEPS: u32 = 64;
+    let lime = |a: f32| Color32::from_rgba_unmultiplied(198, 255, 26, (a * strength) as u8);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(corner, lime(46.0));
+    for ring in [(70.0, lime(18.0)), (170.0, Color32::TRANSPARENT)] {
+        for i in 0..=STEPS {
+            let a = i as f32 / STEPS as f32 * std::f32::consts::TAU;
+            mesh.colored_vertex(corner + vec2(a.cos(), a.sin()) * ring.0, ring.1);
+        }
     }
+    let n = STEPS + 1;
+    for i in 0..STEPS {
+        mesh.add_triangle(0, 1 + i, 2 + i);
+        let (a, b) = (1 + i, 1 + n + i);
+        mesh.add_triangle(a, b, a + 1);
+        mesh.add_triangle(a + 1, b, b + 1);
+    }
+    p.add(egui::Shape::mesh(mesh));
 }
 
 fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
@@ -600,7 +678,7 @@ fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
             p.rect_stroke(rect, RADIUS, Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
             glow(&p, rect.right_bottom(), 1.0);
             let initial = g.name.chars().next().unwrap_or('?').to_uppercase().to_string();
-            p.text(rect.left_top() + vec2(16.0, 12.0), Align2::LEFT_TOP, initial, display(rect.width() * 0.4), INK3);
+            p.text(rect.left_top() + vec2(16.0, 12.0), Align2::LEFT_TOP, initial, display(rect.width() * 0.4), LINE);
         }
     }
 }
@@ -700,7 +778,7 @@ fn style(ctx: &egui::Context) {
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
         v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, INK2);
         let states = [
-            (&mut v.widgets.inactive, SURFACE, Color32::TRANSPARENT, LINE),
+            (&mut v.widgets.inactive, SURFACE, Color32::TRANSPARENT, EDGE),
             (&mut v.widgets.hovered, RAISED, RAISED, INK2),
             (&mut v.widgets.active, RAISED, RAISED, LIME),
             (&mut v.widgets.open, RAISED, RAISED, LINE),

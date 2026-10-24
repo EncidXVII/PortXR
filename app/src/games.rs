@@ -73,42 +73,64 @@ impl Game {
     }
 }
 
-/// A Unity player is an .exe next to a `<name>_Data` folder that holds globalgamemanagers.
-pub fn detect(dir: &Path) -> Option<Game> {
+// Unity players keep their data next to the exe in `<name>_Data`, holding one of these depending on the Unity version
+// and build compression.
+const DATA_MARKERS: [&str; 3] = ["globalgamemanagers", "data.unity3d", "mainData"];
+
+fn is_player(exe: &Path) -> bool {
+    exe.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) && DATA_MARKERS.iter().any(|m| data_dir(exe).join(m).exists())
+}
+
+/// The Unity player under `dir`: in it, or up to two folders down (many stores put the game in a subfolder).
+fn find_player(dir: &Path, depth: u32) -> Option<PathBuf> {
     let entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
-    let exe = entries.iter().find(|p| {
-        p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) && data_dir(p).join("globalgamemanagers").exists()
-    })?;
-    let file_name = |p: &PathBuf| p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-    let has = |name: &str| dir.join(name).is_dir();
-    let blocker = if has("EasyAntiCheat") || entries.iter().any(|p| file_name(p).starts_with("easyanticheat")) {
+    if let Some(exe) = entries.iter().find(|p| is_player(p)) {
+        return Some(exe.clone());
+    }
+    if depth == 0 {
+        return None;
+    }
+    entries.iter().filter(|p| p.is_dir() && !p.ends_with("_Data")).find_map(|p| find_player(p, depth - 1))
+}
+
+/// A Unity game installed in `root` (a store's install folder or a folder the user picked).
+pub fn detect(root: &Path) -> Option<Game> {
+    let exe = find_player(root, 2)?;
+    let dir = exe.parent()?.to_path_buf();
+    let names = |d: &Path| -> Vec<String> {
+        fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect()
+    };
+    // Anti-cheat may sit beside the exe or at the top of the install, next to a launcher.
+    let files: Vec<String> = names(&dir).into_iter().chain(if dir == root { Vec::new() } else { names(root) }).collect();
+    let blocker = if files.iter().any(|f| f == "easyanticheat" || f.starts_with("easyanticheat") || f == "start_protected_game.exe") {
         Some("EasyAntiCheat")
-    } else if has("BattlEye") || entries.iter().any(|p| file_name(p).ends_with("_be.exe")) {
+    } else if files.iter().any(|f| f == "battleye" || f.ends_with("_be.exe")) {
         Some("BattlEye")
     } else {
         None
     };
-    let other_loader = if has("MelonLoader") {
+    let other_loader = if dir.join("MelonLoader").is_dir() {
         Some("MelonLoader")
-    } else if has("BepInEx") && !installer::receipt_path(dir).exists() {
+    } else if dir.join("BepInEx").is_dir() && !installer::receipt_path(&dir).exists() {
         Some("BepInEx")
     } else {
         None
     };
-    // app.info holds the company and product name; Steam games get their store name in scan() instead.
-    let product = fs::read_to_string(data_dir(exe).join("app.info")).ok().and_then(|t| t.lines().nth(1).map(|l| l.trim().to_string()));
+    // app.info holds the company and product name; store games get their store name in scan() instead.
+    let product = fs::read_to_string(data_dir(&exe).join("app.info")).ok().and_then(|t| t.lines().nth(1).map(|l| l.trim().to_string()));
+    let il2cpp = dir.join("GameAssembly.dll").exists();
     Some(Game {
-        name: product.filter(|p| !p.is_empty()).unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
-        dir: dir.to_path_buf(),
-        exe: exe.clone(),
-        unity: unity_version(&data_dir(exe)).unwrap_or_else(|| "unknown".into()),
-        il2cpp: dir.join("GameAssembly.dll").exists(),
-        x86: is_x86(exe).unwrap_or(false),
-        stripped: !dir.join("GameAssembly.dll").exists() && is_stripped(dir, &data_dir(exe).join("Managed")),
+        name: product.filter(|p| !p.is_empty()).unwrap_or_else(|| root.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+        unity: unity_version(&data_dir(&exe)).unwrap_or_else(|| "unknown".into()),
+        il2cpp,
+        x86: is_x86(&exe).unwrap_or(false),
+        stripped: !il2cpp && is_stripped(&dir, &data_dir(&exe).join("Managed")),
         blocker,
         other_loader,
         app_id: 0,
         cover: None,
+        dir,
+        exe,
     })
 }
 
@@ -116,15 +138,28 @@ fn data_dir(exe: &Path) -> PathBuf {
     exe.with_file_name(format!("{}_Data", exe.file_stem().unwrap_or_default().to_string_lossy()))
 }
 
-// The serialized-file header (big-endian) is followed by the editor version string; the header grew from 20 to
-// 48 bytes in format 22 (Unity 2022.2).
+fn c_string(b: &[u8], start: usize) -> Option<(String, usize)> {
+    let len = b.get(start..)?.iter().position(|&c| c == 0)?;
+    Some((String::from_utf8(b[start..start + len].to_vec()).ok()?, start + len + 1))
+}
+
+// Serialized files (globalgamemanagers, mainData): a big-endian header, then the editor version string; the header
+// grew from 20 to 48 bytes in format 22 (Unity 2022.2). Compressed builds (data.unity3d) are a UnityFS bundle:
+// signature, format, bundle version, then the editor version.
 fn unity_version(data: &Path) -> Option<String> {
-    let mut b = [0u8; 128];
-    File::open(data.join("globalgamemanagers")).ok()?.read_exact(&mut b).ok()?;
-    let format = u32::from_be_bytes(b[8..12].try_into().ok()?);
-    let start = if format >= 22 { 48 } else { 20 };
-    let len = b[start..].iter().position(|&c| c == 0)?;
-    String::from_utf8(b[start..start + len].to_vec()).ok()
+    let read = |name: &str| -> Option<Vec<u8>> {
+        let mut b = vec![0u8; 256];
+        let n = File::open(data.join(name)).ok()?.read(&mut b).ok()?;
+        b.truncate(n);
+        Some(b)
+    };
+    if let Some(b) = read("data.unity3d").filter(|b| b.starts_with(b"UnityFS\0")) {
+        let (_, next) = c_string(&b, 12)?;
+        return c_string(&b, next).map(|(v, _)| v);
+    }
+    let b = read("globalgamemanagers").or_else(|| read("mainData"))?;
+    let format = u32::from_be_bytes(b.get(8..12)?.try_into().ok()?);
+    c_string(&b, if format >= 22 { 48 } else { 20 }).map(|(v, _)| v)
 }
 
 // Mono games built with managed code stripping lack engine and class-library code the mod loader runs on, so it
@@ -148,10 +183,42 @@ fn manual_list() -> PathBuf {
     dirs::config_dir().unwrap_or_default().join("Parallax").join("games.txt")
 }
 
-pub fn add_manual(dir: &Path) -> io::Result<()> {
+/// Remembers a picked folder: the game in it, or every game one level inside it (a folder like D:\Games).
+/// Returns how many games were added.
+pub fn add_folder(dir: &Path) -> io::Result<usize> {
+    let roots: Vec<PathBuf> = if detect(dir).is_some() {
+        vec![dir.to_path_buf()]
+    } else {
+        fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && detect(p).is_some()).collect()
+    };
     let list = manual_list();
     fs::create_dir_all(list.parent().unwrap())?;
-    writeln!(fs::OpenOptions::new().create(true).append(true).open(list)?, "{}", dir.display())
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(list)?;
+    for root in &roots {
+        writeln!(file, "{}", root.display())?;
+    }
+    Ok(roots.len())
+}
+
+/// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
+fn other_stores() -> Vec<(PathBuf, Option<String>)> {
+    let mut found = Vec::new();
+    let manifests = PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into()))
+        .join(r"Epic\EpicGamesLauncher\Data\Manifests");
+    for item in fs::read_dir(manifests).into_iter().flatten().flatten().map(|e| e.path()) {
+        let Ok(json) = fs::read_to_string(&item).map(|t| serde_json::from_str::<serde_json::Value>(&t)) else { continue };
+        let Ok(json) = json else { continue };
+        if let Some(dir) = json["InstallLocation"].as_str() {
+            found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from)));
+        }
+    }
+    let gog = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\WOW6432Node\GOG.com\Games");
+    for key in gog.iter().flat_map(|k| k.enum_keys().flatten().filter_map(|id| k.open_subkey(id).ok()).collect::<Vec<_>>()) {
+        if let Ok(dir) = key.get_value::<String, _>("path") {
+            found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok()));
+        }
+    }
+    found
 }
 
 /// Steam manifests hold one `"key"  "value"` pair per line.
@@ -190,16 +257,17 @@ pub fn scan() -> Vec<Game> {
             }
         }
     }
+    found.extend(other_stores().into_iter().map(|(dir, name)| (dir, 0, name)));
     for line in fs::read_to_string(manual_list()).unwrap_or_default().lines().filter(|l| !l.trim().is_empty()) {
         found.push((PathBuf::from(line.trim()), 0, None));
     }
 
     let mut games: Vec<Game> = Vec::new();
     for (dir, id, name) in found {
-        if games.iter().any(|g| g.dir == dir) {
+        let Some(mut g) = detect(&dir) else { continue };
+        if games.iter().any(|other| other.dir == g.dir) {
             continue;
         }
-        let Some(mut g) = detect(&dir) else { continue };
         g.app_id = id;
         if let Some(name) = name {
             g.name = name;

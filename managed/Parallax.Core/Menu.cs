@@ -16,7 +16,9 @@ namespace Parallax
         const int ThumbW = 320, ThumbH = 180, History = 120;
         static readonly Color Bg = new Color(0.039f, 0.039f, 0.039f, 0.97f), Surface = new Color(0.071f, 0.071f, 0.071f);
         static readonly Color Raised = new Color(0.10f, 0.10f, 0.10f), Line = new Color(0.15f, 0.15f, 0.15f);
-        static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.43f, 0.43f, 0.43f);
+        // Edge: outlines of things you can press (3:1 on the panel); Line stays for decorative dividers.
+        static readonly Color Edge = new Color(0.369f, 0.369f, 0.369f);
+        static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.502f, 0.502f, 0.502f);
         static readonly Color Lime = new Color(0.776f, 1f, 0.102f), OnLime = new Color(0.039f, 0.039f, 0.039f);
         static readonly Color Danger = new Color(1f, 0.353f, 0.235f);
 
@@ -141,16 +143,6 @@ namespace Parallax
 
         void DrawTabs()
         {
-            // Header: brand eyebrow on the left, live status on the right.
-            var s = rig.GetStats();
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            Eyebrow("PARALLAX", "VR MENU");
-            GUILayout.FlexibleSpace();
-            GUILayout.Label($"{((XrState)s.state).ToString().ToUpperInvariant()}  ·  {1000.0 / System.Math.Max(0.001, s.periodMs):0} HZ  ·  {s.p95Ms:0.0} MS",
-                eyebrow, new[] { GUILayout.Height(32) });
-            GUILayout.EndHorizontal();
-            GUILayout.Space(12);
-
             // Tabs: words with a lime underline under the active one; Close and Reset stay quiet on the right.
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
             for (int i = 0; i < Tabs.Length; i++)
@@ -178,7 +170,7 @@ namespace Parallax
             else if (tab == ViewTab) DrawView();
             else if (tab == ControlsTab) DrawControls();
             else if (tab == GameTab) DrawGame();
-            else DrawDiagnostics(s);
+            else DrawDiagnostics(rig.GetStats());
         }
 
         void DrawWelcome()
@@ -392,9 +384,9 @@ namespace Parallax
         {
             DrawGraph((float)s.periodMs);
             GUILayout.Space(16);
+            InfoRow("Headset", $"{(XrState)s.state}, {1000.0 / System.Math.Max(0.001, s.periodMs):0} Hz");
             InfoRow("Frame time p95", $"{s.p95Ms:0.0} ms of {s.periodMs:0.0} ms");
             InfoRow("Eye resolution", $"{rig.EyeSize.x} x {rig.EyeSize.y}");
-            InfoRow("Head camera", rig.GameCam != null ? rig.GameCam.name : "none");
 
             // Problems with a one-click fix.
             if (s.state == (int)XrState.Running && s.p95Ms > s.periodMs * 1.1)
@@ -447,16 +439,17 @@ namespace Parallax
         void Toggle(string name, ConfigEntry<bool> entry)
         {
             bool on = entry.Value;
-            Choice(name, "Off", "On", ref on);
+            Choice(name, "Off", "On", ref on, true);
             entry.Value = on;
         }
 
         // Segmented control: two cells side by side, the selected one lime.
-        void Choice(string name, string off, string on, ref bool v)
+        void Choice(string name, string off, string on, ref bool v, bool offIsNeutral = false)
         {
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
             Label(name, label, 360);
-            if (Button(off, !v, 300)) v = false;
+            if (Button(off, !v && !offIsNeutral, 300)) v = false;
+            if (!v && offIsNeutral && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
             if (Button(on, v, 300)) v = true;
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
@@ -489,7 +482,7 @@ namespace Parallax
             if (Event.current.type == EventType.Repaint)
             {
                 bool over = r.Contains(Event.current.mousePosition);
-                if (!on) Outline(r, over ? Ink2 : Line);
+                if (!on) Outline(r, over ? Ink : Edge);
                 Hover(r);
             }
             if (clicked) Native.prx_haptic_pulse(1, 0.35f, 0.02f);
@@ -553,8 +546,8 @@ namespace Parallax
             value = Style(TextAnchor.MiddleCenter, Ink, 28, monoFont, false);
             data = Style(TextAnchor.MiddleLeft, Ink, 26, monoFont, false);
             display = Style(TextAnchor.MiddleLeft, Ink, 60, displayFont, false);
-            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, 22, monoFont, false);
-            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, 22, monoFont, false);
+            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, 24, monoFont, false);
+            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, 24, monoFont, false);
             tabStyle = Style(TextAnchor.MiddleLeft, Ink3, 24, monoFont, false);
             tabStyle.hover.textColor = Ink;
             tabOn = Style(TextAnchor.MiddleLeft, Ink, 24, monoFont, false);
