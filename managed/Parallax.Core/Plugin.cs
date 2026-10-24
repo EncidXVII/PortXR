@@ -14,7 +14,7 @@ namespace Parallax
     {
         public static ConfigFile File;
         public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth;
-        public static ConfigEntry<bool> Theater, AutoRenderScale;
+        public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu;
         public static ConfigEntry<InputMode> Input;
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<string> CameraName;
@@ -25,7 +25,7 @@ namespace Parallax
             File = cfg;
             WorldScale = cfg.Bind("View", "WorldScale", 1f, "Player size multiplier. Above 1 the world looks smaller.");
             Height = cfg.Bind("View", "Height", 0f, "Metres added to the game camera height.");
-            RenderScale = cfg.Bind("View", "RenderScale", 1f, "Eye resolution relative to the headset's recommendation. Applied on restart.");
+            RenderScale = cfg.Bind("View", "RenderScale", 1f, "Eye resolution relative to the headset's recommendation.");
             AutoRenderScale = cfg.Bind("View", "AutoRenderScale", true, "Lower the eye resolution (down to half of RenderScale) while the headset misses frames.");
             Theater = cfg.Bind("View", "Theater", false, "Show the flat game on a large screen instead of stereo.");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
@@ -37,6 +37,8 @@ namespace Parallax
             MouseSpeed = cfg.Bind("Controls", "MouseSpeed", 1200f, "KeyboardMouse mode: pixels per second at full right-stick deflection.");
             Pointer = cfg.Bind("Controls", "Pointer", PointerMode.Auto, "Auto: laser pointer works whenever the game shows its cursor. MenuOnly: only in the VR menu.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
+            WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
+            Bindings.Bind(cfg);
         }
     }
 

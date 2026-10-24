@@ -58,6 +58,9 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     if let Some(b) = game.blocker {
         return Err(format!("{b} detected: injecting would risk a ban, so this game is refused.").into());
     }
+    if game.stripped {
+        return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
+    }
     if game.x86 {
         return Err("32-bit game: no OpenXR runtime supports 32-bit apps.".into());
     }

@@ -8,7 +8,7 @@ Working name, not final.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Ready**, adjust its settings if you like, and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button** (or press F11) for the VR menu: theater mode, recenter, height, world scale, controls, camera choice.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, height, world scale, resolution, button bindings, camera choice with live previews, and a frame-time graph.
 
 ## Controls (default: keyboard & mouse emulation)
 
@@ -19,10 +19,13 @@ Working name, not final.
 | Right / left trigger | Left / right mouse button |
 | A, B, X, Y | Space, Left Ctrl, E, R |
 | Left / right grip | Left Shift, Q |
+| Left stick click | C |
 | Left menu: tap / hold / double-tap | Esc / Tab / VR menu |
 | Point at the UI panel + trigger | Mouse cursor + click (when the game shows a cursor) |
 
-**Gamepad** mode (VR menu, Controls) presents the controllers as an Xbox pad instead. Games on Unity's Input System package and games that read XInput see it. Unity 2021+ games on the old input manager read controllers through Windows.Gaming.Input and do not; keep keyboard & mouse there.
+Every button except the sticks can be rebound in the VR menu (Controls tab) to a key or mouse button; the menu warns when two buttons press the same key.
+
+**Gamepad** mode (VR menu, Quick) presents the controllers as an Xbox pad instead. Games on Unity's Input System package and games that read XInput see it. Unity 2021+ games on the old input manager read controllers through Windows.Gaming.Input and do not; keep keyboard & mouse there.
 
 Something wrong? Select the game in Parallax.exe and press **Export logs**. It saves one zip to your desktop to attach to a report.
 
@@ -35,7 +38,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Theater mode shows the flat game on a big screen 3 m away; the laser pointer works on it. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
-- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
+- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them.
 - See [COMPAT.md](COMPAT.md).
 
 ## Build
@@ -74,6 +77,7 @@ Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`
 | F6 | 2022.3 | Mono, Input System package | D3D11 | built-in |
 | F7 | 6.3 | IL2CPP | D3D12 | URP + Bloom |
 | F8 | 6.3 | Mono | D3D11 | built-in |
+| F9 | 2022.3 | Mono, code trimming on | D3D11 | built-in (detection only: the app refuses it) |
 
 The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 

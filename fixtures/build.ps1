@@ -8,7 +8,8 @@
 #   F6  Unity 2022.3, built-in pipeline, Mono, Input System package (virtual gamepad)
 #   F7  Unity 6.3, URP with Bloom, IL2CPP, Direct3D 12
 #   F8  Unity 6.3, built-in pipeline, Mono
-param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8")][string]$Name, [string]$Editors = "E:\Unity\Editor")
+#   F9  Unity 2022.3, built-in pipeline, Mono with managed code stripping (class libraries trimmed)
+param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9")][string]$Name, [string]$Editors = "E:\Unity\Editor")
 $fixtures = @{
     F0 = @{ Unity = "2018.4.36f1"; Args = "-runtime legacy"; Urp = $false }
     F1 = @{ Unity = "2022.3.62f3"; Args = ""; Urp = $false }
@@ -19,6 +20,7 @@ $fixtures = @{
     F6 = @{ Unity = "2022.3.62f3"; Args = "-input both"; Urp = $false }
     F7 = @{ Unity = "6000.3.26f1"; Args = "-backend il2cpp -gfx d3d12"; Urp = $true }
     F8 = @{ Unity = "6000.3.26f1"; Args = ""; Urp = $false }
+    F9 = @{ Unity = "2022.3.62f3"; Args = "-strip low"; Urp = $false }
 }
 $f = $fixtures[$Name]
 $project = Join-Path $PSScriptRoot $Name

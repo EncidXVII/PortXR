@@ -42,6 +42,8 @@ namespace Parallax
         bool recenterPending = true;
 
         Controllers controllers;
+        readonly int[] binds = new int[Bindings.Inputs.Length];
+        bool glancing, glanceTrigger;
         internal bool PointerActive;
         Vector2 pointerUv;
         bool menuKeyDown;
@@ -229,9 +231,16 @@ namespace Parallax
                 pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
                 pointerY = Mathf.RoundToInt(pointerUv.y * Screen.height),
                 mouseSpeed = Settings.MouseSpeed.Value,
+                binds = binds,
             };
+            Bindings.Codes(binds);
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
+            bool glance = WristGlance(), trigger = controllers.rTrigger > 0.6f;
+            if (glance && !glancing) Native.prx_haptic_pulse(0, 0.2f, 0.02f);
+            if (glance && trigger && !glanceTrigger) Menu.Toggle();
+            glancing = glance;
+            glanceTrigger = trigger;
             VirtualPad.Update();
             GL.IssuePluginEvent(renderEvent, Native.EvBegin);
         }
@@ -579,6 +588,26 @@ namespace Parallax
         }
 
         internal bool IsEye(Camera cam) => cam == Eyes[0] || cam == Eyes[1];
+
+        // The menu's preview of the head camera, which is blanked while the eyes render in its place.
+        internal void RestoreForPreview(Camera preview)
+        {
+            if (!camHidden) return;
+            preview.cullingMask = savedMask;
+            preview.clearFlags = savedClear;
+            preview.backgroundColor = savedBackground;
+        }
+
+        internal void ApplyRenderScale() => CreateEyeTargets();
+
+        // Watch check: the left controller close to the face with the back of the hand (its outer, -X side) turned
+        // up toward the eyes.
+        bool WristGlance()
+        {
+            if (!Settings.WristMenu.Value || controllers.aimValidL == 0 || State != XrState.Running) return false;
+            var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - Xr.Position(controllers.aimL);
+            return toHead.magnitude < 0.6f && Vector3.Angle(Xr.Rotation(controllers.aimL) * Vector3.left, toHead) < 35f;
+        }
 
         static int BitCount(int v)
         {

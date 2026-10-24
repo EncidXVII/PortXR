@@ -59,6 +59,7 @@ namespace Parallax
     {
         public int mode, neutral, pointerActive, pointerX, pointerY;
         public float mouseSpeed;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public int[] binds;
     }
 
     [StructLayout(LayoutKind.Sequential)]

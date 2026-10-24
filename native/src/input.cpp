@@ -3,6 +3,7 @@
 #include <Xinput.h>
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -33,14 +34,6 @@ LARGE_INTEGER g_lastUpdate;
 bool g_pointerDown;
 int g_lastPointer[2] = {-1, -1};
 HWND g_window;
-
-struct EmuKey {
-    WORD scan;
-    bool sent;
-};
-enum Key { KW, KA, KS, KD, KSpace, KCtrl, KE, KR, KShift, KQ, KEsc, KTab, KeyCount };
-EmuKey g_keys[KeyCount] = {{0x11}, {0x1E}, {0x1F}, {0x20}, {0x39}, {0x1D}, {0x12}, {0x13}, {0x2A}, {0x10}, {0x01}, {0x0F}};
-bool g_rmbSent, g_lmbSent;
 
 XrPath path(const char* s) {
     XrPath p = XR_NULL_PATH;
@@ -172,33 +165,48 @@ HWND game_window() {
     return g_window;
 }
 
-void send_key(EmuKey& k, bool down) {
-    if (k.sent == down) return;
+// What the emulation currently holds down: scan codes (0x100 | code = extended) and the three mouse buttons.
+std::bitset<0x200> g_keysSent;
+bool g_mouseSent[3];
+
+void send_key(int code, bool down) {
     INPUT in{INPUT_KEYBOARD};
-    in.ki.wScan = k.scan;
-    in.ki.dwFlags = KEYEVENTF_SCANCODE | (down ? 0 : KEYEVENTF_KEYUP);
+    in.ki.wScan = (WORD)(code & 0xFF);
+    in.ki.dwFlags = KEYEVENTF_SCANCODE | (code & 0x100 ? KEYEVENTF_EXTENDEDKEY : 0) | (down ? 0 : KEYEVENTF_KEYUP);
     SendInput(1, &in, sizeof(in));
-    k.sent = down;
+    g_keysSent[code] = down;
 }
 
-void send_mouse_button(bool& sent, bool down, DWORD downFlag, DWORD upFlag) {
-    if (sent == down) return;
+void send_mouse_button(int button, bool down) {
+    static const DWORD flags[3][2] = {{MOUSEEVENTF_LEFTUP, MOUSEEVENTF_LEFTDOWN},
+                                      {MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_RIGHTDOWN},
+                                      {MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MIDDLEDOWN}};
+    if (g_mouseSent[button] == down) return;
     INPUT in{INPUT_MOUSE};
-    in.mi.dwFlags = down ? downFlag : upFlag;
+    in.mi.dwFlags = flags[button][down];
     SendInput(1, &in, sizeof(in));
-    sent = down;
+    g_mouseSent[button] = down;
 }
 
 void update_keyboard_mouse(const PrxControllers& c, const PrxInputConfig& cfg, bool startTap, double dt) {
     HWND hwnd = game_window();
     bool on = cfg.mode == 1 && !cfg.neutral && hwnd && GetForegroundWindow() == hwnd;
-    bool want[KeyCount] = {};
+    std::bitset<0x200> keys;
+    bool mouse[3] = {};
     if (on) {
-        want[KW] = c.ly > 0.5f, want[KS] = c.ly < -0.5f, want[KA] = c.lx < -0.5f, want[KD] = c.lx > 0.5f;
-        want[KSpace] = c.buttons & BtnA, want[KCtrl] = c.buttons & BtnB;
-        want[KE] = c.buttons & BtnX, want[KR] = c.buttons & BtnY;
-        want[KShift] = g_gripDown[0] || (c.buttons & BtnLStick), want[KQ] = g_gripDown[1];
-        want[KEsc] = startTap, want[KTab] = g_menuHeld;
+        keys[0x11] = c.ly > 0.5f, keys[0x1F] = c.ly < -0.5f, keys[0x1E] = c.lx < -0.5f, keys[0x20] = c.lx > 0.5f;
+        // While the laser pointer is on the game window, the right trigger clicks there instead of its binding.
+        const bool pressed[BindCount] = {
+            (c.buttons & BtnA) != 0,     (c.buttons & BtnB) != 0,     (c.buttons & BtnX) != 0,
+            (c.buttons & BtnY) != 0,     g_gripDown[0],               g_gripDown[1],
+            (c.buttons & BtnLStick) != 0, (c.buttons & BtnRStick) != 0, c.lTrigger > 0.5f,
+            c.rTrigger > 0.5f && !cfg.pointerActive, startTap, g_menuHeld};
+        for (int i = 0; i < BindCount; ++i) {
+            int code = cfg.binds[i];
+            if (!pressed[i] || code <= 0) continue;
+            if (code >= BindMouse && code < BindMouse + 3) mouse[code - BindMouse] = true;
+            else if (code < 0x200) keys[code] = true;
+        }
         float speed = cfg.mouseSpeed * (float)dt;
         g_mouseCarry[0] += c.rx * std::fabs(c.rx) * speed;
         g_mouseCarry[1] -= c.ry * std::fabs(c.ry) * speed;
@@ -212,10 +220,10 @@ void update_keyboard_mouse(const PrxControllers& c, const PrxInputConfig& cfg, b
             SendInput(1, &in, sizeof(in));
         }
     }
-    for (int k = 0; k < KeyCount; ++k) send_key(g_keys[k], want[k]);
-    send_mouse_button(g_rmbSent, on && c.lTrigger > 0.5f, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
-    bool lmb = (on && !cfg.pointerActive && c.rTrigger > 0.5f) || (cfg.pointerActive && g_pointerDown);
-    send_mouse_button(g_lmbSent, lmb, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP);
+    if (cfg.pointerActive && g_pointerDown) mouse[0] = true;
+    for (int k = 1; k < 0x200; ++k)
+        if (keys[k] != g_keysSent[k]) send_key(k, keys[k]);
+    for (int b = 0; b < 3; ++b) send_mouse_button(b, mouse[b]);
 }
 
 void update_pointer(const PrxControllers& c, const PrxInputConfig& cfg) {

@@ -51,7 +51,14 @@ struct PrxInputConfig {
     int32_t pointerActive;
     int32_t pointerX, pointerY;  // client pixels, top-left origin
     float mouseSpeed;            // pixels per second at full right-stick deflection
+    // Keyboard + mouse targets per controller input (PrxBind order). A scan code, 0x100 | code for extended keys,
+    // BindMouse + 0..2 for the left, right and middle mouse button, or 0 for nothing.
+    int32_t binds[12];
 };
+
+enum PrxBind { BindA, BindB, BindX, BindY, BindLGrip, BindRGrip, BindLStick, BindRStick, BindLTrigger, BindRTrigger,
+               BindMenuTap, BindMenuHold, BindCount };
+constexpr int32_t BindMouse = 0x1000;
 
 enum PrxEvent : uint32_t { EvMenuToggle = 1 };
 

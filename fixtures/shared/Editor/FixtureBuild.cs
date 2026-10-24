@@ -45,13 +45,14 @@ public static partial class FixtureBuild
         // Keep whole engine modules (IMGUI, ScreenCapture) so the plugin's compile surface exists; real games may strip
         // them and the plugin falls back at runtime.
         PlayerSettings.stripEngineCode = false;
-        // Mono players keep their full class libraries (the 2022 default); stripped ones stop the BepInEx 5 preloader.
+        // Mono players keep their full class libraries (the 2022 default) unless -strip low asks for a trimmed one.
 #if UNITY_2020_1_OR_NEWER
         var il2cppStripping = ManagedStrippingLevel.Minimal;
 #else
         var il2cppStripping = ManagedStrippingLevel.Low;  // Minimal arrived in 2020.1
 #endif
-        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, il2cpp ? il2cppStripping : ManagedStrippingLevel.Disabled);
+        var monoStripping = Arg("-strip") == "low" ? ManagedStrippingLevel.Low : ManagedStrippingLevel.Disabled;
+        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, il2cpp ? il2cppStripping : monoStripping);
 #if !UNITY_2019_3_OR_NEWER
         // Pre-2019.3 players open a resolution dialog with a Play button; test runs must start unattended.
         PlayerSettings.displayResolutionDialog = ResolutionDialogSetting.Disabled;

@@ -341,15 +341,17 @@ def gate_menu(g):
     tap_menu(g, 2)
     opened = g.stats()["menu"]
     g.cmd("set WorldScale 1.5")
+    g.cmd("set A F")  # rebind: right A presses F
     tap_menu(g, 2)
     closed = g.stats()["menu"]
     check("9 menu", single == 0 and opened == 1 and closed == 0, f"single tap {single}, double tap {opened}, closed {closed}")
 
 
 def gate_persist(g):
-    value = g.cmd("get WorldScale")
+    value, bound = g.cmd("get WorldScale"), g.cmd("get A")
     g.cmd("set WorldScale 1")
-    check("9 menu persist", value.startswith("1.5"), f"WorldScale after restart {value}")
+    g.cmd("set A Space")
+    check("9 menu persist", value.startswith("1.5") and bound == "F", f"WorldScale after restart {value}, A bound to {bound}")
 
 
 def gate_recovery(g):

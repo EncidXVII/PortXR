@@ -10,6 +10,7 @@ pub enum Compat {
     Supported,
     AntiCheat,
     X86,
+    Stripped,
 }
 
 #[derive(Clone)]
@@ -20,6 +21,7 @@ pub struct Game {
     pub unity: String,
     pub il2cpp: bool,
     pub x86: bool,
+    pub stripped: bool,
     pub blocker: Option<&'static str>,
     pub other_loader: Option<&'static str>,
     pub app_id: u32,
@@ -32,6 +34,8 @@ impl Game {
             Compat::AntiCheat
         } else if self.x86 {
             Compat::X86
+        } else if self.stripped {
+            Compat::Stripped
         } else {
             Compat::Supported
         }
@@ -43,6 +47,7 @@ impl Game {
             Compat::Supported => "Ready",
             Compat::AntiCheat => "Anti-cheat: blocked",
             Compat::X86 => "32-bit: no VR runtime",
+            Compat::Stripped => "Trimmed engine: not supported",
         }
     }
 
@@ -97,6 +102,7 @@ pub fn detect(dir: &Path) -> Option<Game> {
         unity: unity_version(&data_dir(exe)).unwrap_or_else(|| "unknown".into()),
         il2cpp: dir.join("GameAssembly.dll").exists(),
         x86: is_x86(exe).unwrap_or(false),
+        stripped: !dir.join("GameAssembly.dll").exists() && is_stripped(dir, &data_dir(exe).join("Managed")),
         blocker,
         other_loader,
         app_id: 0,
@@ -117,6 +123,15 @@ fn unity_version(data: &Path) -> Option<String> {
     let start = if format >= 22 { 48 } else { 20 };
     let len = b[start..].iter().position(|&c| c == 0)?;
     String::from_utf8(b[start..start + len].to_vec()).ok()
+}
+
+// Mono games built with managed code stripping lack engine and class-library code the mod loader runs on, so it
+// never starts. Untrimmed libraries are much larger: UnityEngine.CoreModule is 0.85 MB (2018.4) to 2 MB (Unity 6),
+// trimmed 0.26 MB; mscorlib is 4.07 MB or more on the .NET 4.x runtime (2.5 MB on .NET 3.5), trimmed 2.6 MB.
+fn is_stripped(dir: &Path, managed: &Path) -> bool {
+    let size = |name: &str| fs::metadata(managed.join(name)).map(|m| m.len()).ok();
+    let corlib_min = if dir.join("MonoBleedingEdge").is_dir() { 3_500_000 } else { 1_800_000 };
+    size("UnityEngine.CoreModule.dll").is_some_and(|s| s < 600_000) || size("mscorlib.dll").is_some_and(|s| s < corlib_min)
 }
 
 // OpenXR runtimes (SteamVR, Virtual Desktop, Meta) ship 64-bit only.
