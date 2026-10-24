@@ -14,7 +14,7 @@ namespace Parallax
     {
         public static ConfigFile File;
         public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth;
-        public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu;
+        public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu, FirstRun;
         public static ConfigEntry<InputMode> Input;
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<string> CameraName;
@@ -38,6 +38,7 @@ namespace Parallax
             Pointer = cfg.Bind("Controls", "Pointer", PointerMode.Auto, "Auto: laser pointer works whenever the game shows its cursor. MenuOnly: only in the VR menu.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
+            FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");
             Bindings.Bind(cfg);
         }
     }

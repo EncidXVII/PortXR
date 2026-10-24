@@ -236,6 +236,8 @@ namespace Parallax
             Bindings.Codes(binds);
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
+            // Test runs drive the menu themselves; real players get the welcome card once, when VR first runs.
+            if (Settings.FirstRun.Value && Test == null && State == XrState.Running && !Menu.Open) Menu.Show(-1);
             bool glance = WristGlance(), trigger = controllers.rTrigger > 0.6f;
             if (glance && !glancing) Native.prx_haptic_pulse(0, 0.2f, 0.02f);
             if (glance && trigger && !glanceTrigger) Menu.Toggle();

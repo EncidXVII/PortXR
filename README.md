@@ -8,7 +8,7 @@ Working name, not final.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Ready**, adjust its settings if you like, and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, height, world scale, resolution, button bindings, camera choice with live previews, and a frame-time graph.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, height, world scale, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Controls (default: keyboard & mouse emulation)
 
@@ -85,7 +85,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 - `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation.
 - `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
-- `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam libraries and manual adds, per-game settings (kept in `%APPDATA%\Parallax` across uninstalls), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases.
+- `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam libraries and manual adds, per-game settings (kept in `%APPDATA%\Parallax` across uninstalls), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases. `Parallax.exe <gameDir>` opens straight to that game's page.
 
 ## License
 

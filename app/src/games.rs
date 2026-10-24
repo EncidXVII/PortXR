@@ -95,8 +95,10 @@ pub fn detect(dir: &Path) -> Option<Game> {
     } else {
         None
     };
+    // app.info holds the company and product name; Steam games get their store name in scan() instead.
+    let product = fs::read_to_string(data_dir(exe).join("app.info")).ok().and_then(|t| t.lines().nth(1).map(|l| l.trim().to_string()));
     Some(Game {
-        name: dir.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        name: product.filter(|p| !p.is_empty()).unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().into_owned()),
         dir: dir.to_path_buf(),
         exe: exe.clone(),
         unity: unity_version(&data_dir(exe)).unwrap_or_else(|| "unknown".into()),

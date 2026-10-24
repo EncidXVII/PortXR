@@ -8,7 +8,8 @@ mod ui;
 use std::path::Path;
 use std::process::ExitCode;
 
-// CLI: Parallax.exe install|uninstall|detect|export <gameDir> (used by the harness); no arguments opens the app.
+// CLI: Parallax.exe install|uninstall|detect|export <gameDir> (used by the harness). Parallax.exe <gameDir> opens the
+// app on that game's page (shortcuts); no arguments opens the library.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let [cmd, dir] = args.as_slice() {
@@ -22,7 +23,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    match ui::run() {
+    match ui::run(args.first().map(std::path::PathBuf::from)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }

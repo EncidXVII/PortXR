@@ -115,6 +115,9 @@ namespace Parallax
                 case "menu":
                     if (rig.Menu.Open != (a[1] == "1")) rig.Menu.Toggle();
                     return "ok";
+                case "tab":
+                    rig.Menu.Show(int.Parse(a[1]));
+                    return "ok";
                 case "set":
                     Entry(a[1]).SetSerializedValue(a[2]);
                     return "ok";

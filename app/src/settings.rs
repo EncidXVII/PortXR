@@ -79,6 +79,11 @@ pub fn set(text: &str, section: &str, key: &str, value: &str) -> String {
     lines.join("\r\n") + "\r\n"
 }
 
+/// Every setting the app shows, back at its default; other keys (bindings, menu key) are left alone.
+pub fn reset(text: &str) -> String {
+    QUICK.iter().chain(ADVANCED).fold(text.to_string(), |t, d| set(&t, d.section, d.key, d.default))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
