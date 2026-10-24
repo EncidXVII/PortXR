@@ -30,6 +30,7 @@ namespace Parallax
         public int quadAlpha;
         public int mirror;
         public float quadRadius;
+        public float vignette;
     }
 
     [Flags]
@@ -60,6 +61,8 @@ namespace Parallax
         public int mode, neutral, pointerActive, pointerX, pointerY;
         public float mouseSpeed;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public int[] binds;
+        public int snap;
+        public float turnX;
     }
 
     [StructLayout(LayoutKind.Sequential)]

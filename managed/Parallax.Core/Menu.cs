@@ -234,9 +234,9 @@ namespace Parallax
         void ResetTab()
         {
             ConfigEntryBase[] entries;
-            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Theater, Settings.Height, Settings.WorldScale, Settings.Input };
+            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Theater, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input };
             else if (tab == ViewTab)
-                entries = new ConfigEntryBase[] { Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu };
+                entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu };
             else if (tab == ControlsTab) entries = Bindings.Entries;
             else return;
             foreach (var e in entries) e.BoxedValue = e.DefaultValue;
@@ -256,8 +256,11 @@ namespace Parallax
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
 
-            Stepper("Height", Settings.Height, 0.05f, -1f, 1f, "{0:+0.00;-0.00;0.00} m");
             Stepper("World scale", Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}x");
+            Options("Turning", Settings.Turning, new[] { TurnMode.Smooth, TurnMode.Snap15, TurnMode.Snap30, TurnMode.Snap45 },
+                new[] { "Smooth", "Snap 15°", "Snap 30°", "Snap 45°" }, null);
+            Options("Comfort vignette", Settings.Vignette, new[] { VignetteLevel.Off, VignetteLevel.Low, VignetteLevel.High },
+                new[] { "Off", "Low", "High" }, VignetteLevel.Off);
 
             bool kbm = Settings.Input.Value == InputMode.KeyboardMouse;
             Choice("Controls", "Gamepad", "Keyboard & mouse", ref kbm);
@@ -266,6 +269,7 @@ namespace Parallax
 
         void DrawView()
         {
+            Stepper("Height", Settings.Height, 0.05f, -1f, 1f, "{0:+0.00;-0.00;0.00} m");
             float scale = Settings.RenderScale.Value;
             Stepper("Resolution", Settings.RenderScale, 0.1f, 0.5f, 2f, "{0:0.0}x");
             if (Settings.RenderScale.Value != scale) rig.ApplyRenderScale();
@@ -451,6 +455,22 @@ namespace Parallax
             if (Button(off, !v && !offIsNeutral, 300)) v = false;
             if (!v && offIsNeutral && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
             if (Button(on, v, 300)) v = true;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(12);
+        }
+
+        // Segmented control over an enum setting, cells sharing the 600 px value column; `neutral` (an Off) is not lime.
+        void Options<T>(string name, ConfigEntry<T> entry, T[] values, string[] labels, T? neutral) where T : struct, System.Enum
+        {
+            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            Label(name, label, 360);
+            float width = 600f / values.Length;
+            for (int i = 0; i < values.Length; i++)
+            {
+                bool on = entry.Value.Equals(values[i]), lit = on && !(neutral.HasValue && neutral.Value.Equals(values[i]));
+                if (Button(labels[i], lit, width)) entry.Value = values[i];
+                if (on && !lit && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
+            }
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
         }

@@ -369,7 +369,11 @@ impl App {
                         let on = current.eq_ignore_ascii_case("true");
                         segmented(ui, &[(false, "Off"), (true, "On")], on, Some(false)).map(|b| b.to_string())
                     }
-                    Kind::Choice(options) => segmented(ui, options, options.iter().find(|(v, _)| *v == current).map_or(options[0].0, |o| o.0), None)
+                    Kind::Choice(options) => {
+                        // An "Off" option is the neutral one: selected, it is outlined rather than lime.
+                        let neutral = options.iter().find(|(v, _)| *v == "Off").map(|o| o.0);
+                        segmented(ui, options, options.iter().find(|(v, _)| *v == current).map_or(options[0].0, |o| o.0), neutral)
+                    }
                         .map(String::from),
                     Kind::Text => {
                         let mut v = current.clone();

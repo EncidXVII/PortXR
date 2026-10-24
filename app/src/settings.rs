@@ -22,14 +22,16 @@ const fn def(section: &'static str, key: &'static str, label: &'static str, defa
 
 pub const QUICK: &[Def] = &[
     def("Controls", "Mode", "Controls", "KeyboardMouse", Kind::Choice(&[("KeyboardMouse", "Keyboard & mouse"), ("Gamepad", "Gamepad")])),
+    def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")])),
+    def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")])),
     def("View", "Theater", "Theater mode", "false", Kind::Toggle),
     def("View", "WorldScale", "World scale", "1", Kind::Slider(0.5, 2.0)),
     def("View", "Height", "Height offset (m)", "0", Kind::Slider(-1.0, 1.0)),
-    def("View", "RenderScale", "Resolution", "1", Kind::Slider(0.5, 2.0)),
-    def("View", "AutoRenderScale", "Lower resolution when frames drop", "true", Kind::Toggle),
 ];
 
 pub const ADVANCED: &[Def] = &[
+    def("View", "RenderScale", "Resolution", "1", Kind::Slider(0.5, 2.0)),
+    def("View", "AutoRenderScale", "Lower resolution when frames drop", "true", Kind::Toggle),
     def("View", "UiDistance", "UI panel distance (m)", "1.2", Kind::Slider(0.5, 3.0)),
     def("View", "UiWidth", "UI panel width (m)", "1.6", Kind::Slider(0.5, 4.0)),
     def("Controls", "MouseSpeed", "Mouse look speed", "1200", Kind::Slider(200.0, 4000.0)),

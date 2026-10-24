@@ -8,7 +8,7 @@
 using Microsoft::WRL::ComPtr;
 
 const char kBlitShader[] = R"(
-cbuffer Params : register(b0) { float flip; float decode; float encode; float pad; float2 scale; float2 offset; };
+cbuffer Params : register(b0) { float flip; float decode; float encode; float vignette; float2 scale; float2 offset; };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
 
@@ -25,6 +25,11 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float4 c = src.Sample(smp, uv * scale + offset);
     if (decode > 0.5) c.rgb = toLinear(saturate(c.rgb));
     if (encode > 0.5) c.rgb = toSrgb(saturate(c.rgb));
+    // Comfort vignette: the clear centre shrinks as the strength rises; a wide smoothstep keeps the edge soft.
+    if (vignette > 0) {
+        float inner = lerp(1.25, 0.45, vignette);
+        c.rgb *= 1 - smoothstep(inner, inner + 0.45, length((uv - 0.5) * 2));
+    }
     return c;
 }
 )";

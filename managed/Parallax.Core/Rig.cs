@@ -44,6 +44,12 @@ namespace Parallax
         Controllers controllers;
         readonly int[] binds = new int[Bindings.Inputs.Length];
         bool glancing, glanceTrigger;
+        // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
+        bool snapArmed = true, snapping;
+        float snapTarget, snapUntil, snapLastYaw, snapLastPush, degPerPixel;
+        internal float VignetteNow;
+        Vector3 vignetteLastPos;
+        float vignetteLastYaw;
         internal bool PointerActive;
         Vector2 pointerUv;
         bool menuKeyDown;
@@ -233,6 +239,11 @@ namespace Parallax
                 mouseSpeed = Settings.MouseSpeed.Value,
                 binds = binds,
             };
+            if (Settings.Turning.Value != TurnMode.Smooth && GameCam != null && !Menu.Open)
+            {
+                cfg.snap = 1;
+                cfg.turnX = SnapTurn(Settings.Input.Value == InputMode.Gamepad);
+            }
             Bindings.Codes(binds);
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
@@ -243,6 +254,7 @@ namespace Parallax
             if (glance && trigger && !glanceTrigger) Menu.Toggle();
             glancing = glance;
             glanceTrigger = trigger;
+            VignetteNow = Vignette();
             VirtualPad.Update();
             GL.IssuePluginEvent(renderEvent, Native.EvBegin);
         }
@@ -360,6 +372,7 @@ namespace Parallax
             bool curved = theaterShown && curvedTheater;
             f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
             f.quadRadius = curved ? TheaterDistance : 0;
+            f.vignette = stereo ? VignetteNow : 0;
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
             slot = (slot + 1) & 3;
@@ -601,6 +614,62 @@ namespace Parallax
         }
 
         internal void ApplyRenderScale() => CreateEyeTargets();
+
+        static float SnapAngle(TurnMode m) => m == TurnMode.Snap15 ? 15f : m == TurnMode.Snap45 ? 45f : 30f;
+
+        // A flick of the right stick turns the game camera by the snap angle. Games turn by mouse or stick at their own
+        // sensitivity, so this pushes until the camera's yaw arrives: mouse pixels from a learned degrees-per-pixel
+        // (keyboard + mouse), or a proportional stick (gamepad). Returns this frame's push (PrxInputConfig.turnX).
+        float SnapTurn(bool pad)
+        {
+            float yaw = GameCam.transform.eulerAngles.y, rx = controllers.rx;
+            if (!snapping)
+            {
+                if (Mathf.Abs(rx) < 0.3f) snapArmed = true;
+                if (!snapArmed || Mathf.Abs(rx) < 0.7f) return 0;
+                snapArmed = false;
+                snapping = true;
+                snapTarget = yaw + Mathf.Sign(rx) * SnapAngle(Settings.Turning.Value);
+                snapUntil = Time.unscaledTime + 0.6f;
+                snapLastYaw = yaw;
+                snapLastPush = 0;
+            }
+            float moved = Mathf.DeltaAngle(snapLastYaw, yaw);
+            if (!pad && Mathf.Abs(snapLastPush) >= 4 && Mathf.Abs(moved) > 0.05f && Mathf.Sign(moved) == Mathf.Sign(snapLastPush))
+            {
+                float sample = moved / snapLastPush;
+                degPerPixel = degPerPixel > 0 ? Mathf.Lerp(degPerPixel, sample, 0.5f) : sample;
+            }
+            snapLastYaw = yaw;
+            float err = Mathf.DeltaAngle(yaw, snapTarget);
+            if (Mathf.Abs(err) < 1.5f || Time.unscaledTime > snapUntil)
+            {
+                snapping = false;
+                return snapLastPush = 0;
+            }
+            // Half the remaining error per frame: the game may apply input a frame late, so a full step would overshoot.
+            if (pad) snapLastPush = Mathf.Sign(err) * Mathf.Clamp(Mathf.Abs(err) / 20f, 0.3f, 1f);
+            else snapLastPush = degPerPixel > 0 ? Mathf.Clamp(err * 0.5f / degPerPixel, -600, 600) : Mathf.Sign(err) * 40f;
+            return snapLastPush;
+        }
+
+        // Comfort vignette: strongest while the player moves or turns (stick input, or the game camera itself moving),
+        // eased in fast and out slowly. Jumps faster than 50 m/s are teleports or scene loads, not motion.
+        float Vignette()
+        {
+            var level = Settings.Vignette.Value;
+            if (level == VignetteLevel.Off || GameCam == null) return 0;
+            float dt = Mathf.Max(Time.unscaledDeltaTime, 1e-3f);
+            var pos = GameCam.transform.position;
+            float yaw = GameCam.transform.eulerAngles.y;
+            float speed = (pos - vignetteLastPos).magnitude / dt, turn = Mathf.Abs(Mathf.DeltaAngle(vignetteLastYaw, yaw)) / dt;
+            vignetteLastPos = pos;
+            vignetteLastYaw = yaw;
+            float stick = Mathf.Sqrt(controllers.lx * controllers.lx + controllers.ly * controllers.ly);
+            float motion = Mathf.Max(Mathf.Max(stick, snapping ? 1f : 0f), Mathf.Max(speed < 50 ? speed / 3f : 0f, turn / 90f));
+            float target = (level == VignetteLevel.High ? 1f : 0.55f) * Mathf.Clamp01(motion);
+            return Mathf.MoveTowards(VignetteNow, target, dt * (target > VignetteNow ? 4f : 1.5f));
+        }
 
         // Watch check: the left controller close to the face with the back of the hand (its outer, -X side) turned
         // up toward the eyes.

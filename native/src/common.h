@@ -31,6 +31,7 @@ struct PrxFrame {
     int32_t quadAlpha;
     int32_t mirror;  // draw the left eye into the game window at Present
     float quadRadius;  // >0 (only when PrxStats.curvedSupported): curved screen, quadPose is the cylinder's centre
+    float vignette;    // comfort vignette on the eye layers, 0..1
 };
 
 enum PrxButton : uint32_t {
@@ -54,6 +55,10 @@ struct PrxInputConfig {
     // Keyboard + mouse targets per controller input (PrxBind order). A scan code, 0x100 | code for extended keys,
     // BindMouse + 0..2 for the left, right and middle mouse button, or 0 for nothing.
     int32_t binds[12];
+    // Snap turning: the right stick no longer turns by itself; turnX does (mouse pixels this frame in keyboard +
+    // mouse mode, right-stick X -1..1 in gamepad mode). The managed side closes the loop on the camera's yaw.
+    int32_t snap;
+    float turnX;
 };
 
 enum PrxBind { BindA, BindB, BindX, BindY, BindLGrip, BindRGrip, BindLStick, BindRStick, BindLTrigger, BindRTrigger,

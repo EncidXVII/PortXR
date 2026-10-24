@@ -15,7 +15,9 @@ public:
     virtual void forget_images(XrSwapchain swapchain) = 0;
     virtual bool size(void* texture, int& w, int& h) = 0;
     // Draws a Unity texture into an acquired swapchain image; a non-null capture path writes it out as BMP.
-    virtual void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, const wchar_t* capture) = 0;
+    // vignette: 0 = none, up to 1 = strongest comfort vignette (eye layers only).
+    virtual void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, float vignette,
+                      const wchar_t* capture) = 0;
     // Unity < 2019.1 UI fallback: grab the backbuffer still bound at end of frame.
     virtual void capture_backbuffer() = 0;
     // Texture holding the last backbuffer grab (end-of-frame event or Present), or null.
@@ -37,7 +39,7 @@ bool gpu_hook_queue(ID3D12CommandQueue* probe);
 
 extern const char kBlitShader[];
 extern const size_t kBlitShaderSize;
-struct BlitParams { float flip, decode, encode, pad, scaleX, scaleY, offsetX, offsetY; };
+struct BlitParams { float flip, decode, encode, vignette, scaleX, scaleY, offsetX, offsetY; };
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,
 // float targets hold linear values). Typeless 8-bit sources are read raw.
 DXGI_FORMAT gpu_view_format(DXGI_FORMAT f, bool& linear);

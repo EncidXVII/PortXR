@@ -98,12 +98,14 @@ public:
         return true;
     }
 
-    void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, const wchar_t* capture) override {
+    void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, float vignette,
+              const wchar_t* capture) override {
         auto& img = images_[swapchain][index];
         D3D11_TEXTURE2D_DESC desc;
         img.texture->GetDesc(&desc);
         BlitParams p{};
         if (!params_for((ID3D11Texture2D*)texture, flipY, gpu_format_linear(img.format), p)) return;
+        p.vignette = vignette;
         blit((ID3D11Texture2D*)texture, img.rtv.Get(), (int)desc.Width, (int)desc.Height, p);
         if (capture) save_bmp(img.texture, capture);
     }

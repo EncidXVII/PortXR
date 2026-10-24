@@ -8,7 +8,7 @@ Working name, not final.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Ready**, adjust its settings if you like, and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, height, world scale, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Controls (default: keyboard & mouse emulation)
 

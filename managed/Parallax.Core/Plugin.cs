@@ -9,6 +9,8 @@ namespace Parallax
 {
     public enum InputMode { Gamepad, KeyboardMouse }
     public enum PointerMode { Auto, MenuOnly }
+    public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
+    public enum VignetteLevel { Off, Low, High }
 
     internal static class Settings
     {
@@ -17,6 +19,8 @@ namespace Parallax
         public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu, FirstRun;
         public static ConfigEntry<InputMode> Input;
         public static ConfigEntry<PointerMode> Pointer;
+        public static ConfigEntry<TurnMode> Turning;
+        public static ConfigEntry<VignetteLevel> Vignette;
         public static ConfigEntry<string> CameraName;
         public static ConfigEntry<int> MenuKey;
 
@@ -39,6 +43,9 @@ namespace Parallax
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
             FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");
+            Turning = cfg.Bind("Comfort", "Turning", TurnMode.Smooth,
+                "Smooth: the right stick turns continuously. Snap15/30/45: each flick of the right stick turns by that many degrees.");
+            Vignette = cfg.Bind("Comfort", "Vignette", VignetteLevel.Off, "Darken the edges of your view while moving or turning (Off, Low, High).");
             Bindings.Bind(cfg);
         }
     }

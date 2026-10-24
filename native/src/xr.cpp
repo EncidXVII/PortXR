@@ -99,14 +99,15 @@ bool ensure_swapchain(Swapchain& sc, int w, int h) {
     return true;
 }
 
-bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath) {
+bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath, float vignette = 0) {
     int w, h;
     if (!g_gpu->size(layer.texture, w, h) || !ensure_swapchain(sc, w, h)) return false;
     uint32_t index;
     if (!xr_ok(xrAcquireSwapchainImage(sc.handle, nullptr, &index), "xrAcquireSwapchainImage")) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, nullptr, XR_INFINITE_DURATION};
     if (xr_ok(xrWaitSwapchainImage(sc.handle, &wi), "xrWaitSwapchainImage")) {
-        g_gpu->draw(layer.texture, sc.handle, index, layer.flipY != 0, capturePath.empty() ? nullptr : capturePath.c_str());
+        g_gpu->draw(layer.texture, sc.handle, index, layer.flipY != 0, vignette,
+                    capturePath.empty() ? nullptr : capturePath.c_str());
     }
     xrReleaseSwapchainImage(sc.handle, nullptr);
     return true;
@@ -263,7 +264,8 @@ void do_submit(int slot) {
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
         if (f.stereo && f.eye[0].texture && f.eye[1].texture &&
-            copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp")) && copy_layer(g_eyes[1], f.eye[1], path(L"right.bmp"))) {
+            copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp"), f.vignette) &&
+            copy_layer(g_eyes[1], f.eye[1], path(L"right.bmp"), f.vignette)) {
             for (int e = 0; e < 2; ++e) {
                 views[e] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
                 views[e].pose = to_xr(f.eyePose[e]);

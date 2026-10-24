@@ -293,6 +293,46 @@ def gate_pad(g):
           f"pad {f1['pad']!r}, forward {moved:.2f}m, turned {turned:.0f}deg, jumps {f2['jumps']}->{f3['jumps']}")
 
 
+def gate_vignette(g):
+    """Comfort vignette: with the left stick held, the eye image's corners darken while its centre stays."""
+    def patches(img):
+        h, w = img.shape[:2]
+        corners = (img[int(h * 0.88):, : int(w * 0.12), :3].mean() + img[int(h * 0.88):, int(w * 0.88):, :3].mean()) / 2
+        return corners, img[int(h * 0.4):int(h * 0.6), int(w * 0.4):int(w * 0.6), :3].mean()
+
+    g.cmd("set Vignette High")
+    try:
+        time.sleep(1.0)
+        (rest,) = g.capture("vignette-rest", ["left.bmp"])
+        g.cmd("ctrl 0 0 1 0 0 0 0 0 0")
+        time.sleep(1.0)
+        strength = g.stats()["vignette"]
+        (moving,) = g.capture("vignette-moving", ["left.bmp"])
+    finally:
+        g.cmd("ctrl off")
+        g.cmd("set Vignette Off")
+    (rc, rm), (mc, mm) = patches(rest), patches(moving)
+    ok = strength > 0.9 and mc < rc * 0.5 and abs(mm - rm) < rm * 0.15
+    check("13 comfort vignette", ok, f"strength {strength}, corners {rc:.0f} -> {mc:.0f}, centre {rm:.0f} -> {mm:.0f}")
+
+
+def gate_snap(g):
+    """Snap turn on an Input System game in gamepad mode: one flick of the right stick turns the player 30 degrees."""
+    g.cmd("set Mode Gamepad")
+    g.cmd("set Turning Snap30")
+    try:
+        time.sleep(0.5)
+        f0 = g.fixture()
+        g.hold("0 0 0 1 0 0 0 0 0", 0.3)
+        time.sleep(1.0)
+        f1 = g.fixture()
+    finally:
+        g.cmd("set Turning Smooth")
+        g.cmd("set Mode KeyboardMouse")
+    turned = (f1["yaw"] - f0["yaw"] + 180) % 360 - 180
+    check("14 snap turn", abs(abs(turned) - 30) < 5, f"one flick turned {turned:.1f}deg (want 30)")
+
+
 def gate_theater(g):
     g.cmd("theater 1")
     time.sleep(0.5)
@@ -426,6 +466,8 @@ def main():
                     print("SKIP 7 input: pass --input to run it (takes over mouse and keyboard)", flush=True)
                 if args.fixture in PAD_FIXTURES:
                     gates.insert(4, gate_pad)
+                    gates.append(gate_snap)
+                gates.append(gate_vignette)
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
                 for gate in gates:
