@@ -26,6 +26,9 @@ bool xr_ok(XrResult r, const char* what) {
     char name[XR_MAX_RESULT_STRING_SIZE] = "?";
     if (xrResultToString && g_xr.instance) xrResultToString(g_xr.instance, r, name);
     prx_log("%s failed: %s (%d)", what, name, (int)r);
+    // The runtime crashed or was closed: stop the frame loop so the plugin can tear down and retry.
+    if (r == XR_ERROR_INSTANCE_LOST || r == XR_ERROR_SESSION_LOST || r == XR_ERROR_RUNTIME_FAILURE)
+        g_xr.state = StateFailed;
     return false;
 }
 

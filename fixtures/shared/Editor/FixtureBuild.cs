@@ -46,8 +46,15 @@ public static partial class FixtureBuild
         // them and the plugin falls back at runtime.
         PlayerSettings.stripEngineCode = false;
         // Mono players keep their full class libraries (the 2022 default); stripped ones stop the BepInEx 5 preloader.
-        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, il2cpp ? ManagedStrippingLevel.Minimal : ManagedStrippingLevel.Disabled);
+#if UNITY_2020_1_OR_NEWER
+        var il2cppStripping = ManagedStrippingLevel.Minimal;
+#else
+        var il2cppStripping = ManagedStrippingLevel.Low;  // Minimal arrived in 2020.1
+#endif
+        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, il2cpp ? il2cppStripping : ManagedStrippingLevel.Disabled);
 #if !UNITY_2019_3_OR_NEWER
+        // Pre-2019.3 players open a resolution dialog with a Play button; test runs must start unattended.
+        PlayerSettings.displayResolutionDialog = ResolutionDialogSetting.Disabled;
         PlayerSettings.scriptingRuntimeVersion = Arg("-runtime") == "legacy" ? ScriptingRuntimeVersion.Legacy : ScriptingRuntimeVersion.Latest;
 #endif
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);

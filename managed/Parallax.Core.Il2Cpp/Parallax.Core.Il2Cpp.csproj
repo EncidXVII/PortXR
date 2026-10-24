@@ -12,8 +12,7 @@
     <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)..\..\build\deps\bepinex6\BepInEx\core</BepInExCore>
   </PropertyGroup>
   <ItemGroup>
-    <!-- CameraExtras reflects over managed fields; IL2CPP components expose native fields instead (backlog). -->
-    <Compile Include="..\Parallax.Core\*.cs" Exclude="..\Parallax.Core\CameraExtras.cs" />
+    <Compile Include="..\Parallax.Core\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="$(BepInExCore)\BepInEx.Core.dll" Private="false" />

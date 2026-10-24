@@ -1,0 +1,25 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      # No Unity on the runner, so no IL2CPP interop assemblies: CI builds the Mono payload only. Full releases
+      # (both payloads) are packed locally with release.ps1 after fixtures\interop.ps1.
+      - name: Build and pack
+        shell: pwsh
+        run: ./release.ps1 -MonoOnly
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parallax
+          path: release/*

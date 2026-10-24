@@ -24,7 +24,7 @@ OUT = os.path.join(ROOT, "harness", "out")
 APP = os.path.join(ROOT, "dist", "Parallax.exe")
 PORT = 47800
 MENU_BIT, A_BIT = 64, 1
-POST_FIXTURES = {"F2"}  # fixtures whose game camera has post-processing to carry over
+POST_FIXTURES = {"F2", "F5"}  # fixtures whose game camera has post-processing to carry over
 user32 = ctypes.windll.user32
 
 
@@ -306,6 +306,18 @@ def gate_persist(g):
     check("9 menu persist", value.startswith("1.5"), f"WorldScale after restart {value}")
 
 
+def gate_recovery(g):
+    """Killing SteamVR mid-game: the game must keep running flat, then pick VR up again once the runtime is back
+    (its next xrCreateInstance relaunches SteamVR)."""
+    steamvr.stop()
+    g.wait(lambda s: s["state"] != 3, 30, "session loss")
+    s = g.wait(lambda s: s["state"] == 3, 180, "session after restart")
+    time.sleep(2)
+    after = g.stats()
+    check("12 recovery", after["state"] == 3 and after["stereo"] > s["stereo"],
+          f"stereo frames {s['stereo']} -> {after['stereo']} after the runtime restart")
+
+
 def working_set(pid):
     out = subprocess.run(["tasklist", "/fi", f"PID eq {pid}", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
     return int(out.split('","')[-1].strip().strip('"').replace(",", "").replace("\xa0", "").split()[0]) / 1024
@@ -376,6 +388,7 @@ def main():
                 g.start()
                 g.wait(lambda s: s["state"] == 3, 120, "restart")
                 gate_persist(g)
+                gate_recovery(g)
             finally:
                 g.stop()
     finally:

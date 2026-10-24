@@ -109,8 +109,13 @@ def null_driver(window=None):
             json.dump(CHAPERONE, f, indent=3)
         yield
     finally:
-        # SteamVR writes its settings on exit, so it must be gone before the original is put back.
-        stop()
+        # SteamVR writes its settings on exit, so it must be gone before the original is put back. A relaunch the
+        # game or vrstartup had already begun can appear a moment later, so it must stay gone for a few seconds.
+        for _ in range(5):
+            stop()
+            time.sleep(3)
+            if not running():
+                break
         shutil.copy2(backup, path)
         os.remove(backup)
         if had_chaperone:

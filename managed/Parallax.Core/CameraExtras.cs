@@ -1,3 +1,4 @@
+#if !IL2CPP
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,9 +12,10 @@ namespace Parallax
     // against pipeline assemblies, which differ per game.
     internal static class CameraExtras
     {
-        static readonly string[] TypeNames =
+        internal static readonly string[] TypeNames =
         {
             "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData",
+            "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData",
             "UnityEngine.Rendering.PostProcessing.PostProcessLayer",
         };
         const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
@@ -47,7 +49,7 @@ namespace Parallax
             }
         }
 
-        static Type[] FindTypes() =>
+        internal static Type[] FindTypes() =>
             TypeNames.Select(name => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(name, false)).FirstOrDefault(t => t != null))
                 .Where(t => t != null).ToArray();
 
@@ -94,3 +96,4 @@ namespace Parallax
         }
     }
 }
+#endif

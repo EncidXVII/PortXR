@@ -4,13 +4,15 @@
 #   F2  Unity 2022.3, URP with Bloom, Mono
 #   F3  Unity 2022.3, built-in pipeline, IL2CPP (its interop assemblies are what the IL2CPP plugin compiles against)
 #   F4  Unity 2022.3, built-in pipeline, Mono, Direct3D 12
-param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4")][string]$Name, [string]$Editors = "E:\Unity\Editor")
+#   F5  Unity 2022.3, URP with Bloom, IL2CPP (post-processing copy through IL2CPP reflection)
+param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5")][string]$Name, [string]$Editors = "E:\Unity\Editor")
 $fixtures = @{
     F0 = @{ Unity = "2018.4.36f1"; Args = "-runtime legacy"; Urp = $false }
     F1 = @{ Unity = "2022.3.62f3"; Args = ""; Urp = $false }
     F2 = @{ Unity = "2022.3.62f3"; Args = ""; Urp = $true }
     F3 = @{ Unity = "2022.3.62f3"; Args = "-backend il2cpp"; Urp = $false }
     F4 = @{ Unity = "2022.3.62f3"; Args = "-gfx d3d12"; Urp = $false }
+    F5 = @{ Unity = "2022.3.62f3"; Args = "-backend il2cpp"; Urp = $true }
 }
 $f = $fixtures[$Name]
 $project = Join-Path $PSScriptRoot $Name

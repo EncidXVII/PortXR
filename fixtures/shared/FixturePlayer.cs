@@ -26,8 +26,10 @@ public class FixturePlayer : MonoBehaviour
 
     void Update()
     {
-        yaw += Input.GetAxis("RightX") * 120f * Time.deltaTime + Input.GetAxis("Mouse X") * 2f;
-        pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * 2f, -80f, 80f);
+        // Unity 2018 reads raw mouse deltas even without focus; test runs must not pick up the user's own mouse.
+        float look = Application.isFocused ? 2f : 0f;
+        yaw += Input.GetAxis("RightX") * 120f * Time.deltaTime + Input.GetAxis("Mouse X") * look;
+        pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * look, -80f, 80f);
         transform.rotation = Quaternion.Euler(0, yaw, 0);
         head.localRotation = Quaternion.Euler(pitch, 0, 0);
 

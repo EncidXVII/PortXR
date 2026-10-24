@@ -27,8 +27,12 @@ Working name, not final.
 ## What works today
 
 - Direct3D 11 games: Mono on Unity 2018.4+ (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
-- IL2CPP games may have stripped engine calls; affected extras switch off with a log line (e.g. no desktop mirror, URP post-processing not yet copied).
-- Not yet: Direct3D 12, HDRP specifics, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
+- Direct3D 12 games as well, with the same features.
+- The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
+- The game window keeps showing the left eye.
+- If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
+- IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
+- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
 - See [COMPAT.md](COMPAT.md).
 
 ## Build
@@ -39,7 +43,9 @@ Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+.
 .\build.ps1
 ```
 
-`dist\` then holds `Parallax.exe` and the `payload\` it copies into games.
+`dist\` then holds `Parallax.exe` and the payloads it copies into games (`payload\` for Mono, `payload-il2cpp\` for IL2CPP). The IL2CPP payload needs interop assemblies generated from fixture F3 (see Test); without them the build warns and skips it.
+
+`.\release.ps1` builds and packs `release\Parallax-<version>.zip` with `SHA256SUMS.txt`. CI (`.github/workflows/build.yml`) runs `release.ps1 -MonoOnly` on every push, because the runner has no Unity to generate the interop assemblies.
 
 ## Test
 
@@ -52,11 +58,22 @@ python harness\run.py --fixture F1 --soak 600
 
 Test windows open on a secondary monitor when there is one (`--primary` to override). The input gate takes over the real mouse and keyboard for a few seconds, so it only runs with `--input`.
 
-Fixtures are generated from `fixtures/shared`: `fixtures\build.ps1 -Name F1` (F0: Unity 2018.4 on .NET 3.5, F1: 2022.3 built-in, F2: 2022.3 URP with Bloom, F3: 2022.3 IL2CPP), then `python harness\run.py --fixture F1`. The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on F3's first launch: build F3, install the IL2CPP payload into a copy, launch once, copy `BepInEx\interop` to `build\deps\interop-f3`.
+Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`, then tested with `python harness\run.py --fixture F1`. They need Unity under `E:\Unity\Editor\<version>` (`-Editors` to change).
+
+| Fixture | Unity | Backend | Graphics | Pipeline |
+|---|---|---|---|---|
+| F0 | 2018.4 | Mono, .NET 3.5 | D3D11 | built-in |
+| F1 | 2022.3 | Mono | D3D11 | built-in |
+| F2 | 2022.3 | Mono | D3D11 | URP + Bloom |
+| F3 | 2022.3 | IL2CPP | D3D11 | built-in |
+| F4 | 2022.3 | Mono | D3D12 | built-in |
+| F5 | 2022.3 | IL2CPP | D3D11 | URP + Bloom |
+
+The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 
 ## How it works
 
-- `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 copy into OpenXR swapchains, controller actions, haptics, input emulation.
+- `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation.
 - `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
 - `app/` (`Parallax.exe`): library, install/uninstall with a receipt (`.vrinstall.json`), launch.
 

@@ -7,14 +7,11 @@
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <UnityManaged Condition="'$(UnityManaged)' == ''">E:\Unity\Editor\2018.4.36f1\Editor\Data\Managed\UnityEngine</UnityManaged>
     <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)..\..\build\deps\bepinex5\BepInEx\core</BepInExCore>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="BepInEx" HintPath="$(BepInExCore)\BepInEx.dll" Private="false" />
-    <Reference Include="UnityEngine" HintPath="$(UnityManaged)\UnityEngine.dll" Private="false" />
-    <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityManaged)\UnityEngine.CoreModule.dll" Private="false" />
-    <Reference Include="UnityEngine.IMGUIModule" HintPath="$(UnityManaged)\UnityEngine.IMGUIModule.dll" Private="false" />
-    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(UnityManaged)\UnityEngine.TextRenderingModule.dll" Private="false" />
+    <!-- Unity 2018.4 engine reference assemblies from the BepInEx feed (NuGet.Config): no Unity install needed. -->
+    <PackageReference Include="UnityEngine.Modules" Version="2018.4.36" IncludeAssets="compile" PrivateAssets="all" />
   </ItemGroup>
 </Project>

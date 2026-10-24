@@ -209,9 +209,7 @@ namespace Parallax
                 eye.backgroundColor = savedBackground;
                 eye.targetTexture = eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
-#if !IL2CPP
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
-#endif
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
                 eye.transform.SetPositionAndRotation(camT.position + yaw * (rel * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
