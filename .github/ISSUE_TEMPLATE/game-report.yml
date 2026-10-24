@@ -1,0 +1,42 @@
+name: Game report
+description: A game that does not work, or works with a problem
+labels: [compat]
+body:
+  - type: markdown
+    attributes:
+      value: Only report offline single-player games. Games with anti-cheat are refused on purpose and will not be supported.
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: Name, and the Steam store link if it has one
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: What happens
+      options:
+        - Does not start, or crashes
+        - Starts flat, no VR
+        - VR works but the image is wrong (swapped, flipped, wrong scale, black)
+        - UI or menus missing or unreadable
+        - Controls do not work
+        - Plays fine apart from a smaller issue
+    validations:
+      required: true
+  - type: input
+    id: headset
+    attributes:
+      label: Headset and runtime
+      description: e.g. Quest 3 with Virtual Desktop, Index with SteamVR
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What you did and what you saw
+  - type: markdown
+    attributes:
+      value: Attach the zip from **Export logs** in Parallax.exe (select the game, press Export logs).

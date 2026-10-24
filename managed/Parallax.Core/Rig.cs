@@ -31,6 +31,8 @@ namespace Parallax
         Color savedBackground;
         bool camHidden;
         bool eyesRendered;
+        bool theaterShown;  // the last frame showed the theater screen, not the UI panel
+        bool curvedTheater;  // the runtime draws curved layers (SteamVR does not)
         Camera extrasCamera;
         bool beforeRenderHooked;
         int sceneHandle;
@@ -47,6 +49,11 @@ namespace Parallax
         float retryAt, retryDelay = 5f;
         int submitErrors;
         bool forcedTheater;
+        int recommendedW, recommendedH;
+        // Automatic render scale: a fraction of Settings.RenderScale, lowered while the headset misses frames.
+        float autoScale = 1f, nextScaleCheck, p95BeforeDrop;
+        int calmChecks, slowChecks;
+        bool justDropped, cpuBound;
 
         internal Menu Menu;
         internal TestChannel Test;
@@ -75,22 +82,12 @@ namespace Parallax
             }
             Native.prx_install_hooks();
             renderEvent = Native.prx_render_event_func();
-            float scale = Mathf.Clamp(Settings.RenderScale.Value, 0.25f, 2f);
-            w = Mathf.RoundToInt(w * scale);
-            h = Mathf.RoundToInt(h * scale);
-            // URP sizes its intermediate buffer from the camera's target, so an 8-bit eye target would clamp HDR and
-            // starve bloom. Linear-space games get half-float eyes (linear values); gamma-space games stay 8-bit.
-            var format = QualitySettings.activeColorSpace == ColorSpace.Linear ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
+            nextScaleCheck = Time.realtimeSinceStartup + 10f;
+            recommendedW = w;
+            recommendedH = h;
+            CreateEyeTargets();
             for (int e = 0; e < 2; e++)
             {
-                eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
-                {
-                    name = "Parallax Eye " + e,
-                    // The D3D12 path reads the camera's own target, which must not be multisampled.
-                    antiAliasing = D3D12 ? 1 : Mathf.Max(1, QualitySettings.antiAliasing),
-                };
-                eyeTargets[e].Create();
-                eyePtrs[e] = eyeTargets[e].GetNativeTexturePtr();
                 var go = new GameObject("Parallax Eye " + e);
                 DontDestroyOnLoad(go);
                 Eyes[e] = go.AddComponent<Camera>();
@@ -98,6 +95,7 @@ namespace Parallax
             }
             Native.prx_set_init_texture(eyePtrs[0]);
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
+            curvedTheater = CurvedLayers();
 
             Application.runInBackground = true;
 #if IL2CPP
@@ -120,7 +118,70 @@ namespace Parallax
 #endif
             Menu = new Menu(this);
             Test = TestChannel.FromEnvironment();
+        }
+
+        void CreateEyeTargets()
+        {
+            float scale = Mathf.Clamp(Settings.RenderScale.Value, 0.25f, 2f) * autoScale;
+            int w = Mathf.RoundToInt(recommendedW * scale), h = Mathf.RoundToInt(recommendedH * scale);
+            // URP sizes its intermediate buffer from the camera's target, so an 8-bit eye target would clamp HDR and
+            // starve bloom. Linear-space games get half-float eyes (linear values); gamma-space games stay 8-bit.
+            var format = QualitySettings.activeColorSpace == ColorSpace.Linear ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
+            for (int e = 0; e < 2; e++)
+            {
+                // Frames already queued for the render thread keep the old texture alive: Unity destroys it after them.
+                if (eyeTargets[e] != null) Destroy(eyeTargets[e]);
+                eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
+                {
+                    name = "Parallax Eye " + e,
+                    // The D3D12 path reads the camera's own target, which must not be multisampled.
+                    antiAliasing = D3D12 ? 1 : Mathf.Max(1, QualitySettings.antiAliasing),
+                };
+                eyeTargets[e].Create();
+                eyePtrs[e] = eyeTargets[e].GetNativeTexturePtr();
+            }
             Plugin.Log.LogInfo($"Eye targets {w}x{h} {format}, MSAA {eyeTargets[0].antiAliasing}");
+        }
+
+        // Every 4 s (a fresh 256-frame timing window): two slow windows in a row lower the eye resolution 10%; a drop
+        // that does not help means the game is CPU-bound, so it is undone and scaling stops. Headroom raises it again.
+        // Startup and scene loads hitch (shader compiles, streaming), so the first 10 s after them do not count.
+        void AutoRenderScale()
+        {
+            if (!Settings.AutoRenderScale.Value || cpuBound || State != XrState.Running || !eyesRendered) return;
+            float now = Time.realtimeSinceStartup;
+            if (now < nextScaleCheck) return;
+            nextScaleCheck = now + 4f;
+            Native.prx_get_stats(out var s);
+            float p95 = (float)s.p95Ms, period = (float)s.periodMs;
+            if (justDropped)
+            {
+                justDropped = false;
+                if (p95 > p95BeforeDrop * 0.95f)
+                {
+                    cpuBound = true;
+                    autoScale = Mathf.Min(1f, autoScale + 0.1f);
+                    CreateEyeTargets();
+                    Plugin.Log.LogInfo("Lower resolution did not help (the game is CPU-bound); render scale stays.");
+                    return;
+                }
+            }
+            slowChecks = p95 > period * 1.2f ? slowChecks + 1 : 0;
+            if (slowChecks >= 2 && autoScale > 0.55f)
+            {
+                slowChecks = 0;
+                p95BeforeDrop = p95;
+                justDropped = true;
+                calmChecks = 0;
+                autoScale -= 0.1f;
+                CreateEyeTargets();
+            }
+            else if (p95 < period * 1.05f && autoScale < 1f && ++calmChecks >= 3)
+            {
+                calmChecks = 0;
+                autoScale = Mathf.Min(1f, autoScale + 0.1f);
+                CreateEyeTargets();
+            }
         }
 
 #if IL2CPP
@@ -151,8 +212,11 @@ namespace Parallax
             {
                 sceneHandle = scene;
                 ReleaseCamera();
+                nextScaleCheck = Time.realtimeSinceStartup + 10f;
+                slowChecks = 0;
             }
 
+            AutoRenderScale();
             if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
             UpdatePointer();
@@ -167,6 +231,7 @@ namespace Parallax
             };
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
+            VirtualPad.Update();
             GL.IssuePluginEvent(renderEvent, Native.EvBegin);
         }
 
@@ -278,7 +343,11 @@ namespace Parallax
             }
             Placement(stereo, out var center, out var rot, out f.quadWidth, out f.quadHeight);
             f.quadLayer = new Layer { texture = uiPtr, flipY = CaptureFlip };
-            f.quadPose = Xr.ToPose(center, rot);
+            // Where the runtime can, the theater screen curves around the player: its layer pose is the cylinder's centre.
+            theaterShown = !stereo;
+            bool curved = theaterShown && curvedTheater;
+            f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
+            f.quadRadius = curved ? TheaterDistance : 0;
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
             slot = (slot + 1) & 3;
@@ -321,7 +390,7 @@ namespace Parallax
         void UpdatePointer()
         {
             bool onQuad = false;
-            Placement(!Settings.Theater.Value, out var c, out var r, out float w, out float h);
+            Placement(!theaterShown, out var c, out var r, out float w, out float h);
             if (Test?.PointerOverride is Vector2 forced)
             {
                 pointerUv = forced;
@@ -329,23 +398,38 @@ namespace Parallax
             }
             else if (controllers.aimValidR != 0)
             {
+                var inv = Quaternion.Inverse(r);
                 var p = Xr.Position(controllers.aimR);
-                var d = Xr.Rotation(controllers.aimR) * Vector3.forward;
-                var n = r * Vector3.forward;
-                float denom = Vector3.Dot(d, n);
-                if (denom > 1e-4f)
-                {
-                    float t = Vector3.Dot(c - p, n) / denom;
-                    var local = Quaternion.Inverse(r) * (p + d * t - c);
-                    var uv = new Vector2(local.x / w + 0.5f, 0.5f - local.y / h);
-                    onQuad = t > 0 && uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
-                    if (onQuad) pointerUv = uv;
-                }
+                var d = inv * (Xr.Rotation(controllers.aimR) * Vector3.forward);
+                var uv = theaterShown && curvedTheater ? HitCylinder(inv * (p - originPos), d, w, h) : HitPlane(inv * (p - c), d, w, h);
+                onQuad = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
+                if (onQuad) pointerUv = uv;
             }
             bool wanted = Menu.Open || (Settings.Pointer.Value == PointerMode.Auto && Cursor.visible && Cursor.lockState != CursorLockMode.Locked);
             bool active = onQuad && wanted;
             if (active && !PointerActive) Native.prx_haptic_pulse(1, 0.25f, 0.02f);
             PointerActive = active;
+        }
+
+        // Ray (in the panel's frame, panel centre at the origin, facing -Z) to panel UV; (-1, -1) for a miss.
+        static Vector2 HitPlane(Vector3 p, Vector3 d, float w, float h)
+        {
+            if (d.z < 1e-4f) return new Vector2(-1, -1);
+            float t = -p.z / d.z;
+            var hit = p + d * t;
+            return t > 0 ? new Vector2(hit.x / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
+        }
+
+        // Ray (in the screen's frame, cylinder axis vertical through the origin) to UV on the curved theater screen,
+        // whose arc length is w. The player stands inside, so the hit is where the ray leaves the cylinder.
+        static Vector2 HitCylinder(Vector3 p, Vector3 d, float w, float h)
+        {
+            float a = d.x * d.x + d.z * d.z, b = 2 * (p.x * d.x + p.z * d.z), c = p.x * p.x + p.z * p.z - TheaterDistance * TheaterDistance;
+            float disc = b * b - 4 * a * c;
+            if (a < 1e-6f || disc < 0) return new Vector2(-1, -1);
+            float t = (-b + Mathf.Sqrt(disc)) / (2 * a);
+            var hit = p + d * t;
+            return t > 0 ? new Vector2(Mathf.Atan2(hit.x, hit.z) * TheaterDistance / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
         }
 
         void OnGUI()
@@ -371,6 +455,12 @@ namespace Parallax
         }
 
         internal void RequestRecenter() => recenterPending = true;
+
+        static bool CurvedLayers()
+        {
+            Native.prx_get_stats(out var s);
+            return s.curvedSupported != 0;
+        }
 
         // Runtime restarts, headset sleep and session loss end the session; the game goes flat and we retry with
         // a growing delay until the runtime is back.
@@ -403,6 +493,7 @@ namespace Parallax
             recenterPending = true;
             Native.prx_set_init_texture(eyePtrs[0]);
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
+            curvedTheater = CurvedLayers();
             Plugin.Log.LogInfo("OpenXR runtime found again; restarting VR.");
         }
 

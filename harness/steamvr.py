@@ -78,6 +78,13 @@ def null_driver(window=None):
     backup = path + ".parallax-backup"
     chaperone = os.path.join(steam_root(), "config", "chaperone_info.vrchap")
     chaperone_backup = chaperone + ".parallax-backup"
+    if os.path.exists(backup):
+        # A previous run was killed before it could clean up: its backups are the user's real files.
+        shutil.copy2(backup, path)
+        if os.path.exists(chaperone_backup):
+            shutil.move(chaperone_backup, chaperone)
+        elif os.path.exists(chaperone):
+            os.remove(chaperone)
     had_chaperone = os.path.exists(chaperone)
     if had_chaperone:
         shutil.copy2(chaperone, chaperone_backup)

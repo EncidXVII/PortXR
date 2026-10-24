@@ -14,7 +14,7 @@ namespace Parallax
     {
         public static ConfigFile File;
         public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth;
-        public static ConfigEntry<bool> Theater;
+        public static ConfigEntry<bool> Theater, AutoRenderScale;
         public static ConfigEntry<InputMode> Input;
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<string> CameraName;
@@ -26,6 +26,7 @@ namespace Parallax
             WorldScale = cfg.Bind("View", "WorldScale", 1f, "Player size multiplier. Above 1 the world looks smaller.");
             Height = cfg.Bind("View", "Height", 0f, "Metres added to the game camera height.");
             RenderScale = cfg.Bind("View", "RenderScale", 1f, "Eye resolution relative to the headset's recommendation. Applied on restart.");
+            AutoRenderScale = cfg.Bind("View", "AutoRenderScale", true, "Lower the eye resolution (down to half of RenderScale) while the headset misses frames.");
             Theater = cfg.Bind("View", "Theater", false, "Show the flat game on a large screen instead of stereo.");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");

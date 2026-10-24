@@ -57,6 +57,13 @@ public static partial class FixtureBuild
         PlayerSettings.displayResolutionDialog = ResolutionDialogSetting.Disabled;
         PlayerSettings.scriptingRuntimeVersion = Arg("-runtime") == "legacy" ? ScriptingRuntimeVersion.Legacy : ScriptingRuntimeVersion.Latest;
 #endif
+        if (Arg("-input") == "both")
+        {
+            // No public API for Active Input Handling; 2 = both the old Input Manager and the Input System package.
+            var player = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings"));
+            player.FindProperty("activeInputHandler").intValue = 2;
+            player.ApplyModifiedProperties();
+        }
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
         PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { Arg("-gfx") == "d3d12" ? GraphicsDeviceType.Direct3D12 : GraphicsDeviceType.Direct3D11 });
         for (int i = 0; i < QualitySettings.names.Length; i++)

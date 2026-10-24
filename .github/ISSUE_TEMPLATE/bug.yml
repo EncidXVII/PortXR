@@ -1,0 +1,18 @@
+name: Bug
+description: Something in Parallax itself (the app, the VR menu, install or uninstall)
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Parallax version
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: If a game was involved, attach the zip from **Export logs** in Parallax.exe.

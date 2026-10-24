@@ -18,3 +18,5 @@ fixtures/*/*.sln
 fixtures/*/Assets/
 compat/results.csv
 release/
+fixtures/*/.vscode/
+fixtures/*/*.slnx

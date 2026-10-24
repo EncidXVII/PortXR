@@ -5,7 +5,10 @@
 #   F3  Unity 2022.3, built-in pipeline, IL2CPP (its interop assemblies are what the IL2CPP plugin compiles against)
 #   F4  Unity 2022.3, built-in pipeline, Mono, Direct3D 12
 #   F5  Unity 2022.3, URP with Bloom, IL2CPP (post-processing copy through IL2CPP reflection)
-param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5")][string]$Name, [string]$Editors = "E:\Unity\Editor")
+#   F6  Unity 2022.3, built-in pipeline, Mono, Input System package (virtual gamepad)
+#   F7  Unity 6.3, URP with Bloom, IL2CPP, Direct3D 12
+#   F8  Unity 6.3, built-in pipeline, Mono
+param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8")][string]$Name, [string]$Editors = "E:\Unity\Editor")
 $fixtures = @{
     F0 = @{ Unity = "2018.4.36f1"; Args = "-runtime legacy"; Urp = $false }
     F1 = @{ Unity = "2022.3.62f3"; Args = ""; Urp = $false }
@@ -13,6 +16,9 @@ $fixtures = @{
     F3 = @{ Unity = "2022.3.62f3"; Args = "-backend il2cpp"; Urp = $false }
     F4 = @{ Unity = "2022.3.62f3"; Args = "-gfx d3d12"; Urp = $false }
     F5 = @{ Unity = "2022.3.62f3"; Args = "-backend il2cpp"; Urp = $true }
+    F6 = @{ Unity = "2022.3.62f3"; Args = "-input both"; Urp = $false }
+    F7 = @{ Unity = "6000.3.26f1"; Args = "-backend il2cpp -gfx d3d12"; Urp = $true }
+    F8 = @{ Unity = "6000.3.26f1"; Args = ""; Urp = $false }
 }
 $f = $fixtures[$Name]
 $project = Join-Path $PSScriptRoot $Name

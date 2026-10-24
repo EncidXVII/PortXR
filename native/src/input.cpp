@@ -490,6 +490,13 @@ PRX_API uint32_t prx_input_update(const PrxInputConfig* cfg, const PrxController
     return events;
 }
 
+// The emulated pad for games that read Unity's Input System instead of XInput; 0 while Gamepad mode is off.
+PRX_API int32_t prx_pad_state(XINPUT_GAMEPAD* out) {
+    std::lock_guard lock(g_padMutex);
+    *out = g_pad.Gamepad;
+    return g_padActive;
+}
+
 PRX_API void prx_haptic_pulse(int32_t hand, float amplitude, float seconds) {
     haptic(hand & 1, amplitude, (XrDuration)(seconds * 1e9));
 }

@@ -29,6 +29,7 @@ namespace Parallax
         public float quadWidth, quadHeight;
         public int quadAlpha;
         public int mirror;
+        public float quadRadius;
     }
 
     [Flags]
@@ -44,6 +45,15 @@ namespace Parallax
         public int aimValidL, aimValidR;
     }
 
+    // XINPUT_GAMEPAD layout.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Pad
+    {
+        public ushort buttons;
+        public byte leftTrigger, rightTrigger;
+        public short lx, ly, rx, ry;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct InputConfig
     {
@@ -56,7 +66,8 @@ namespace Parallax
     {
         public int state, focused;
         public double periodMs, p95Ms;
-        public ulong frames, submitted, quadSubmitted, stereoSubmitted;
+        public ulong frames, submitted, quadSubmitted, stereoSubmitted, curvedSubmitted;
+        public int curvedSupported;
     }
 
     internal enum XrState { Failed = -1, None = 0, Instance = 1, Session = 2, Running = 3 }
@@ -83,6 +94,7 @@ namespace Parallax
         [DllImport(Dll)] public static extern void prx_get_stats(out Stats stats);
         [DllImport(Dll)] public static extern int prx_install_hooks();
         [DllImport(Dll)] public static extern uint prx_input_update(ref InputConfig cfg, [In] Controllers[] test, out Controllers result);
+        [DllImport(Dll)] public static extern int prx_pad_state(out Pad pad);
         [DllImport(Dll)] public static extern void prx_haptic_pulse(int hand, float amplitude, float seconds);
         [DllImport(Dll)] static extern int prx_poll_log(byte[] buffer, int capacity);
 

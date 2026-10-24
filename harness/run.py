@@ -24,7 +24,8 @@ OUT = os.path.join(ROOT, "harness", "out")
 APP = os.path.join(ROOT, "dist", "Parallax.exe")
 PORT = 47800
 MENU_BIT, A_BIT = 64, 1
-POST_FIXTURES = {"F2", "F5"}  # fixtures whose game camera has post-processing to carry over
+POST_FIXTURES = {"F2", "F5", "F7"}  # fixtures whose game camera has post-processing to carry over
+PAD_FIXTURES = {"F6"}  # fixtures that read the Input System package
 user32 = ctypes.windll.user32
 
 
@@ -262,6 +263,31 @@ def gate_input(g):
     check("7 input", ok, f"forward {moved:.2f}m, turned {turned:.0f}deg, jumps {f2['jumps']}->{f3['jumps']}, clicks {f3['clicks']}->{f4['clicks']}")
 
 
+def gate_pad(g):
+    """Gamepad mode on an Input System game: our virtual pad moves, turns and jumps the player. No real input is
+    touched, so this runs unattended."""
+    g.cmd("set Mode Gamepad")
+    try:
+        time.sleep(0.5)
+        f0 = g.fixture()
+        g.hold("0 0 1 0 0 0 0 0 0", 1.0)
+        time.sleep(0.4)
+        f1 = g.fixture()
+        g.hold("0 0 0 1 0 0 0 0 0", 0.5)
+        time.sleep(0.4)
+        f2 = g.fixture()
+        g.hold(f"{A_BIT} 0 0 0 0 0 0 0 0", 0.2)
+        time.sleep(1.0)
+        f3 = g.fixture()
+    finally:
+        g.cmd("set Mode KeyboardMouse")
+    moved = f1["pos"][2] - f0["pos"][2]
+    turned = f2["yaw"] - f1["yaw"]
+    ok = f1["pad"] == "ParallaxPad" and moved > 1.0 and turned > 20 and f3["jumps"] > f2["jumps"]
+    check("7 gamepad (Input System)", ok,
+          f"pad {f1['pad']!r}, forward {moved:.2f}m, turned {turned:.0f}deg, jumps {f2['jumps']}->{f3['jumps']}")
+
+
 def gate_theater(g):
     g.cmd("theater 1")
     time.sleep(0.5)
@@ -270,13 +296,28 @@ def gate_theater(g):
     b = g.stats()
     (quad,) = g.capture("theater", ["quad.bmp"])
     stereo_stopped = b["stereo"] == a["stereo"] and b["quad"] > a["quad"]
+    # SteamVR has no curved layers, so this checks the flat fallback there; other runtimes get the curve.
+    curved = b["curved"] - a["curved"] == (b["quad"] - a["quad"] if b["curvedSupported"] else 0)
     # The full game frame is opaque everywhere; the stereo-mode UI capture is transparent outside the UI.
     opaque = ((quad[..., 3] > 250) & (quad[..., :3].max(axis=2) > 10)).mean()
     g.cmd("theater 0")
     time.sleep(0.5)
     c = g.wait(lambda s: s["stereo"] > b["stereo"], 5, "stereo after theater")
-    check("8 theater", stereo_stopped and opaque > 0.95 and c["theater"] == 0,
-          f"stereo frozen {stereo_stopped}, game frame covers {opaque:.0%} of the screen")
+    check("8 theater", stereo_stopped and curved and opaque > 0.95 and c["theater"] == 0,
+          f"stereo frozen {stereo_stopped}, {'curved' if b['curvedSupported'] else 'flat'} screen ok {curved}, game frame covers {opaque:.0%} of the screen")
+
+
+def gate_render_scale(g):
+    """A stalled main thread misses frames: auto render scale tries one lower resolution, sees no gain (CPU-bound)
+    and puts it back."""
+    base = g.stats()["eyeSize"]
+    g.cmd("busy 25")
+    try:
+        low = g.wait(lambda s: s["eyeSize"][0] < base[0], 15, "lower render scale")["eyeSize"]
+        back = g.wait(lambda s: s["eyeSize"] == base, 15, "render scale restored")["eyeSize"]
+    finally:
+        g.cmd("busy 0")
+    check("5b render scale", low[0] < base[0] and back == base, f"eye width {base[0]} -> {low[0]} -> {back[0]} (CPU-bound, undone)")
 
 
 def tap_menu(g, taps):
@@ -371,11 +412,13 @@ def main():
                 g.start()
                 # IL2CPP first launch generates interop assemblies before plugins load.
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
-                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_theater, gate_menu]
+                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_theater, gate_menu, gate_render_scale]
                 if args.input:
                     gates.insert(4, gate_input)
                 else:
                     print("SKIP 7 input: pass --input to run it (takes over mouse and keyboard)", flush=True)
+                if args.fixture in PAD_FIXTURES:
+                    gates.insert(4, gate_pad)
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
                 for gate in gates:
@@ -392,6 +435,9 @@ def main():
             finally:
                 g.stop()
     finally:
+        log = os.path.join(build, "BepInEx", "LogOutput.log")
+        if os.path.exists(log):
+            shutil.copy2(log, os.path.join(OUT, "LogOutput.log"))  # uninstall deletes it
         subprocess.run([APP, "uninstall", build], check=True)
     check("install round trip", tree_hash(build) == before, "game folder byte-identical after uninstall")
     with open(os.path.join(OUT, "results.json"), "w") as f:

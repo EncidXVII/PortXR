@@ -22,7 +22,9 @@ Working name, not final.
 | Left menu: tap / hold / double-tap | Esc / Tab / VR menu |
 | Point at the UI panel + trigger | Mouse cursor + click (when the game shows a cursor) |
 
-**Gamepad** mode (VR menu, Controls) presents the controllers as an Xbox pad instead. Only games that read XInput directly see it; Unity 2021+ games using the old input manager read controllers through Windows.Gaming.Input and will not.
+**Gamepad** mode (VR menu, Controls) presents the controllers as an Xbox pad instead. Games on Unity's Input System package and games that read XInput see it. Unity 2021+ games on the old input manager read controllers through Windows.Gaming.Input and do not; keep keyboard & mouse there.
+
+Something wrong? Select the game in Parallax.exe and press **Export logs**. It saves one zip to your desktop to attach to a report.
 
 ## What works today
 
@@ -30,6 +32,7 @@ Working name, not final.
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
+- Theater mode shows the flat game on a big screen 3 m away; the laser pointer works on it. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
 - Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
@@ -68,6 +71,7 @@ Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`
 | F3 | 2022.3 | IL2CPP | D3D11 | built-in |
 | F4 | 2022.3 | Mono | D3D12 | built-in |
 | F5 | 2022.3 | IL2CPP | D3D11 | URP + Bloom |
+| F6 | 2022.3 | Mono, Input System package | D3D11 | built-in |
 
 The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 

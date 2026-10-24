@@ -25,6 +25,7 @@ struct Swapchain {
 HMODULE g_loader;
 PFN_xrGetInstanceProcAddr g_getProc;
 int g_api;  // 11 or 12, from the plugin
+bool g_cylinder;  // runtime supports curved layers (theater screen)
 Gpu* g_gpu;
 std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -41,7 +42,7 @@ std::mutex g_statsMutex;
 double g_intervals[256];
 int g_intervalCount;
 LARGE_INTEGER g_lastWait;
-uint64_t g_frames, g_submitted, g_quadSubmitted, g_stereoSubmitted;
+uint64_t g_frames, g_submitted, g_quadSubmitted, g_stereoSubmitted, g_curvedSubmitted;
 
 std::mutex g_captureMutex;
 std::wstring g_captureDir;
@@ -256,9 +257,10 @@ void do_submit(int slot) {
     XrCompositionLayerProjectionView views[2]{};
     XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerCylinderKHR cylinder{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
     const XrCompositionLayerBaseHeader* layers[2];
     uint32_t count = 0;
-    bool stereo = false, hasQuad = false;
+    bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
         if (f.stereo && f.eye[0].texture && f.eye[1].texture &&
             copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp")) && copy_layer(g_eyes[1], f.eye[1], path(L"right.bmp"))) {
@@ -276,13 +278,29 @@ void do_submit(int slot) {
         }
         PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
         if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"))) {
-            quad.layerFlags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
-            quad.space = g_xr.local;
-            quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            quad.subImage = {g_quad.handle, {{0, 0}, {g_quad.width, g_quad.height}}, 0};
-            quad.pose = to_xr(f.quadPose);
-            quad.size = {f.quadWidth, f.quadHeight};
-            layers[count++] = (XrCompositionLayerBaseHeader*)&quad;
+            XrCompositionLayerFlags flags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
+            XrSwapchainSubImage image{g_quad.handle, {{0, 0}, {g_quad.width, g_quad.height}}, 0};
+            XrPosef pose = to_xr(f.quadPose);
+            if (f.quadRadius > 0) {
+                cylinder.layerFlags = flags;
+                cylinder.space = g_xr.local;
+                cylinder.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                cylinder.subImage = image;
+                cylinder.pose = pose;
+                cylinder.radius = f.quadRadius;
+                cylinder.centralAngle = f.quadWidth / f.quadRadius;
+                cylinder.aspectRatio = f.quadWidth / f.quadHeight;
+                layers[count++] = (XrCompositionLayerBaseHeader*)&cylinder;
+                curved = true;
+            } else {
+                quad.layerFlags = flags;
+                quad.space = g_xr.local;
+                quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                quad.subImage = image;
+                quad.pose = pose;
+                quad.size = {f.quadWidth, f.quadHeight};
+                layers[count++] = (XrCompositionLayerBaseHeader*)&quad;
+            }
             hasQuad = true;
         }
     }
@@ -291,6 +309,7 @@ void do_submit(int slot) {
     std::lock_guard lock(g_statsMutex);
     g_stereoSubmitted += stereo;
     g_quadSubmitted += hasQuad;
+    g_curvedSubmitted += curved;
 }
 
 void do_shutdown() {
@@ -358,12 +377,16 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
         return fail("the headset runtime does not support this graphics API");
     }
 
-    const char* enabled[] = {extension};
+    g_cylinder = std::any_of(exts.begin(), exts.end(), [](auto& e) {
+        return strcmp(e.extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME) == 0;
+    });
+    if (!g_cylinder) prx_log("runtime lacks curved layers; the theater screen is flat");
+    const char* enabled[] = {extension, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME};
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strncpy_s(ici.applicationInfo.applicationName, appName, _TRUNCATE);
     strcpy_s(ici.applicationInfo.engineName, "Parallax");
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-    ici.enabledExtensionCount = 1;
+    ici.enabledExtensionCount = g_cylinder ? 2 : 1;
     ici.enabledExtensionNames = enabled;
     if (!xr_ok(xrCreateInstance(&ici, &g_xr.instance), "xrCreateInstance")) return fail("instance creation failed");
     if (!load_functions()) return fail("runtime is missing core functions");
@@ -430,5 +453,7 @@ PRX_API void prx_get_stats(PrxStats* out) {
     out->frames = g_frames;
     out->submitted = g_submitted;
     out->quadSubmitted = g_quadSubmitted;
+    out->curvedSubmitted = g_curvedSubmitted;
+    out->curvedSupported = g_cylinder;
     out->stereoSubmitted = g_stereoSubmitted;
 }

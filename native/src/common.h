@@ -30,6 +30,7 @@ struct PrxFrame {
     float quadWidth, quadHeight;
     int32_t quadAlpha;
     int32_t mirror;  // draw the left eye into the game window at Present
+    float quadRadius;  // >0 (only when PrxStats.curvedSupported): curved screen, quadPose is the cylinder's centre
 };
 
 enum PrxButton : uint32_t {
@@ -63,6 +64,8 @@ struct PrxStats {
     uint64_t submitted;
     uint64_t quadSubmitted;
     uint64_t stereoSubmitted;
+    uint64_t curvedSubmitted;
+    int32_t curvedSupported;
 };
 
 enum PrxState : int32_t { StateFailed = -1, StateNone = 0, StateInstance = 1, StateSession = 2, StateRunning = 3 };

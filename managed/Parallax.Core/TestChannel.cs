@@ -16,6 +16,7 @@ namespace Parallax
         internal Vector2? PointerOverride;
         Vector3? headPos;
         float headYaw;
+        int busyMs;  // simulated CPU-bound game: main-thread stall per frame
 
         TestChannel(int port) { udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, port)); }
 
@@ -47,6 +48,7 @@ namespace Parallax
                 var bytes = Encoding.UTF8.GetBytes(reply);
                 udp.Send(bytes, bytes.Length, from);
             }
+            if (busyMs > 0) System.Threading.Thread.Sleep(busyMs);
         }
 
         public void ApplyHead(Pose[] views)
@@ -104,6 +106,9 @@ namespace Parallax
                 case "recenter":
                     rig.RequestRecenter();
                     return "ok";
+                case "busy":
+                    busyMs = int.Parse(a[1]);
+                    return "ok";
                 case "theater":
                     Settings.Theater.Value = a[1] == "1";
                     return "ok";
@@ -151,7 +156,7 @@ namespace Parallax
             var cam = rig.GameCam;
             return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
-                "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},
+                "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},"curved":{{s.curvedSubmitted}},"curvedSupported":{{s.curvedSupported}},
                 "theater":{{(Settings.Theater.Value ? 1 : 0)}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},
                 "eyeL":{{V(rig.Eyes[0].transform.position)}},"eyeR":{{V(rig.Eyes[1].transform.position)}},
                 "cam":"{{(cam != null ? cam.name : "")}}","camMask":{{(cam != null ? cam.cullingMask : 0)}},"camPos":{{(cam != null ? V(cam.transform.position) : "null")}},

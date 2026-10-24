@@ -25,6 +25,7 @@ namespace Parallax.App
                             var g = Game.Detect(args[1]);
                             Console.WriteLine($"{g.Name}: {g.Badge}, Unity {g.UnityVersion}, loader {g.OtherLoader ?? "none"}");
                             break;
+                        case "export": Console.WriteLine(MainForm.ExportLogs(Game.Detect(args[1]))); break;
                         default: throw new ArgumentException("unknown command " + args[0]);
                     }
                     return 0;
