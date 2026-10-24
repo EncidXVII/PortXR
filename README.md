@@ -28,7 +28,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 
 ## What works today
 
-- Direct3D 11 games: Mono on Unity 2018.4+ (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
+- Direct3D 11 games from Unity 2018.4 to Unity 6: Mono (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
@@ -72,6 +72,8 @@ Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`
 | F4 | 2022.3 | Mono | D3D12 | built-in |
 | F5 | 2022.3 | IL2CPP | D3D11 | URP + Bloom |
 | F6 | 2022.3 | Mono, Input System package | D3D11 | built-in |
+| F7 | 6.3 | IL2CPP | D3D12 | URP + Bloom |
+| F8 | 6.3 | Mono | D3D11 | built-in |
 
 The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 

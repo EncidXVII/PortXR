@@ -437,7 +437,7 @@ def main():
     finally:
         log = os.path.join(build, "BepInEx", "LogOutput.log")
         if os.path.exists(log):
-            shutil.copy2(log, os.path.join(OUT, "LogOutput.log"))  # uninstall deletes it
+            shutil.copy2(log, os.path.join(OUT, f"LogOutput-{args.fixture}.log"))  # uninstall deletes it
         subprocess.run([APP, "uninstall", build], check=True)
     check("install round trip", tree_hash(build) == before, "game folder byte-identical after uninstall")
     with open(os.path.join(OUT, "results.json"), "w") as f:

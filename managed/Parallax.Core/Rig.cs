@@ -206,8 +206,9 @@ namespace Parallax
             // The headset paces frames through xrWaitFrame; desktop vsync or a 60 fps cap would halve it.
             if (QualitySettings.vSyncCount != 0) QualitySettings.vSyncCount = 0;
             if (Application.targetFrameRate != -1) Application.targetFrameRate = -1;
-            // Polled rather than SceneManager.sceneLoaded, whose accessor IL2CPP games often strip.
-            int scene = SceneManager.GetActiveScene().handle;
+            // Polled rather than SceneManager.sceneLoaded, whose accessor IL2CPP games often strip. GetHashCode is the
+            // handle on every version; Scene.handle itself changed from int to a struct in Unity 6.
+            int scene = SceneManager.GetActiveScene().GetHashCode();
             if (scene != sceneHandle)
             {
                 sceneHandle = scene;
@@ -528,7 +529,8 @@ namespace Parallax
             {
                 if (IsEye(cam) || cam.targetTexture != null) continue;
                 if (wanted.Length > 0 && cam.name == wanted) return cam;
-                int score = BitCount(cam.cullingMask) - (cam.orthographic ? 50 : 0) + (cam.CompareTag("MainCamera") ? 100 : 0);
+                // tag, not CompareTag: the Unity 6 IL2CPP bindings route CompareTag through a span method that is missing there.
+                int score = BitCount(cam.cullingMask) - (cam.orthographic ? 50 : 0) + (cam.tag == "MainCamera" ? 100 : 0);
                 if (score > bestScore)
                 {
                     best = cam;
