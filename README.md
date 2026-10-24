@@ -26,8 +26,7 @@ Working name, not final.
 
 ## What works today
 
-- Unity Mono games, Direct3D 11, built-in render pipeline (verified on Unity 2019.4 and 2022.3).
-- Mono games on Unity 2018.4+ (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
+- Direct3D 11 games: Mono on Unity 2018.4+ (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line (e.g. no desktop mirror, URP post-processing not yet copied).
 - Not yet: Direct3D 12, HDRP specifics, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose.
 - See [COMPAT.md](COMPAT.md).
@@ -58,7 +57,7 @@ Fixtures are generated from `fixtures/shared`: `fixtures\build.ps1 -Name F1` (F0
 ## How it works
 
 - `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 copy into OpenXR swapchains, controller actions, haptics, input emulation.
-- `managed/` (BepInEx 5 plugin): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
+- `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
 - `app/` (`Parallax.exe`): library, install/uninstall with a receipt (`.vrinstall.json`), launch.
 
 ## License
