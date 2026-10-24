@@ -17,7 +17,7 @@ foreach ($name in $deps.Keys) {
     }
 }
 
-cmake -S "$root\native" -B "$build\native" -G "Visual Studio 17 2022" -A x64 -Wno-dev -Wno-deprecated | Out-Null
+cmake -S "$root\native" -B "$build\native" -G "Visual Studio 17 2022" -A x64 -Wno-author -Wno-deprecated | Out-Null
 if ($LASTEXITCODE) { throw "native configure failed" }
 cmake --build "$build\native" --config $Config
 if ($LASTEXITCODE) { throw "native build failed" }
@@ -37,8 +37,9 @@ $native = "$build\native\$Config\parallax_xr.dll", "$build\native\$Config\openxr
 function Payload($name, $loader, $pluginDll) {
     $payload = Join-Path $dist $name
     $plugin = Join-Path $payload "BepInEx\plugins\Parallax"
-    New-Item -ItemType Directory -Force $plugin | Out-Null
+    New-Item -ItemType Directory -Force $payload | Out-Null
     Copy-Item "$build\deps\$loader\*" $payload -Recurse
+    New-Item -ItemType Directory -Force $plugin | Out-Null
     Remove-Item "$payload\changelog.txt"
     Copy-Item (@($pluginDll) + $native) $plugin
     return $payload

@@ -45,12 +45,13 @@ public static partial class FixtureBuild
         // Keep whole engine modules (IMGUI, ScreenCapture) so the plugin's compile surface exists; real games may strip
         // them and the plugin falls back at runtime.
         PlayerSettings.stripEngineCode = false;
-        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Minimal);
+        // Mono players keep their full class libraries (the 2022 default); stripped ones stop the BepInEx 5 preloader.
+        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, il2cpp ? ManagedStrippingLevel.Minimal : ManagedStrippingLevel.Disabled);
 #if !UNITY_2019_3_OR_NEWER
         PlayerSettings.scriptingRuntimeVersion = Arg("-runtime") == "legacy" ? ScriptingRuntimeVersion.Legacy : ScriptingRuntimeVersion.Latest;
 #endif
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
-        PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { GraphicsDeviceType.Direct3D11 });
+        PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { Arg("-gfx") == "d3d12" ? GraphicsDeviceType.Direct3D12 : GraphicsDeviceType.Direct3D11 });
         for (int i = 0; i < QualitySettings.names.Length; i++)
         {
             QualitySettings.SetQualityLevel(i, false);

@@ -18,12 +18,14 @@ FetchContent_MakeAvailable(openxr_sdk minhook)
 add_library(parallax_xr SHARED
     src/log.cpp
     src/xr.cpp
-    src/blit.cpp
+    src/gpu.cpp
+    src/d3d11.cpp
+    src/d3d12.cpp
     src/input.cpp)
 target_include_directories(parallax_xr PRIVATE ${openxr_sdk_SOURCE_DIR}/include)
-target_compile_definitions(parallax_xr PRIVATE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_definitions(parallax_xr PRIVATE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_USE_GRAPHICS_API_D3D12 WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(parallax_xr PRIVATE /W4 /permissive-)
-target_link_libraries(parallax_xr PRIVATE minhook d3d11 dxgi d3dcompiler)
+target_link_libraries(parallax_xr PRIVATE minhook d3d11 d3d12 dxgi d3dcompiler)
 
 add_custom_command(TARGET parallax_xr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_xr>)

@@ -445,7 +445,8 @@ void input_shutdown() {
 }
 
 PRX_API int32_t prx_install_hooks() {
-    if (MH_Initialize() != MH_OK) return 0;
+    MH_STATUS init = MH_Initialize();
+    if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) return 0;
     std::vector<void*> done;
     int slot = 0;
     for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll", "xinput1_2.dll", "xinput1_1.dll"}) {

@@ -9,7 +9,10 @@ namespace Parallax
     {
         // Unity stores render textures bottom-up on D3D; the screen capture comes out top-down.
         const int EyeFlip = 1, CaptureFlip = 0;
-        const float TheaterDistance = 3f, TheaterWidth = 3.2f, UiDrop = 0.15f;
+        const float TheaterDistance = 3f, TheaterWidth = 3.2f, UiDrop = 0.15f, MaxRetrySeconds = 60f;
+        const int ErrorsBeforeTheater = 3;
+        // D3D12 grabs the UI and draws the mirror in native code at Present, where the backbuffer's state is known.
+        static readonly bool D3D12 = SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D12;
 
         IntPtr renderEvent;
         internal XrState State;
@@ -40,8 +43,10 @@ namespace Parallax
         internal bool PointerActive;
         Vector2 pointerUv;
         bool menuKeyDown;
-        bool failureHandled;
-        bool submitErrorLogged;
+        bool failureHandled, restarting;
+        float retryAt, retryDelay = 5f;
+        int submitErrors;
+        bool forcedTheater;
 
         internal Menu Menu;
         internal TestChannel Test;
@@ -61,7 +66,7 @@ namespace Parallax
 
         void Start()
         {
-            if (Native.prx_init(Application.productName, out int w, out int h) == 0)
+            if (Native.prx_init(Application.productName, D3D12 ? 12 : 11, out int w, out int h) == 0)
             {
                 DrainLog();
                 Plugin.Log.LogError("OpenXR unavailable; VR stays off.");
@@ -81,7 +86,8 @@ namespace Parallax
                 eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
                 {
                     name = "Parallax Eye " + e,
-                    antiAliasing = Mathf.Max(1, QualitySettings.antiAliasing),
+                    // The D3D12 path reads the camera's own target, which must not be multisampled.
+                    antiAliasing = D3D12 ? 1 : Mathf.Max(1, QualitySettings.antiAliasing),
                 };
                 eyeTargets[e].Create();
                 eyePtrs[e] = eyeTargets[e].GetNativeTexturePtr();
@@ -131,15 +137,9 @@ namespace Parallax
             DrainLog();
             Test?.Poll(this);
             State = (XrState)Native.prx_state();
-            if (State == XrState.Failed)
+            if (State == XrState.Failed || restarting)
             {
-                if (!failureHandled)
-                {
-                    failureHandled = true;
-                    SetEyes(false);
-                    ReleaseCamera();
-                    Plugin.Log.LogError("VR session lost; the game continues flat.");
-                }
+                Recover();
                 return;
             }
             // The headset paces frames through xrWaitFrame; desktop vsync or a 60 fps cap would halve it.
@@ -184,7 +184,7 @@ namespace Parallax
                 Test?.ApplyHead(Views);
                 if (recenterPending) Recenter();
             }
-            var cam = located && !Settings.Theater.Value ? EnsureCamera() : null;
+            var cam = located && !Settings.Theater.Value && !forcedTheater ? EnsureCamera() : null;
             if (cam == null)
             {
                 SetEyes(false);
@@ -234,8 +234,12 @@ namespace Parallax
                 }
                 catch (Exception ex)
                 {
-                    if (!submitErrorLogged) Plugin.Log.LogError("Frame submit failed: " + ex);
-                    submitErrorLogged = true;
+                    if (++submitErrors == 1) Plugin.Log.LogError("Frame submit failed: " + ex);
+                    if (submitErrors == ErrorsBeforeTheater)
+                    {
+                        forcedTheater = true;
+                        Plugin.Log.LogWarning("Stereo keeps failing in this game; switched to theater mode.");
+                    }
                 }
             }
         }
@@ -243,17 +247,18 @@ namespace Parallax
         void SubmitFrame()
         {
             // The game camera drew nothing, so the backbuffer now holds only overlay UI and IMGUI.
-            bool native = captureIntoTexture == null || !managedCapture.Run(() =>
+            bool native = D3D12 || captureIntoTexture == null || !managedCapture.Run(() =>
             {
                 EnsureUiTarget();
                 captureIntoTexture(uiTarget);
             });
-            if (native) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
+            if (native && !D3D12) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
             bool stereo = eyesRendered;
             var f = new Frame { stereo = stereo ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
             if (stereo)
             {
-                mirror.Run(() => Mirror(native));
+                // A managed blit would land in the D3D12 UI grab; there, and where Graphics.Blit is stripped, Present draws it.
+                f.mirror = D3D12 || !mirror.Run(() => Mirror(native)) ? 1 : 0;
                 for (int e = 0; e < 2; e++)
                 {
                     var rt = eyeTargets[e];
@@ -368,6 +373,40 @@ namespace Parallax
         }
 
         internal void RequestRecenter() => recenterPending = true;
+
+        // Runtime restarts, headset sleep and session loss end the session; the game goes flat and we retry with
+        // a growing delay until the runtime is back.
+        void Recover()
+        {
+            if (!failureHandled)
+            {
+                failureHandled = true;
+                SetEyes(false);
+                ReleaseCamera();
+                retryAt = Time.realtimeSinceStartup + retryDelay;
+                Plugin.Log.LogError($"VR session lost; the game continues flat. Retrying in {retryDelay:0} s.");
+            }
+            if (!restarting)
+            {
+                if (Time.realtimeSinceStartup < retryAt) return;
+                restarting = true;
+                GL.IssuePluginEvent(renderEvent, Native.EvShutdown);
+                return;
+            }
+            if (State != XrState.None) return;  // the render thread has not shut down yet
+            restarting = false;
+            failureHandled = false;
+            retryDelay = Mathf.Min(retryDelay * 2, MaxRetrySeconds);
+            if (Native.prx_init(Application.productName, D3D12 ? 12 : 11, out _, out _) == 0)
+            {
+                DrainLog();
+                return;  // Failed again: the next Update schedules another try
+            }
+            recenterPending = true;
+            Native.prx_set_init_texture(eyePtrs[0]);
+            GL.IssuePluginEvent(renderEvent, Native.EvInit);
+            Plugin.Log.LogInfo("OpenXR runtime found again; restarting VR.");
+        }
 
         void Recenter()
         {

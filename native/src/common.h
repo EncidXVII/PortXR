@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <d3d11_1.h>
+#include <d3d12.h>
 #include <atomic>
 #include <cstdint>
 #include <openxr/openxr.h>
@@ -13,7 +14,7 @@ struct PrxPose { float px, py, pz, qx, qy, qz, qw; };
 struct PrxFov { float left, right, up, down; };
 
 struct PrxLayer {
-    void* texture;  // ID3D11Texture2D* from Texture.GetNativeTexturePtr
+    void* texture;  // ID3D11Texture2D* or ID3D12Resource* from Texture.GetNativeTexturePtr
     int32_t flipY;
 };
 
@@ -28,6 +29,7 @@ struct PrxFrame {
     PrxPose quadPose;
     float quadWidth, quadHeight;
     int32_t quadAlpha;
+    int32_t mirror;  // draw the left eye into the game window at Present
 };
 
 enum PrxButton : uint32_t {
@@ -80,7 +82,8 @@ extern XrGlobals g_xr;
 
 #define XR_FUNCS(X) \
     X(xrEnumerateInstanceExtensionProperties) X(xrCreateInstance) X(xrDestroyInstance) X(xrGetSystem) \
-    X(xrEnumerateViewConfigurationViews) X(xrGetD3D11GraphicsRequirementsKHR) X(xrCreateSession) \
+    X(xrEnumerateViewConfigurationViews) X(xrGetD3D11GraphicsRequirementsKHR) X(xrGetD3D12GraphicsRequirementsKHR) \
+    X(xrCreateSession) \
     X(xrDestroySession) X(xrBeginSession) X(xrEndSession) X(xrRequestExitSession) X(xrPollEvent) \
     X(xrCreateReferenceSpace) X(xrDestroySpace) X(xrLocateViews) X(xrLocateSpace) X(xrWaitFrame) \
     X(xrBeginFrame) X(xrEndFrame) X(xrEnumerateSwapchainFormats) X(xrCreateSwapchain) \
@@ -101,12 +104,3 @@ bool xr_ok(XrResult r, const char* what);
 bool input_create_actions();
 bool input_attach_session();
 void input_shutdown();
-
-// blit.cpp
-bool blit_init(ID3D11Device* device);
-void blit_shutdown();
-// Draws src into dst (full viewport). dstSrgb: dst view encodes on write.
-void blit_draw(ID3D11DeviceContext* ctx, ID3D11Texture2D* src, ID3D11RenderTargetView* dst, int w, int h,
-               bool flipY, bool dstSrgb);
-// Writes a 32-bit top-down BMP of tex (test capture).
-void blit_save_bmp(ID3D11DeviceContext* ctx, ID3D11Texture2D* tex, const wchar_t* path);

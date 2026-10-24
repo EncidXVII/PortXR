@@ -28,6 +28,7 @@ namespace Parallax
         public Pose quadPose;
         public float quadWidth, quadHeight;
         public int quadAlpha;
+        public int mirror;
     }
 
     [Flags]
@@ -72,7 +73,7 @@ namespace Parallax
         // Mono only probes the game's plugin folders; loading by full path first makes the DllImports bind to it.
         public static bool Load(string dir) => LoadLibrary(Path.Combine(dir, Dll + ".dll")) != IntPtr.Zero;
 
-        [DllImport(Dll)] public static extern int prx_init([MarshalAs(UnmanagedType.LPStr)] string appName, out int width, out int height);
+        [DllImport(Dll)] public static extern int prx_init([MarshalAs(UnmanagedType.LPStr)] string appName, int api, out int width, out int height);
         [DllImport(Dll)] public static extern int prx_state();
         [DllImport(Dll)] public static extern IntPtr prx_render_event_func();
         [DllImport(Dll)] public static extern void prx_set_init_texture(IntPtr texture);

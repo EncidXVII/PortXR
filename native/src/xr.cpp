@@ -1,4 +1,4 @@
-#include "common.h"
+#include "gpu.h"
 #include <wrl/client.h>
 #include <algorithm>
 #include <cstring>
@@ -20,19 +20,15 @@ constexpr int kSlots = 4;
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
     int width = 0, height = 0;
-    std::vector<ID3D11Texture2D*> images;
-    std::vector<ComPtr<ID3D11RenderTargetView>> views;
 };
 
 HMODULE g_loader;
 PFN_xrGetInstanceProcAddr g_getProc;
-ComPtr<ID3D11Device> g_device;
-ComPtr<ID3D11DeviceContext> g_ctx;
+int g_api;  // 11 or 12, from the plugin
+Gpu* g_gpu;
 std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-bool g_formatSrgb = true;
 Swapchain g_eyes[2], g_quad;
-ComPtr<ID3D11Texture2D> g_backbufferCopy;
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -61,7 +57,8 @@ bool load_functions() {
 #define XR_LOAD(name) name = load<std::remove_pointer_t<PFN_##name>>(#name);
     XR_FUNCS(XR_LOAD)
 #undef XR_LOAD
-    return xrCreateSession && xrGetD3D11GraphicsRequirementsKHR && xrWaitFrame;
+    return xrCreateSession && xrWaitFrame &&
+           (g_api == 12 ? xrGetD3D12GraphicsRequirementsKHR != nullptr : xrGetD3D11GraphicsRequirementsKHR != nullptr);
 }
 
 bool fail(const char* msg) {
@@ -71,9 +68,10 @@ bool fail(const char* msg) {
 }
 
 void destroy_swapchain(Swapchain& sc) {
-    sc.views.clear();
-    sc.images.clear();
-    if (sc.handle) xrDestroySwapchain(sc.handle);
+    if (sc.handle) {
+        g_gpu->forget_images(sc.handle);
+        xrDestroySwapchain(sc.handle);
+    }
     sc = {};
 }
 
@@ -90,40 +88,24 @@ bool ensure_swapchain(Swapchain& sc, int w, int h) {
     ci.arraySize = 1;
     ci.mipCount = 1;
     if (!xr_ok(xrCreateSwapchain(g_xr.session, &ci, &sc.handle), "xrCreateSwapchain")) return false;
-    uint32_t count = 0;
-    xrEnumerateSwapchainImages(sc.handle, 0, &count, nullptr);
-    std::vector<XrSwapchainImageD3D11KHR> imgs(count, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
-    xrEnumerateSwapchainImages(sc.handle, count, &count, (XrSwapchainImageBaseHeader*)imgs.data());
-    for (auto& img : imgs) {
-        D3D11_RENDER_TARGET_VIEW_DESC rd{};
-        rd.Format = g_format;
-        rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-        ComPtr<ID3D11RenderTargetView> rtv;
-        if (FAILED(g_device->CreateRenderTargetView(img.texture, &rd, &rtv))) {
-            prx_log("swapchain RTV failed");
-            destroy_swapchain(sc);
-            return false;
-        }
-        sc.images.push_back(img.texture);
-        sc.views.push_back(rtv);
+    if (!g_gpu->bind_images(sc.handle, g_format)) {
+        destroy_swapchain(sc);
+        return false;
     }
     sc.width = w;
     sc.height = h;
-    prx_log("swapchain %dx%d, %u images", w, h, count);
+    prx_log("swapchain %dx%d", w, h);
     return true;
 }
 
 bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath) {
-    auto* tex = (ID3D11Texture2D*)layer.texture;
-    D3D11_TEXTURE2D_DESC desc;
-    tex->GetDesc(&desc);
-    if (!ensure_swapchain(sc, (int)desc.Width, (int)desc.Height)) return false;
+    int w, h;
+    if (!g_gpu->size(layer.texture, w, h) || !ensure_swapchain(sc, w, h)) return false;
     uint32_t index;
     if (!xr_ok(xrAcquireSwapchainImage(sc.handle, nullptr, &index), "xrAcquireSwapchainImage")) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, nullptr, XR_INFINITE_DURATION};
     if (xr_ok(xrWaitSwapchainImage(sc.handle, &wi), "xrWaitSwapchainImage")) {
-        blit_draw(g_ctx.Get(), tex, sc.views[index].Get(), sc.width, sc.height, layer.flipY != 0, g_formatSrgb);
-        if (!capturePath.empty()) blit_save_bmp(g_ctx.Get(), sc.images[index], capturePath.c_str());
+        g_gpu->draw(layer.texture, sc.handle, index, layer.flipY != 0, capturePath.empty() ? nullptr : capturePath.c_str());
     }
     xrReleaseSwapchainImage(sc.handle, nullptr);
     return true;
@@ -141,48 +123,48 @@ void pick_format() {
     for (auto f : preferred) {
         if (std::find(formats.begin(), formats.end(), (int64_t)f) != formats.end()) {
             g_format = f;
-            g_formatSrgb = f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
             return;
         }
     }
     if (!formats.empty()) g_format = (DXGI_FORMAT)formats[0];
 }
 
-void do_init() {
-    void* texture = g_initTexture.exchange(nullptr);
-    if (g_xr.state != StateInstance || !texture) return;
-    ((ID3D11Resource*)texture)->GetDevice(&g_device);
-    g_device->GetImmediateContext(&g_ctx);
-
-    XrGraphicsRequirementsD3D11KHR req{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
-    if (!xr_ok(xrGetD3D11GraphicsRequirementsKHR(g_xr.instance, g_xr.system, &req), "graphics requirements"))
-        return (void)fail("no D3D11 support in runtime");
-    ComPtr<IDXGIDevice> dxgi;
-    ComPtr<IDXGIAdapter> adapter;
-    DXGI_ADAPTER_DESC ad{};
-    if (SUCCEEDED(g_device.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(&adapter))) adapter->GetDesc(&ad);
-    // A zero LUID (SteamVR null driver) means the runtime accepts any adapter.
-    bool anyAdapter = req.adapterLuid.HighPart == 0 && req.adapterLuid.LowPart == 0;
-    if (!anyAdapter && memcmp(&ad.AdapterLuid, &req.adapterLuid, sizeof(LUID)) != 0) {
-        prx_log("game adapter %ls luid %08lx:%08lx, runtime wants %08lx:%08lx", ad.Description, ad.AdapterLuid.HighPart,
-                ad.AdapterLuid.LowPart, req.adapterLuid.HighPart, req.adapterLuid.LowPart);
-        return (void)fail("game renders on a different GPU than the headset runtime");
-    }
-
-    XrGraphicsBindingD3D11KHR binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
-    binding.device = g_device.Get();
-    XrSessionCreateInfo sci{XR_TYPE_SESSION_CREATE_INFO, &binding, 0, g_xr.system};
-    if (!xr_ok(xrCreateSession(g_xr.instance, &sci, &g_xr.session), "xrCreateSession"))
-        return (void)fail("session creation failed");
+// Session creation waits for the backend: on D3D12 the game's queue is only known after its first Present.
+void create_session() {
+    if (g_xr.state != StateInstance || !g_gpu || !g_gpu->ready()) return;
+    if (!g_gpu->create_session(&g_xr.session)) return (void)fail("session creation failed");
     XrReferenceSpaceCreateInfo rs{XR_TYPE_REFERENCE_SPACE_CREATE_INFO, nullptr, XR_REFERENCE_SPACE_TYPE_LOCAL,
                                   {{0, 0, 0, 1}, {0, 0, 0}}};
     if (!xr_ok(xrCreateReferenceSpace(g_xr.session, &rs, &g_xr.local), "local space"))
         return (void)fail("reference space failed");
     pick_format();
     if (!input_attach_session()) prx_log("controller input unavailable");
-    if (!blit_init(g_device.Get())) return (void)fail("blit init failed");
     prx_log("session created, swapchain format %d", (int)g_format);
     g_xr.state = StateSession;
+}
+
+void do_init() {
+    void* texture = g_initTexture.exchange(nullptr);
+    if (g_xr.state != StateInstance || !texture || g_gpu) return;
+    if (g_api == 12) {
+        ComPtr<ID3D12Device> device;
+        ComPtr<ID3D12CommandQueue> probe;
+        D3D12_COMMAND_QUEUE_DESC qd{D3D12_COMMAND_LIST_TYPE_DIRECT};
+        if (FAILED(((ID3D12Resource*)texture)->GetDevice(IID_PPV_ARGS(&device))) ||
+            FAILED(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&probe))) || !gpu_hook_queue(probe.Get()) ||
+            !gpu_hook_present(probe.Get()))
+            return (void)fail("D3D12 setup failed");
+        g_gpu = gpu_create_d3d12(device.Get());
+    } else {
+        ComPtr<ID3D11Device> device;
+        ((ID3D11Resource*)texture)->GetDevice(&device);
+        // Only the native mirror needs Present on D3D11, so a failed hook is not fatal.
+        gpu_hook_present(device.Get());
+        g_gpu = gpu_create_d3d11(device.Get());
+    }
+    if (!g_gpu) return (void)fail("blit init failed");
+    gpu_set_present_target(g_gpu);
+    create_session();
 }
 
 void poll_events() {
@@ -223,6 +205,7 @@ void end_frame(const XrCompositionLayerBaseHeader* const* layers, uint32_t count
 }
 
 void do_begin() {
+    create_session();
     if (g_xr.state < StateSession) return;
     poll_events();
     if (g_frameBegun) end_frame(nullptr, 0);
@@ -250,39 +233,14 @@ void do_begin() {
 // Fallback for engines without ScreenCapture.CaptureScreenshotIntoRenderTexture (Unity < 2019.1): at end of frame
 // Unity still has the backbuffer bound, holding the game UI and IMGUI.
 void do_capture_backbuffer() {
-    if (!g_ctx) return;
-    ComPtr<ID3D11RenderTargetView> rtv;
-    g_ctx->OMGetRenderTargets(1, &rtv, nullptr);
-    if (!rtv) return;
-    ComPtr<ID3D11Resource> res;
-    rtv->GetResource(&res);
-    ComPtr<ID3D11Texture2D> src;
-    if (FAILED(res.As(&src))) return;
-    D3D11_TEXTURE2D_DESC desc;
-    src->GetDesc(&desc);
-    D3D11_TEXTURE2D_DESC have{};
-    if (g_backbufferCopy) g_backbufferCopy->GetDesc(&have);
-    if (!g_backbufferCopy || have.Width != desc.Width || have.Height != desc.Height || have.Format != desc.Format) {
-        D3D11_TEXTURE2D_DESC copy = desc;
-        copy.SampleDesc = {1, 0};
-        copy.MipLevels = 1;
-        copy.ArraySize = 1;
-        copy.Usage = D3D11_USAGE_DEFAULT;
-        copy.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        copy.CPUAccessFlags = 0;
-        copy.MiscFlags = 0;
-        g_backbufferCopy.Reset();
-        if (FAILED(g_device->CreateTexture2D(&copy, nullptr, &g_backbufferCopy))) {
-            prx_log("backbuffer copy: format %d not copyable", (int)desc.Format);
-            return;
-        }
-    }
-    if (desc.SampleDesc.Count > 1) g_ctx->ResolveSubresource(g_backbufferCopy.Get(), 0, src.Get(), 0, desc.Format);
-    else g_ctx->CopySubresourceRegion(g_backbufferCopy.Get(), 0, 0, 0, 0, src.Get(), 0, nullptr);
+    if (g_gpu) g_gpu->capture_backbuffer();
 }
 
 void do_submit(int slot) {
-    if (!g_frameBegun) return;
+    if (!g_frameBegun) {
+        if (g_gpu) g_gpu->set_mirror(nullptr);
+        return;
+    }
     PrxFrame f;
     {
         std::lock_guard lock(g_slotMutex);
@@ -316,7 +274,7 @@ void do_submit(int slot) {
             layers[count++] = (XrCompositionLayerBaseHeader*)&proj;
             stereo = true;
         }
-        PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_backbufferCopy.Get(), 0} : f.quadLayer;
+        PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
         if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"))) {
             quad.layerFlags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
             quad.space = g_xr.local;
@@ -328,6 +286,7 @@ void do_submit(int slot) {
             hasQuad = true;
         }
     }
+    g_gpu->set_mirror(stereo && f.mirror ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
     g_stereoSubmitted += stereo;
@@ -336,22 +295,26 @@ void do_submit(int slot) {
 
 void do_shutdown() {
     if (g_xr.state == StateNone) return;
-    g_xr.state = StateNone;
+    // Failed until the end, so the plugin cannot start a new instance while this one is torn down.
+    g_xr.state = StateFailed;
     g_running = false;
-    destroy_swapchain(g_eyes[0]);
-    destroy_swapchain(g_eyes[1]);
-    destroy_swapchain(g_quad);
-    g_backbufferCopy.Reset();
+    g_frameBegun = false;
+    gpu_set_present_target(nullptr);
+    if (g_gpu) {
+        destroy_swapchain(g_eyes[0]);
+        destroy_swapchain(g_eyes[1]);
+        destroy_swapchain(g_quad);
+    }
     input_shutdown();
-    blit_shutdown();
     if (g_xr.local) xrDestroySpace(g_xr.local);
     if (g_xr.session) xrDestroySession(g_xr.session);
     if (g_xr.instance) xrDestroyInstance(g_xr.instance);
     g_xr.local = XR_NULL_HANDLE;
     g_xr.session = XR_NULL_HANDLE;
     g_xr.instance = XR_NULL_HANDLE;
-    g_ctx.Reset();
-    g_device.Reset();
+    delete g_gpu;
+    g_gpu = nullptr;
+    g_xr.state = StateNone;
 }
 
 void __stdcall on_render_event(int id) {
@@ -365,8 +328,10 @@ void __stdcall on_render_event(int id) {
 }
 }  // namespace
 
-PRX_API int32_t prx_init(const char* appName, int32_t* recommendedWidth, int32_t* recommendedHeight) {
+PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedWidth, int32_t* recommendedHeight) {
     if (g_xr.state != StateNone) return g_xr.state >= StateInstance;
+    g_api = api;
+    const char* extension = api == 12 ? XR_KHR_D3D12_ENABLE_EXTENSION_NAME : XR_KHR_D3D11_ENABLE_EXTENSION_NAME;
     wchar_t path[MAX_PATH];
     HMODULE self;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -386,11 +351,14 @@ PRX_API int32_t prx_init(const char* appName, int32_t* recommendedWidth, int32_t
         return fail("no OpenXR runtime (start SteamVR or your headset app)");
     std::vector<XrExtensionProperties> exts(count, {XR_TYPE_EXTENSION_PROPERTIES});
     xrEnumerateInstanceExtensionProperties(nullptr, count, &count, exts.data());
-    bool d3d11 = std::any_of(exts.begin(), exts.end(),
-                             [](auto& e) { return strcmp(e.extensionName, XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0; });
-    if (!d3d11) return fail("runtime lacks XR_KHR_D3D11_enable");
+    bool supported = std::any_of(exts.begin(), exts.end(),
+                                 [&](auto& e) { return strcmp(e.extensionName, extension) == 0; });
+    if (!supported) {
+        prx_log("runtime lacks %s", extension);
+        return fail("the headset runtime does not support this graphics API");
+    }
 
-    const char* enabled[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    const char* enabled[] = {extension};
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strncpy_s(ici.applicationInfo.applicationName, appName, _TRUNCATE);
     strcpy_s(ici.applicationInfo.engineName, "Parallax");

@@ -67,9 +67,10 @@ namespace Parallax
         static bool Start(ConfigFile config)
         {
             Settings.Bind(config);
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11)
+            var api = SystemInfo.graphicsDeviceType;
+            if (api != GraphicsDeviceType.Direct3D11 && api != GraphicsDeviceType.Direct3D12)
             {
-                Log.LogError($"Graphics API {SystemInfo.graphicsDeviceType} is not supported yet; VR stays off.");
+                Log.LogError($"Graphics API {api} is not supported; VR stays off.");
                 return false;
             }
             if (!Native.Load(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)))
