@@ -78,7 +78,12 @@ class Game:
         raise RuntimeError(f"no reply to '{line}'")
 
     def stats(self):
-        return json.loads(self.cmd("stats"))
+        # A late reply to an earlier, resent command can arrive first; stats replies are always JSON.
+        for _ in range(5):
+            reply = self.cmd("stats")
+            if reply.startswith("{"):
+                return json.loads(reply)
+        raise RuntimeError(f"no stats reply, last got '{reply}'")
 
     def wait(self, predicate, timeout, what):
         end = time.time() + timeout

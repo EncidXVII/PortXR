@@ -1,0 +1,28 @@
+[package]
+name = "parallax"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "Parallax"
+path = "src/main.rs"
+
+[dependencies]
+dirs = "7.0.0"
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts"] }
+egui_extras = { version = "0.37.0", features = ["image", "file"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+ureq = { version = "3.5.0", features = ["json"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }
+winreg = "0.56.0"
+zip = "9.1.0"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

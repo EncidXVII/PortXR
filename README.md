@@ -7,7 +7,7 @@ Working name, not final.
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
-2. Pick a game marked **Ready** and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
+2. Pick a game marked **Ready**, adjust its settings if you like, and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button** (or press F11) for the VR menu: theater mode, recenter, height, world scale, controls, camera choice.
 
 ## Controls (default: keyboard & mouse emulation)
@@ -40,7 +40,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 
 ## Build
 
-Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+.
+Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+, Rust (stable, MSVC toolchain).
 
 ```
 .\build.ps1
@@ -81,7 +81,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 - `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation.
 - `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
-- `app/` (`Parallax.exe`): library, install/uninstall with a receipt (`.vrinstall.json`), launch.
+- `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam libraries and manual adds, per-game settings (kept in `%APPDATA%\Parallax` across uninstalls), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases.
 
 ## License
 

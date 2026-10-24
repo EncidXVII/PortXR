@@ -29,7 +29,7 @@ if ($il2cpp) {
     dotnet build "$root\managed\Parallax.Core.Il2Cpp" -c $Config -o "$build\managed-il2cpp"
     if ($LASTEXITCODE) { throw "IL2CPP plugin build failed" }
 } else { Write-Warning "build\deps\interop-f3 missing: skipping the IL2CPP payload" }
-dotnet build "$root\app\Parallax.App" -c $Config -o "$build\app"
+cargo build --release --manifest-path "$root\app\Cargo.toml" --target-dir "$build\app"
 if ($LASTEXITCODE) { throw "app build failed" }
 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
@@ -49,6 +49,6 @@ $mono = Payload "payload" "bepinex5" "$build\managed\Parallax.Core.dll"
 New-Item -ItemType Directory -Force "$mono\BepInEx\config" | Out-Null
 Set-Content "$mono\BepInEx\config\BepInEx.cfg" "[Chainloader]`r`nHideManagerGameObject = true`r`n" -Encoding ascii
 if ($il2cpp) { Payload "payload-il2cpp" "bepinex6" "$build\managed-il2cpp\Parallax.Core.dll" | Out-Null }
-Copy-Item "$build\app\Parallax.exe", "$build\app\Parallax.exe.config" $dist
+Copy-Item "$build\app\release\Parallax.exe" $dist
 Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md" $dist
 Write-Host "dist ready: $dist"

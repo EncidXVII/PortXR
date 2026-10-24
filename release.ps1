@@ -11,6 +11,7 @@ if (-not $MonoOnly -and -not (Test-Path "$dist\payload-il2cpp")) { throw "IL2CPP
 $plugin = Get-Content "$root\managed\Parallax.Core\Plugin.cs" -Raw
 if ($plugin -notmatch 'BepInPlugin\("[^"]+", "[^"]+", "([^"]+)"\)') { throw "plugin version not found" }
 $version = $Matches[1]
+if ((Get-Content "$root\app\Cargo.toml" -Raw) -notmatch "version = `"$([regex]::Escape($version))`"") { throw "app\Cargo.toml version differs from the plugin ($version)" }
 $name = if ($MonoOnly) { "Parallax-$version-mono-only" } else { "Parallax-$version" }
 
 $out = Join-Path $root "release"

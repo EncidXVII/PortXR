@@ -30,3 +30,6 @@ Statically linked into `parallax_xr.dll`. BSD-2-Clause.
     OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
     ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
     ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## Rust crates in Parallax.exe
+Statically linked. egui, eframe, egui_extras, egui-winit, winit, glow, glutin (MIT OR Apache-2.0); image, serde, serde_json, sha2, ureq, rustls, zip, dirs, winreg, rfd, windows-sys (MIT OR Apache-2.0, or MIT); ring (ISC and BSD-style); webpki-roots (CDLA-Permissive-2.0). Full list with versions: `app/Cargo.lock`.
