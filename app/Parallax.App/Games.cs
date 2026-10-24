@@ -8,15 +8,16 @@ using Microsoft.Win32;
 
 namespace Parallax.App
 {
-    internal enum Compat { Supported, Il2Cpp, AntiCheat, NotUnity }
+    internal enum Compat { Supported, Il2Cpp, AntiCheat, X86, NotUnity }
 
     internal class Game
     {
         public string Name, Dir, Exe, UnityVersion, Blocker, OtherLoader;
         public int SteamAppId;
-        public bool Il2Cpp;
+        public bool Il2Cpp, X86;
 
-        public Compat Compat => Exe == null ? Compat.NotUnity : Blocker != null ? Compat.AntiCheat : Il2Cpp ? Compat.Il2Cpp : Compat.Supported;
+        public Compat Compat => Exe == null ? Compat.NotUnity : Blocker != null ? Compat.AntiCheat : X86 ? Compat.X86
+            : Il2Cpp ? Compat.Il2Cpp : Compat.Supported;
         public bool Installed => File.Exists(Installer.ReceiptPath(Dir));
 
         public string Badge => Compat switch
@@ -24,6 +25,7 @@ namespace Parallax.App
             Compat.Supported => "Ready",
             Compat.Il2Cpp => "IL2CPP: not yet",
             Compat.AntiCheat => "Anti-cheat: blocked",
+            Compat.X86 => "32-bit: no VR runtime",
             _ => "Not a Unity game",
         };
 
@@ -38,6 +40,7 @@ namespace Parallax.App
                 var player = Path.Combine(dir, "UnityPlayer.dll");
                 g.UnityVersion = FileVersionInfo.GetVersionInfo(File.Exists(player) ? player : exe).FileVersion;
                 g.Il2Cpp = File.Exists(Path.Combine(dir, "GameAssembly.dll"));
+                g.X86 = IsX86(exe);
                 break;
             }
             if (Directory.Exists(Path.Combine(dir, "EasyAntiCheat")) || Directory.GetFiles(dir, "EasyAntiCheat*.exe").Any()) g.Blocker = "EasyAntiCheat";
@@ -45,6 +48,17 @@ namespace Parallax.App
             if (Directory.Exists(Path.Combine(dir, "MelonLoader"))) g.OtherLoader = "MelonLoader";
             else if (Directory.Exists(Path.Combine(dir, "BepInEx")) && !g.Installed) g.OtherLoader = "BepInEx";
             return g;
+        }
+
+        // OpenXR runtimes (SteamVR, Virtual Desktop, Meta) ship 64-bit only.
+        static bool IsX86(string exe)
+        {
+            using (var r = new BinaryReader(File.OpenRead(exe)))
+            {
+                r.BaseStream.Position = 0x3C;
+                r.BaseStream.Position = r.ReadInt32() + 4;
+                return r.ReadUInt16() == 0x14C;
+            }
         }
     }
 

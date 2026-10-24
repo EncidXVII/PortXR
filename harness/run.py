@@ -34,9 +34,12 @@ def placement(primary):
     screen = None if primary else steamvr.secondary_monitor()
     if screen is None:
         return ["-screen-width", "1280", "-screen-height", "720"], None
-    small = screen[2] < 1300 or screen[3] < 780
+    # Windows may scale the window by the display's DPI, so leave a wide margin before choosing 1280x720.
+    small = screen[2] < 1800 or screen[3] < 1100
     size = ["-screen-width", "960", "-screen-height", "540"] if small else ["-screen-width", "1280", "-screen-height", "720"]
-    return size + ["-monitor", "2"], screen
+    x, y, w, h = screen
+    # The null HMD window is DPI-scaled too; half the monitor keeps it inside.
+    return size + ["-monitor", "2"], (x, y, w // 2, h // 2)
 
 
 def test_processes(exe):

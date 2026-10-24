@@ -56,7 +56,7 @@ def keep_on(screen, names, return_focus=True):
 
     def loop():
         callback = ENUM(visit)
-        while not stop.wait(0.25):
+        while not stop.wait(0.1):
             user32.EnumWindows(callback, 0)
             fg = user32.GetForegroundWindow()
             pid = wt.DWORD()

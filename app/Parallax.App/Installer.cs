@@ -41,6 +41,7 @@ namespace Parallax.App
             var game = Game.Detect(gameDir);
             if (game.Exe == null) throw new InvalidOperationException("No Unity game found in this folder.");
             if (game.Blocker != null) throw new InvalidOperationException($"{game.Blocker} detected: injecting would risk a ban, so this game is refused.");
+            if (game.X86) throw new InvalidOperationException("32-bit game: no OpenXR runtime supports 32-bit apps.");
             if (game.Il2Cpp) throw new InvalidOperationException("IL2CPP games are not supported yet.");
             if (game.OtherLoader == "MelonLoader") throw new InvalidOperationException("MelonLoader is installed; remove it first, the two loaders conflict.");
             if (File.Exists(ReceiptPath(gameDir))) Uninstall(gameDir);
