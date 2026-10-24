@@ -40,6 +40,19 @@ namespace Parallax
     }
 
     [BepInPlugin("parallax.core", "Parallax", "0.1.0")]
+#if IL2CPP
+    public class Plugin : BepInEx.Unity.IL2CPP.BasePlugin
+    {
+        internal static new ManualLogSource Log;
+
+        public override void Load()
+        {
+            Log = base.Log;
+            if (!Start(Config)) return;
+            Il2CppInterop.Runtime.Injection.ClassInjector.RegisterTypeInIl2Cpp<Rig>();
+            AddComponent<Rig>();
+        }
+#else
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -47,18 +60,24 @@ namespace Parallax
         void Awake()
         {
             Log = Logger;
-            Settings.Bind(Config);
+            if (Start(Config)) gameObject.AddComponent<Rig>();
+        }
+#endif
+
+        static bool Start(ConfigFile config)
+        {
+            Settings.Bind(config);
             if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11)
             {
                 Log.LogError($"Graphics API {SystemInfo.graphicsDeviceType} is not supported yet; VR stays off.");
-                return;
+                return false;
             }
-            if (!Native.Load(Path.GetDirectoryName(Info.Location)))
+            if (!Native.Load(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)))
             {
                 Log.LogError("parallax_xr.dll failed to load; VR stays off.");
-                return;
+                return false;
             }
-            gameObject.AddComponent<Rig>();
+            return true;
         }
     }
 }

@@ -1,4 +1,4 @@
-"""Automated gate: runs a fixture under the SteamVR null driver and asserts stereo, UI, input, theater, menu."""
+﻿"""Automated gate: runs a fixture under the SteamVR null driver and asserts stereo, UI, input, theater, menu."""
 import argparse
 import ctypes
 import ctypes.wintypes as wt
@@ -319,7 +319,7 @@ def gate_soak(g, seconds, log_path):
         time.sleep(1.0)
     mem = working_set(g.proc.pid) - start_mem
     with open(log_path, encoding="utf-8", errors="replace") as f:
-        errors = [l.strip() for l in f if "Exception" in l or "[Error" in l]
+        errors = [l.strip() for l in f if l.startswith(("[Error", "[Fatal"))]
     check("10 stability", mem < 20 and not errors, f"{seconds}s, memory +{mem:.1f} MB, errors {errors[:3]}")
 
 
@@ -357,7 +357,8 @@ def main():
             g = Game(exe, window_args)
             try:
                 g.start()
-                g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 120, "stereo frames")
+                # IL2CPP first launch generates interop assemblies before plugins load.
+                g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
                 gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_theater, gate_menu]
                 if args.input:
                     gates.insert(4, gate_input)

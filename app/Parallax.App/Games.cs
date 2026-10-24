@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -8,7 +8,7 @@ using Microsoft.Win32;
 
 namespace Parallax.App
 {
-    internal enum Compat { Supported, Il2Cpp, AntiCheat, X86, NotUnity }
+    internal enum Compat { Supported, AntiCheat, X86, NotUnity }
 
     internal class Game
     {
@@ -16,14 +16,13 @@ namespace Parallax.App
         public int SteamAppId;
         public bool Il2Cpp, X86;
 
-        public Compat Compat => Exe == null ? Compat.NotUnity : Blocker != null ? Compat.AntiCheat : X86 ? Compat.X86
-            : Il2Cpp ? Compat.Il2Cpp : Compat.Supported;
+        public Compat Compat => Exe == null ? Compat.NotUnity : Blocker != null ? Compat.AntiCheat : X86 ? Compat.X86 : Compat.Supported;
         public bool Installed => File.Exists(Installer.ReceiptPath(Dir));
 
         public string Badge => Compat switch
         {
             Compat.Supported => "Ready",
-            Compat.Il2Cpp => "IL2CPP: not yet",
+
             Compat.AntiCheat => "Anti-cheat: blocked",
             Compat.X86 => "32-bit: no VR runtime",
             _ => "Not a Unity game",

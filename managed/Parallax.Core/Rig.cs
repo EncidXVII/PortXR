@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -29,6 +29,8 @@ namespace Parallax
         bool camHidden;
         bool eyesRendered;
         Camera extrasCamera;
+        bool beforeRenderHooked;
+        int sceneHandle;
 
         Vector3 originPos;
         Quaternion originYaw = Quaternion.identity;
@@ -40,13 +42,15 @@ namespace Parallax
         bool menuKeyDown;
         bool failureHandled;
         bool submitErrorLogged;
-        Texture2D dot;
 
         internal Menu Menu;
         internal TestChannel Test;
 
         // ScreenCapture.CaptureScreenshotIntoRenderTexture exists from Unity 2019.1; older engines use the native grab.
         static readonly Action<RenderTexture> captureIntoTexture = FindCapture();
+        readonly Optional managedCapture = new Optional("Screen capture into a texture"), mirror = new Optional("Desktop mirror"),
+            recreate = new Optional("Eye target recreation"), resolve = new Optional("MSAA resolve"),
+            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot");
 
         static Action<RenderTexture> FindCapture()
         {
@@ -90,14 +94,32 @@ namespace Parallax
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
 
             Application.runInBackground = true;
-            SceneManager.sceneLoaded += (s, m) => ReleaseCamera();
+#if IL2CPP
+            // Il2Cpp events take Il2Cpp delegates (the interop converts System ones). Accessors the game never used can
+            // be stripped; then the eyes are placed in LateUpdate instead, a frame behind the game camera.
+            try
+            {
+                Application.add_onBeforeRender((UnityEngine.Events.UnityAction)new Action(BeforeRender));
+                beforeRenderHooked = true;
+            }
+            catch (NotSupportedException)
+            {
+                Plugin.Log.LogWarning("Application.onBeforeRender is stripped in this game; eyes follow the camera from LateUpdate.");
+            }
+            StartCoroutine(BepInEx.Unity.IL2CPP.Utils.Collections.CollectionExtensions.WrapToIl2Cpp(EndOfFrameLoop()));
+#else
             Application.onBeforeRender += BeforeRender;
-            dot = MakeDot();
+            beforeRenderHooked = true;
+            StartCoroutine(EndOfFrameLoop());
+#endif
             Menu = new Menu(this);
             Test = TestChannel.FromEnvironment();
-            StartCoroutine(EndOfFrameLoop());
             Plugin.Log.LogInfo($"Eye targets {w}x{h} {format}, MSAA {eyeTargets[0].antiAliasing}");
         }
+
+#if IL2CPP
+        public Rig(IntPtr pointer) : base(pointer) { }
+#endif
 
         void OnApplicationQuit()
         {
@@ -123,6 +145,13 @@ namespace Parallax
             // The headset paces frames through xrWaitFrame; desktop vsync or a 60 fps cap would halve it.
             if (QualitySettings.vSyncCount != 0) QualitySettings.vSyncCount = 0;
             if (Application.targetFrameRate != -1) Application.targetFrameRate = -1;
+            // Polled rather than SceneManager.sceneLoaded, whose accessor IL2CPP games often strip.
+            int scene = SceneManager.GetActiveScene().handle;
+            if (scene != sceneHandle)
+            {
+                sceneHandle = scene;
+                ReleaseCamera();
+            }
 
             if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
@@ -139,6 +168,11 @@ namespace Parallax
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
             GL.IssuePluginEvent(renderEvent, Native.EvBegin);
+        }
+
+        void LateUpdate()
+        {
+            if (!beforeRenderHooked) BeforeRender();
         }
 
         void BeforeRender()
@@ -175,7 +209,9 @@ namespace Parallax
                 eye.backgroundColor = savedBackground;
                 eye.targetTexture = eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
+#if !IL2CPP
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
+#endif
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
                 eye.transform.SetPositionAndRotation(camT.position + yaw * (rel * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
@@ -207,27 +243,28 @@ namespace Parallax
         void SubmitFrame()
         {
             // The game camera drew nothing, so the backbuffer now holds only overlay UI and IMGUI.
-            bool native = captureIntoTexture == null;
-            if (native) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
-            else
+            bool native = captureIntoTexture == null || !managedCapture.Run(() =>
             {
                 EnsureUiTarget();
                 captureIntoTexture(uiTarget);
-            }
+            });
+            if (native) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
             bool stereo = eyesRendered;
             var f = new Frame { stereo = stereo ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
             if (stereo)
             {
-                Mirror();
+                mirror.Run(() => Mirror(native));
                 for (int e = 0; e < 2; e++)
                 {
                     var rt = eyeTargets[e];
-                    if (!rt.IsCreated())
+                    recreate.Run(() =>
                     {
+                        if (rt.IsCreated()) return;
                         rt.Create();
                         eyePtrs[e] = rt.GetNativeTexturePtr();
-                    }
-                    if (rt.antiAliasing > 1) rt.ResolveAntiAliasedSurface();
+                    });
+                    // Unity resolves a camera's MSAA target itself; the explicit resolve is a safety net.
+                    if (rt.antiAliasing > 1) resolve.Run(rt.ResolveAntiAliasedSurface);
                 }
                 f.eyeL = new Layer { texture = eyePtrs[0], flipY = EyeFlip };
                 f.eyeR = new Layer { texture = eyePtrs[1], flipY = EyeFlip };
@@ -244,12 +281,12 @@ namespace Parallax
             slot = (slot + 1) & 3;
         }
 
-        void Mirror()
+        void Mirror(bool nativeCapture)
         {
             var eye = eyeTargets[0];
             float visible = Mathf.Min(1f, (float)eye.width / eye.height / ((float)Screen.width / Screen.height));
             Graphics.Blit(eye, (RenderTexture)null, new Vector2(1, visible), new Vector2(0, (1 - visible) / 2));
-            if (uiTarget == null) return;  // native capture path: the UI only reaches the headset
+            if (nativeCapture) return;  // the UI only reaches the headset on this path
             RenderTexture.active = null;
             GL.PushMatrix();
             GL.LoadPixelMatrix(0, Screen.width, Screen.height, 0);
@@ -311,12 +348,22 @@ namespace Parallax
         void OnGUI()
         {
             GUI.depth = -1000;
-            Menu.Draw();
-            if (PointerActive && Event.current.type == EventType.Repaint)
+            menuDrawing.Run(Menu.Draw);
+            if (PointerActive && Event.current.type == EventType.Repaint) pointerDot.Run(DrawPointer);
+        }
+
+        void DrawPointer()
+        {
             {
+                // Built-in white texture tinted: IL2CPP games often strip the Texture2D constructor.
                 GUI.matrix = Matrix4x4.identity;
                 float x = pointerUv.x * Screen.width, y = pointerUv.y * Screen.height, s = Screen.height / 60f;
-                GUI.DrawTexture(new Rect(x - s / 2, y - s / 2, s, s), dot);
+                var tint = GUI.color;
+                GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
+                GUI.DrawTexture(new Rect(x - s / 2, y - s / 2, s, s), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                GUI.DrawTexture(new Rect(x - s / 4, y - s / 4, s / 2, s / 2), Texture2D.whiteTexture);
+                GUI.color = tint;
             }
         }
 
@@ -424,20 +471,6 @@ namespace Parallax
         {
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out int pid);
             return pid == ProcessId;
-        }
-
-        static Texture2D MakeDot()
-        {
-            const int size = 32;
-            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                float d = new Vector2(x - size / 2 + 0.5f, y - size / 2 + 0.5f).magnitude / (size / 2);
-                tex.SetPixel(x, y, d < 0.6f ? Color.white : d < 1f ? new Color(0.1f, 0.1f, 0.1f, 0.8f) : Color.clear);
-            }
-            tex.Apply();
-            return tex;
         }
 
         static void DrainLog()

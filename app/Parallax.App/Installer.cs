@@ -13,6 +13,7 @@ namespace Parallax.App
     {
         [DataMember] public string Version;
         [DataMember] public bool LoaderPreexisting;
+        [DataMember] public List<string> CreatedDirs = new List<string>();
         [DataMember] public List<ReceiptFile> Files = new List<ReceiptFile>();
     }
 
@@ -31,9 +32,10 @@ namespace Parallax.App
         public const string Version = "0.1.0";
         const string BackupDir = ".vrbackup";
         const string PluginDir = @"BepInEx\plugins\Parallax";
-        static readonly string[] LoaderRootFiles = { "winhttp.dll", "doorstop_config.ini", ".doorstop_version" };
 
-        public static string Payload => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "payload");
+        // Mono games get BepInEx 5; IL2CPP games get BepInEx 6 with its .NET runtime and the IL2CPP plugin build.
+        public static string Payload(Game game) =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, game.Il2Cpp ? "payload-il2cpp" : "payload");
         public static string ReceiptPath(string gameDir) => Path.Combine(gameDir, ".vrinstall.json");
 
         public static void Install(string gameDir)
@@ -42,14 +44,19 @@ namespace Parallax.App
             if (game.Exe == null) throw new InvalidOperationException("No Unity game found in this folder.");
             if (game.Blocker != null) throw new InvalidOperationException($"{game.Blocker} detected: injecting would risk a ban, so this game is refused.");
             if (game.X86) throw new InvalidOperationException("32-bit game: no OpenXR runtime supports 32-bit apps.");
-            if (game.Il2Cpp) throw new InvalidOperationException("IL2CPP games are not supported yet.");
             if (game.OtherLoader == "MelonLoader") throw new InvalidOperationException("MelonLoader is installed; remove it first, the two loaders conflict.");
             if (File.Exists(ReceiptPath(gameDir))) Uninstall(gameDir);
 
+            var payload = Payload(game);
             var receipt = new Receipt { Version = Version, LoaderPreexisting = Directory.Exists(Path.Combine(gameDir, "BepInEx")) };
-            var sources = Directory.GetFiles(Payload, "*", SearchOption.AllDirectories)
-                .Select(p => p.Substring(Payload.Length + 1))
-                .Where(rel => !receipt.LoaderPreexisting || rel.StartsWith(PluginDir, StringComparison.OrdinalIgnoreCase));
+            var sources = Directory.GetFiles(payload, "*", SearchOption.AllDirectories)
+                .Select(p => p.Substring(payload.Length + 1))
+                .Where(rel => !receipt.LoaderPreexisting || rel.StartsWith(PluginDir, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            // Top-level folders that appear with the install (BepInEx, dotnet) are removed whole on uninstall: the
+            // loader writes logs, caches and generated assemblies into them at runtime.
+            receipt.CreatedDirs = sources.Where(rel => rel.Contains('\\')).Select(rel => rel.Split('\\')[0])
+                .Distinct().Where(top => !Directory.Exists(Path.Combine(gameDir, top))).ToList();
             foreach (var rel in sources)
             {
                 var target = Path.Combine(gameDir, rel);
@@ -61,7 +68,7 @@ namespace Parallax.App
                     File.Copy(target, backup, true);
                 }
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                File.Copy(Path.Combine(Payload, rel), target, true);
+                File.Copy(Path.Combine(payload, rel), target, true);
                 entry.Sha256 = Hash(target);
                 receipt.Files.Add(entry);
             }
@@ -75,15 +82,11 @@ namespace Parallax.App
             using (var f = File.OpenRead(ReceiptPath(gameDir)))
                 receipt = (Receipt)new DataContractJsonSerializer(typeof(Receipt)).ReadObject(f);
 
+            foreach (var dir in receipt.CreatedDirs) DeleteDir(Path.Combine(gameDir, dir));
             if (receipt.LoaderPreexisting)
             {
                 DeleteDir(Path.Combine(gameDir, PluginDir));
                 File.Delete(Path.Combine(gameDir, @"BepInEx\config\parallax.core.cfg"));
-            }
-            else
-            {
-                DeleteDir(Path.Combine(gameDir, "BepInEx"));
-                foreach (var name in LoaderRootFiles) File.Delete(Path.Combine(gameDir, name));
             }
             foreach (var entry in receipt.Files)
             {

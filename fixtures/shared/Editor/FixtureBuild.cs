@@ -40,7 +40,12 @@ public static partial class FixtureBuild
         PlayerSettings.resizableWindow = true;
         PlayerSettings.runInBackground = true;
         PlayerSettings.colorSpace = ColorSpace.Linear;
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+        bool il2cpp = Arg("-backend") == "il2cpp";
+        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, il2cpp ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+        // Keep whole engine modules (IMGUI, ScreenCapture) so the plugin's compile surface exists; real games may strip
+        // them and the plugin falls back at runtime.
+        PlayerSettings.stripEngineCode = false;
+        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Minimal);
 #if !UNITY_2019_3_OR_NEWER
         PlayerSettings.scriptingRuntimeVersion = Arg("-runtime") == "legacy" ? ScriptingRuntimeVersion.Legacy : ScriptingRuntimeVersion.Latest;
 #endif
