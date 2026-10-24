@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 
 import steamvr
+import windows
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "harness", "out")
@@ -27,9 +28,26 @@ POST_FIXTURES = {"F2"}  # fixtures whose game camera has post-processing to carr
 user32 = ctypes.windll.user32
 
 
+def placement(primary):
+    """Game window args and null-HMD window rect. Unless told otherwise, both go to a secondary monitor so a run does
+    not cover the main screen."""
+    screen = None if primary else steamvr.secondary_monitor()
+    if screen is None:
+        return ["-screen-width", "1280", "-screen-height", "720"], None
+    small = screen[2] < 1300 or screen[3] < 780
+    size = ["-screen-width", "960", "-screen-height", "540"] if small else ["-screen-width", "1280", "-screen-height", "720"]
+    return size + ["-monitor", "2"], screen
+
+
+def test_processes(exe):
+    """Executables whose windows a run may open: the game, its crash handler, SteamVR."""
+    return {os.path.basename(exe).lower(), "unitycrashhandler64.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
+
+
 class Game:
-    def __init__(self, exe):
+    def __init__(self, exe, window_args):
         self.exe = exe
+        self.window_args = window_args
         self.log = os.path.join(OUT, "fixture.log")
         self.proc = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -39,7 +57,7 @@ class Game:
         if os.path.exists(self.log):
             os.remove(self.log)
         env = dict(os.environ, PARALLAX_TEST_PORT=str(PORT), FIXTURE_LOG=self.log, XR_RUNTIME_JSON=steamvr.runtime_json())
-        self.proc = subprocess.Popen([self.exe, "-screen-width", "1280", "-screen-height", "720", "-screen-fullscreen", "0"], env=env)
+        self.proc = subprocess.Popen([self.exe, "-screen-fullscreen", "0"] + self.window_args, env=env)
 
     def cmd(self, line, tries=20):
         for _ in range(tries):
@@ -116,9 +134,10 @@ class Game:
         if self.proc and self.proc.poll() is None:
             try:
                 self.cmd("quit", tries=2)
-                self.proc.wait(10)
+                self.proc.wait(30)  # old-runtime (.NET 3.5) players take ~8 s to shut down
             except Exception:
                 self.proc.kill()
+                self.proc.wait()  # the next instance needs the test port free
 
 
 def mask(img, rgb, tol=60):
@@ -319,20 +338,28 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fixture", default="F1")
     ap.add_argument("--soak", type=int, default=30, help="stability run length in seconds")
+    ap.add_argument("--input", action="store_true",
+                    help="run the input gate: it focuses the game and drives the real mouse/keyboard for a few seconds")
+    ap.add_argument("--primary", action="store_true", help="put test windows on the main screen")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     build = os.path.join(ROOT, "fixtures", args.fixture, "Build")
     exe = os.path.join(build, args.fixture + ".exe")
+    window_args, hmd_window = placement(args.primary)
 
     before = tree_hash(build)
     subprocess.run([APP, "install", build], check=True)
     try:
-        with steamvr.null_driver():
-            g = Game(exe)
+        with steamvr.null_driver(hmd_window), windows.keep_on(hmd_window, test_processes(exe), not args.input):
+            g = Game(exe, window_args)
             try:
                 g.start()
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 120, "stereo frames")
-                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_input, gate_theater, gate_menu]
+                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_theater, gate_menu]
+                if args.input:
+                    gates.insert(4, gate_input)
+                else:
+                    print("SKIP 7 input: pass --input to run it (takes over mouse and keyboard)", flush=True)
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
                 for gate in gates:

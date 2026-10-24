@@ -15,7 +15,7 @@ public class FixturePlayer : MonoBehaviour
     static StreamWriter log;
     float nextLog;
 
-    public static void Click() => clicks++;
+    public static void Click() { clicks++; }
 
     void Start()
     {

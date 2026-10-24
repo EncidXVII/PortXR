@@ -48,19 +48,23 @@ ComPtr<ID3DBlob> compile(const char* entry, const char* target) {
     return code;
 }
 
-// Typeless sources are read raw so the bytes Unity stored reach the shader unchanged.
-DXGI_FORMAT view_format(DXGI_FORMAT f, bool& hwLinearizes) {
-    hwLinearizes = false;
+// Typeless 8-bit sources are read raw so the bytes Unity stored reach the shader unchanged. `linear` reports whether
+// the sampled value is linear light: sRGB views decode in hardware, and float targets hold linear values.
+DXGI_FORMAT view_format(DXGI_FORMAT f, bool& linear) {
+    linear = false;
     switch (f) {
     case DXGI_FORMAT_R8G8B8A8_TYPELESS: return DXGI_FORMAT_R8G8B8A8_UNORM;
     case DXGI_FORMAT_B8G8R8A8_TYPELESS: return DXGI_FORMAT_B8G8R8A8_UNORM;
     case DXGI_FORMAT_B8G8R8X8_TYPELESS: return DXGI_FORMAT_B8G8R8X8_UNORM;
     case DXGI_FORMAT_R10G10B10A2_TYPELESS: return DXGI_FORMAT_R10G10B10A2_UNORM;
-    case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    case DXGI_FORMAT_R32G32B32A32_TYPELESS: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT: linear = true; return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT: linear = true; return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case DXGI_FORMAT_R11G11B10_FLOAT:
     case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
     case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: hwLinearizes = true; return f;
+    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: linear = true; return f;
     default: return f;
     }
 }

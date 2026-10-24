@@ -21,7 +21,10 @@ if ($f.Urp) { Copy-Item "$shared\Editor\FixtureUrp.cs" "$target\Editor" }
 $unity = Join-Path $Editors "$($f.Unity)\Editor\Unity.exe"
 foreach ($method in "Configure", "Build") {
     $log = Join-Path $project "Logs\$method.log"
-    $p = Start-Process $unity -Wait -PassThru -ArgumentList "-batchmode -quit -nographics -projectPath `"$project`" -executeMethod FixtureBuild.$method -logFile `"$log`" -fixture $Name $($f.Args)"
+    New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+    $p = Start-Process $unity -PassThru -ArgumentList "-batchmode -quit -nographics -projectPath `"$project`" -executeMethod FixtureBuild.$method -logFile `"$log`" -fixture $Name $($f.Args)"
+    # WaitForExit, not -Wait: Unity 2018 leaves its compiler server running and -Wait waits for the whole tree.
+    $p.WaitForExit()
     if ($p.ExitCode) { throw "$Name $method failed ($($p.ExitCode)), see $log" }
 }
 Write-Host "$Name built: $project\Build\$Name.exe"

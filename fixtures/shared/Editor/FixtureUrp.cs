@@ -13,12 +13,24 @@ public static partial class FixtureBuild
     {
         unlitShader = "Universal Render Pipeline/Unlit";
         colorProperty = "_BaseColor";
+        System.IO.Directory.CreateDirectory(Materials);
+        var rendererPath = Materials + "/Renderer.asset";
+        var renderer = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(rendererPath);
+        if (renderer == null)
+        {
+            renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
+            AssetDatabase.CreateAsset(renderer, rendererPath);
+        }
+        // A renderer created from script has no post-process resources, and URP then silently skips post-processing.
+        if (renderer.postProcessData == null)
+        {
+            renderer.postProcessData = AssetDatabase.LoadAssetAtPath<PostProcessData>(
+                "Packages/com.unity.render-pipelines.universal/Runtime/Data/PostProcessData.asset");
+            EditorUtility.SetDirty(renderer);
+        }
         var asset = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(PipelineAsset);
         if (asset == null)
         {
-            System.IO.Directory.CreateDirectory(Materials);
-            var renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
-            AssetDatabase.CreateAsset(renderer, Materials + "/Renderer.asset");
             asset = UniversalRenderPipelineAsset.Create(renderer);
             asset.supportsHDR = true;
             AssetDatabase.CreateAsset(asset, PipelineAsset);

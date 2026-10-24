@@ -69,9 +69,12 @@ namespace Parallax
             float scale = Mathf.Clamp(Settings.RenderScale.Value, 0.25f, 2f);
             w = Mathf.RoundToInt(w * scale);
             h = Mathf.RoundToInt(h * scale);
+            // URP sizes its intermediate buffer from the camera's target, so an 8-bit eye target would clamp HDR and
+            // starve bloom. Linear-space games get half-float eyes (linear values); gamma-space games stay 8-bit.
+            var format = QualitySettings.activeColorSpace == ColorSpace.Linear ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
             for (int e = 0; e < 2; e++)
             {
-                eyeTargets[e] = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default)
+                eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
                 {
                     name = "Parallax Eye " + e,
                     antiAliasing = Mathf.Max(1, QualitySettings.antiAliasing),
@@ -93,7 +96,7 @@ namespace Parallax
             Menu = new Menu(this);
             Test = TestChannel.FromEnvironment();
             StartCoroutine(EndOfFrameLoop());
-            Plugin.Log.LogInfo($"Eye targets {w}x{h}, MSAA {eyeTargets[0].antiAliasing}");
+            Plugin.Log.LogInfo($"Eye targets {w}x{h} {format}, MSAA {eyeTargets[0].antiAliasing}");
         }
 
         void OnApplicationQuit()

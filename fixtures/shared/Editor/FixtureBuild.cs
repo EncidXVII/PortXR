@@ -9,7 +9,7 @@ using UnityEngine.UI;
 
 // Generates the fixture scenes and builds the player. Driven by fixtures/build.ps1, which runs Configure and Build
 // as two editor launches (a scripting-runtime change only applies after a restart).
-// Written for C# 7.3 so the same file compiles in Unity 2018.4 and 2022.3.
+// Written for C# 4: Unity 2018.4 on the .NET 3.5 runtime compiles editor scripts with its old compiler too.
 public static partial class FixtureBuild
 {
     const string Scenes = "Assets/Scenes";
@@ -20,7 +20,7 @@ public static partial class FixtureBuild
     static partial void ConfigurePipeline();
     static partial void DecorateScene(Camera camera);
 
-    static string Name => Arg("-fixture") ?? "F1";
+    static string Name { get { return Arg("-fixture") ?? "F1"; } }
 
     static string Arg(string name)
     {

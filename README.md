@@ -47,8 +47,10 @@ The harness runs a fixture game against SteamVR's null driver (no headset needed
 
 ```
 pip install pillow numpy
-python harness\run.py --soak 600
+python harness\run.py --fixture F1 --soak 600
 ```
+
+Test windows open on a secondary monitor when there is one (`--primary` to override). The input gate takes over the real mouse and keyboard for a few seconds, so it only runs with `--input`.
 
 Fixtures are generated from `fixtures/shared`: `fixtures\build.ps1 -Name F1` (F0: Unity 2018.4 on .NET 3.5, F1: 2022.3 built-in, F2: 2022.3 URP with Bloom), then `python harness\run.py --fixture F1`.
 

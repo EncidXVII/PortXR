@@ -22,8 +22,17 @@ namespace Parallax
         public static TestChannel FromEnvironment()
         {
             if (!int.TryParse(Environment.GetEnvironmentVariable("PARALLAX_TEST_PORT"), out int port)) return null;
-            Plugin.Log.LogInfo("Test channel on UDP " + port);
-            return new TestChannel(port);
+            try
+            {
+                var channel = new TestChannel(port);
+                Plugin.Log.LogInfo("Test channel on UDP " + port);
+                return channel;
+            }
+            catch (SocketException ex)
+            {
+                Plugin.Log.LogError($"Test channel port {port} unavailable ({ex.Message}); VR runs without it.");
+                return null;
+            }
         }
 
         public void Poll(Rig rig)

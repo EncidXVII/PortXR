@@ -19,6 +19,7 @@ namespace Parallax
         const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
         static Type[] types;
+        static readonly HashSet<Type> logged = new HashSet<Type>();
 
         public static void Copy(Camera from, Camera eye)
         {
@@ -28,6 +29,7 @@ namespace Parallax
                 var src = from.GetComponent(type);
                 if (src == null) continue;
                 var dst = eye.GetComponent(type);
+                if (logged.Add(type)) Plugin.Log.LogInfo($"Eye cameras inherit {type.Name} from {from.name}");
                 if (dst == null)
                 {
                     // Added while inactive so OnEnable sees copied settings, not defaults (PPv2 needs its resources).
