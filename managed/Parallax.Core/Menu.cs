@@ -31,13 +31,12 @@ namespace Parallax
         int tab;
         CursorLockMode savedLock;
         bool savedVisible;
-        Vector2 scroll;
         int picking = -1;  // binding being changed in the Controls tab
         int gesture;       // which gesture's bindings the Controls tab shows
         float hovered, lastHovered;
 
         // Game tab: one hidden camera renders a preview of one candidate per frame.
-        readonly Optional previews = new Optional("Camera previews"), thumbImages = new Optional("Camera preview images");
+        readonly Optional previews = new Optional("Camera previews");
         readonly Dictionary<int, RenderTexture> thumbs = new Dictionary<int, RenderTexture>();
         readonly List<Camera> candidates = new List<Camera>();
         Camera thumbCam;
@@ -47,7 +46,12 @@ namespace Parallax
         readonly float[] frameMs = new float[History];
         int historyAt;
 
-        readonly Optional fonts = new Optional("Menu fonts"), scrollViews = new Optional("Menu scrolling");
+        readonly Optional fonts = new Optional("Menu fonts");
+        GUIStyle imageStyle;
+        readonly MenuLayout ui = new MenuLayout();
+        readonly Dictionary<string, GUIContent> contents = new Dictionary<string, GUIContent>();
+        readonly Dictionary<int, GUIContent> images = new Dictionary<int, GUIContent>();
+        int camPage;
         GUIStyle cell, cellOn, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn;
 
         public Menu(Rig rig) { this.rig = rig; }
@@ -123,21 +127,24 @@ namespace Parallax
 
         public void Draw()
         {
-            if (!Open) return;
+            // Only the events the menu acts on: drawing and the pointer's click.
+            var type = Event.current.type;
+            if (!Open || (type != EventType.Repaint && type != EventType.MouseDown)) return;
             EnsureStyles();
             float k = Screen.height / RefHeight;
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(k, k, 1));
             var area = new Rect((Screen.width / k - Width) / 2, (RefHeight - Height) / 2, Width, Height);
             Fill(area, Bg);
             Outline(area, Line);
-            // The content as a fixed-size layout group moved by the matrix: GUILayout.BeginArea is stripped in some
-            // IL2CPP games.
+            // The content's origin moved by the matrix, so the layout starts at (0, 0).
             GUI.matrix = Matrix4x4.TRS(new Vector3((area.x + Pad) * k, (area.y + 32) * k, 0), Quaternion.identity, new Vector3(k, k, 1));
-            GUILayout.BeginVertical(new[] { GUILayout.Width(Width - 2 * Pad), GUILayout.Height(Height - 64) });
-            if (welcome) DrawWelcome();
-            else DrawTabs();
-            GUILayout.EndVertical();
+            ui.Run(Width - 2 * Pad, () =>
+            {
+                if (welcome) DrawWelcome();
+                else DrawTabs();
+            });
             GUI.matrix = Matrix4x4.identity;
+            if (contents.Count > 512) contents.Clear();  // changing numbers (diagnostics) make new strings every frame
 
             // A light tick when the pointer moves onto another control.
             if (Event.current.type == EventType.Repaint)
@@ -151,29 +158,31 @@ namespace Parallax
         void DrawTabs()
         {
             // Tabs: words with a lime underline under the active one; Close and Reset stay quiet on the right.
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             for (int i = 0; i < Tabs.Length; i++)
             {
                 bool on = i == tab;
-                if (GUILayout.Button(Tabs[i].ToUpperInvariant(), on ? tabOn : tabStyle, new[] { GUILayout.Height(Row) })) Select(i);
-                var r = GUILayoutUtility.GetLastRect();
-                if (Event.current.type == EventType.Repaint)
+                string word = Tabs[i].ToUpperInvariant();
+                var style = on ? tabOn : tabStyle;
+                var r = ui.Take(Natural(word, style), Row);
+                Text(r, word, style, true);
+                if (Clicked(r)) Select(i);
+                if (Repainting)
                 {
                     if (on) Fill(new Rect(r.x, r.yMax - 3, r.width, 3), Lime);
                     Hover(r);
                 }
-                GapX(24);
+                ui.Gap(24);
             }
-            GUILayout.FlexibleSpace();
+            ui.Flex();
             // Only tabs with settings have something to reset.
             if (tab <= ControlsTab && Button("Reset", false, 128)) ResetTab();
-            GapX(8);
+            ui.Gap(8);
             if (Button("Close", false, 128)) Toggle();
-            GapX(2);  // keeps the right outline inside the area's clip
-            GUILayout.EndHorizontal();
-            var line = GUILayoutUtility.GetRect(1, 1, new[] { GUILayout.ExpandWidth(true), GUILayout.Height(1) });
-            Fill(line, Line);
-            Gap(24);
+            ui.Gap(2);  // keeps the right outline inside the area's clip
+            ui.EndRow();
+            Fill(ui.Take(0, 1), Line);
+            ui.Gap(24);
 
             if (tab == QuickTab) DrawQuick();
             else if (tab == ViewTab) DrawView();
@@ -184,58 +193,58 @@ namespace Parallax
 
         void DrawWelcome()
         {
-            GUILayout.Label("YOU ARE IN VR.", display, new[] { GUILayout.Height(72) });
-            Gap(8);
-            GUILayout.Label("Three quick checks, then play. The menu is always a double-tap away.", muted, new GUILayoutOption[0]);
-            Gap(24);
+            Label("YOU ARE IN VR.", display, 0, 72);
+            ui.Gap(8);
+            Label("Three quick checks, then play. The menu is always a double-tap away.", muted, 0, 48);
+            ui.Gap(24);
 
             Step("01", "Stand or sit the way you will play, then set your view straight ahead.");
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GapX(72);
+            ui.BeginRow();
+            ui.Gap(72);
             if (Button("Recenter", false, 300)) rig.RequestRecenter();
-            GUILayout.EndHorizontal();
-            Gap(16);
+            ui.EndRow();
+            ui.Gap(16);
 
             Step("02", "Doors and people should look life-size. Too small or too big? Adjust the world scale.");
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GapX(72);
+            ui.BeginRow();
+            ui.Gap(72);
             StepperControls(Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}×");
-            GUILayout.EndHorizontal();
-            Gap(16);
+            ui.EndRow();
+            ui.Gap(16);
 
             Step("03", "Left stick moves, right stick looks, triggers click. Double-tap the left menu button for this menu.");
-            Gap(24);
+            ui.Gap(24);
 
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GapX(72);
+            ui.BeginRow();
+            ui.Gap(72);
             if (Primary("Start playing", 360))
             {
                 Settings.FirstRun.Value = false;
                 Toggle();
             }
-            GapX(8);
+            ui.Gap(8);
             if (Button("Show all settings", false, 360))
             {
                 Settings.FirstRun.Value = false;
                 welcome = false;
             }
-            GUILayout.EndHorizontal();
+            ui.EndRow();
         }
 
         void Step(string number, string text)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GUILayout.Label(number, eyebrowWord, new[] { GUILayout.Width(72), GUILayout.Height(48) });
-            GUILayout.Label(text, label, new GUILayoutOption[0]);
-            GUILayout.EndHorizontal();
-            Gap(8);
+            ui.BeginRow();
+            Label(number, eyebrowWord, 72, 48);
+            Text(ui.Take(0, 48), text, label);
+            ui.EndRow();
+            ui.Gap(8);
         }
 
         void Select(int i)
         {
             tab = i;
             picking = -1;
-            scroll = Vector2.zero;
+            camPage = 0;
         }
 
         // The player's settings for all games, kept by Parallax.exe in the same "[Section]" / "Key = Value" format;
@@ -284,11 +293,11 @@ namespace Parallax
             Choice("View", "Stereo", "Theater", ref theater);
             Settings.Theater.Value = theater;
 
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label("Position", label, 360);
             if (Button("Recenter", false, 300)) rig.RequestRecenter();
-            GUILayout.EndHorizontal();
-            Gap(12);
+            ui.EndRow();
+            ui.Gap(12);
 
             Stepper("World scale", Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}×");
             Options("Turning", Settings.Turning, new[] { TurnMode.Smooth, TurnMode.Snap15, TurnMode.Snap30, TurnMode.Snap45 },
@@ -338,56 +347,56 @@ namespace Parallax
                 DrawKeyPicker();
                 return;
             }
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             for (int g = 0; g < Bindings.Gestures.Length; g++)
             {
                 if (Button(Bindings.Gestures[g], g == gesture, 220)) gesture = g;
-                GapX(4);
+                ui.Gap(4);
             }
-            GUILayout.EndHorizontal();
+            ui.EndRow();
             Label(gesture == Bindings.Press ? "Left stick moves (W A S D), right stick looks. Pick a button to change it."
                 : gesture == Bindings.Double ? "Two quick presses. The first press still does its own key."
                 : gesture == Bindings.Hold ? "Held for half a second. A short press then taps its own key on release."
                 : "Pressed while the same hand's grip is held. The grip's own key lets go meanwhile.", muted, 0);
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             BindingColumn("01", "Left hand", Bindings.LeftHand);
-            GapX(40);
+            ui.Gap(40);
             BindingColumn("02", "Right hand", Bindings.RightHand);
-            GUILayout.EndHorizontal();
+            ui.EndRow();
             var conflict = Bindings.Conflict();
             if (conflict != null) Label(conflict, warn, 0);
         }
 
         void BindingColumn(string number, string name, int[] inputs)
         {
-            GUILayout.BeginVertical(new GUILayoutOption[0]);
+            ui.BeginColumn();
             Eyebrow(number, name.ToUpperInvariant());
             foreach (int i in inputs)
             {
                 var entry = Bindings.Entries[gesture][i];
                 if (entry == null) continue;
-                GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+                ui.BeginRow();
                 Label(Bindings.Name(gesture, i), label, 260);
                 if (Button(entry.Value, false, 220)) picking = i;
-                GUILayout.EndHorizontal();
+                ui.EndRow();
             }
-            GUILayout.EndVertical();
+            ui.EndColumn();
         }
 
         void DrawKeyPicker()
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             var picked = Bindings.Entries[gesture][picking];
             Label($"{Bindings.Hand(picking)} {Bindings.Name(gesture, picking)} presses:", label, 0);
-            GUILayout.FlexibleSpace();
+            ui.Flex();
             if (Button("Cancel", false, 160)) picking = -1;
-            GUILayout.EndHorizontal();
-            Gap(8);
+            ui.EndRow();
+            ui.Gap(8);
             const int columns = 6;
             var names = Bindings.KeyNames;
             for (int start = 0; start < names.Length && picking >= 0; start += columns)
             {
-                GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+                ui.BeginRow();
                 for (int j = start; j < Mathf.Min(start + columns, names.Length); j++)
                 {
                     if (Button(names[j], names[j] == picked.Value, 160))
@@ -396,55 +405,55 @@ namespace Parallax
                         picking = -1;
                         break;
                     }
-                    GapX(4);
+                    ui.Gap(4);
                 }
-                GUILayout.EndHorizontal();
-                Gap(4);
+                ui.EndRow();
+                ui.Gap(4);
             }
         }
 
         void DrawGame()
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label("In your view? Point at it, pull the trigger. B stops.", muted, 680);
-            GUILayout.FlexibleSpace();
+            ui.Flex();
             int hidden = rig.Hider.Count;
             if (hidden > 0 && Button(hidden == 1 ? "Show 1 hidden" : $"Show {hidden} hidden", false, 260)) rig.Hider.ShowAll();
-            GapX(4);
+            ui.Gap(4);
             if (Button("Hide objects", false, 260))
             {
                 Toggle();
                 rig.Hider.Start();
             }
-            GUILayout.EndHorizontal();
-            Gap(16);
+            ui.EndRow();
+            ui.Gap(16);
             Label("Game camera: the camera your view follows.", muted, 0);
-            // Scroll views are stripped in some IL2CPP games; there the cameras list is cut at the panel's bottom.
-            bool scrolled = scrollViews.Run(() => scroll = GUILayout.BeginScrollView(scroll, new[] { GUILayout.Height(Height - 360) }));
             bool automatic = Settings.CameraName.Value.Length == 0;
-            if (Button("Automatic", automatic, ThumbW)) PickCamera("");
-            Gap(16);
+            // Three cameras at a time; more pages through them (no scroll view: it is stripped in some IL2CPP games).
             const int columns = 3;
-            for (int start = 0; start < candidates.Count; start += columns)
+            int pages = Mathf.Max(1, (candidates.Count + columns - 1) / columns);
+            camPage %= pages;
+            ui.BeginRow();
+            if (Button("Automatic", automatic, ThumbW)) PickCamera("");
+            ui.Flex();
+            if (pages > 1 && Button($"More cameras {camPage + 1}/{pages}", false, 360)) camPage = (camPage + 1) % pages;
+            ui.EndRow();
+            ui.Gap(16);
+            ui.BeginRow();
+            for (int j = camPage * columns; j < Mathf.Min((camPage + 1) * columns, candidates.Count); j++)
             {
-                GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-                for (int j = start; j < Mathf.Min(start + columns, candidates.Count); j++)
-                {
-                    var cam = candidates[j];
-                    GUILayout.BeginVertical(new[] { GUILayout.Width(ThumbW) });
-                    var rect = GUILayoutUtility.GetRect(ThumbW, ThumbH, new[] { GUILayout.Width(ThumbW), GUILayout.Height(ThumbH) });
-                    Fill(rect, Surface);
-                    if (thumbs.TryGetValue(cam.GetInstanceID(), out var rt) && Event.current.type == EventType.Repaint) thumbImages.Run(() => GUI.DrawTexture(rect, rt));
-                    Outline(rect, cam == rig.GameCam ? Lime : Line);
-                    // Lime fill only for a camera the player picked; the automatic pick gets the lime outline above.
-                    if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW, true)) PickCamera(cam.name);
-                    GUILayout.EndVertical();
-                    GapX(16);
-                }
-                GUILayout.EndHorizontal();
-                Gap(16);
+                var cam = candidates[j];
+                ui.BeginColumn(ThumbW);
+                var rect = ui.Take(ThumbW, ThumbH);
+                Fill(rect, Surface);
+                if (Repainting && thumbs.TryGetValue(cam.GetInstanceID(), out var rt)) Image(rect, rt);
+                Outline(rect, cam == rig.GameCam ? Lime : Line);
+                // Lime fill only for a camera the player picked; the automatic pick gets the lime outline above.
+                if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW, true)) PickCamera(cam.name);
+                ui.EndColumn();
+                ui.Gap(16);
             }
-            if (scrolled) GUILayout.EndScrollView();
+            ui.EndRow();
         }
 
         void PickCamera(string name)
@@ -456,7 +465,7 @@ namespace Parallax
         void DrawDiagnostics(Stats s)
         {
             DrawGraph((float)s.periodMs);
-            Gap(16);
+            ui.Gap(16);
             InfoRow("Headset", $"{(XrState)s.state}, {1000.0 / System.Math.Max(0.001, s.periodMs):0} Hz");
             InfoRow("Frame time p95", $"{s.p95Ms:0.0} ms of {s.periodMs:0.0} ms");
             InfoRow("Eye resolution", $"{rig.EyeSize.x} x {rig.EyeSize.y}");
@@ -477,8 +486,8 @@ namespace Parallax
         // Bars of recent frame intervals against the headset's frame budget: lime within it, danger over it.
         void DrawGraph(float budgetMs)
         {
-            var rect = GUILayoutUtility.GetRect(Width - 2 * Pad, 160, new[] { GUILayout.Height(160) });
-            if (Event.current.type != EventType.Repaint) return;
+            var rect = ui.Take(0, 160);
+            if (!Repainting) return;
             float top = Mathf.Max(budgetMs * 1.5f, 1f), bar = rect.width / History;
             Fill(rect, Surface);
             Outline(rect, Line);
@@ -489,24 +498,24 @@ namespace Parallax
             }
             float budgetY = rect.yMax - budgetMs / top * rect.height;
             Fill(new Rect(rect.x, budgetY, rect.width, 1), Ink2);
-            GUI.Label(new Rect(rect.x + 12, budgetY - 30, 400, 28), $"HEADSET BUDGET {budgetMs:0.0} MS", eyebrow);
+            Text(new Rect(rect.x + 12, budgetY - 30, 400, 28), $"HEADSET BUDGET {budgetMs:0.0} MS", eyebrow);
         }
 
         void Warning(string text, string fix, System.Action action)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label(text, warn, 0);
-            GUILayout.FlexibleSpace();
+            ui.Flex();
             if (Button(fix, false, 260)) action();
-            GUILayout.EndHorizontal();
+            ui.EndRow();
         }
 
         void InfoRow(string name, string text)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GUILayout.Label(name, muted, new[] { GUILayout.Width(360), GUILayout.Height(48) });
-            GUILayout.Label(text, data, new[] { GUILayout.Height(48) });
-            GUILayout.EndHorizontal();
+            ui.BeginRow();
+            Label(name, muted, 360, 48);
+            Text(ui.Take(0, 48), text, data);
+            ui.EndRow();
         }
 
         void Toggle(string name, ConfigEntry<bool> entry)
@@ -519,19 +528,19 @@ namespace Parallax
         // Segmented control: two cells side by side, the selected one lime.
         void Choice(string name, string off, string on, ref bool v, bool offIsNeutral = false)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label(name, label, 360);
             if (Button(off, !v && !offIsNeutral, 300)) v = false;
-            if (!v && offIsNeutral && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
+            if (!v && offIsNeutral && Repainting) Outline(ui.Last, Ink);
             if (Button(on, v, 300)) v = true;
-            GUILayout.EndHorizontal();
-            Gap(12);
+            ui.EndRow();
+            ui.Gap(12);
         }
 
         // Segmented control over an enum setting, cells sharing the 600 px value column; `neutral` (an Off) is not lime.
         void Options<T>(string name, ConfigEntry<T> entry, T[] values, string[] labels, T? neutral) where T : struct, System.Enum
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label(name, label, 360);
             // 600 shared by label length, so a long label ("Keyboard & mouse") gets the room it needs.
             float total = labels.Sum(l => l.Length + 6);
@@ -539,19 +548,19 @@ namespace Parallax
             {
                 bool on = entry.Value.Equals(values[i]), lit = on && !(neutral.HasValue && neutral.Value.Equals(values[i]));
                 if (Button(labels[i], lit, 600f * (labels[i].Length + 6) / total)) entry.Value = values[i];
-                if (on && !lit && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
+                if (on && !lit && Repainting) Outline(ui.Last, Ink);
             }
-            GUILayout.EndHorizontal();
-            Gap(12);
+            ui.EndRow();
+            ui.Gap(12);
         }
 
         void Stepper(string name, ConfigEntry<float> entry, float step, float min, float max, string format)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            ui.BeginRow();
             Label(name, label, 360);
             StepperControls(entry, step, min, max, format);
-            GUILayout.EndHorizontal();
-            Gap(12);
+            ui.EndRow();
+            ui.Gap(12);
         }
 
         void StepperControls(ConfigEntry<float> entry, float step, float min, float max, string format)
@@ -566,16 +575,19 @@ namespace Parallax
         // like the app's buttons; `data` (a camera object name) is shown as the game wrote it.
         bool Button(string text, bool on, float width, bool data = false)
         {
-            GUI.backgroundColor = on ? Lime : Surface;
-            bool clicked = GUILayout.Button(data ? text : text.ToUpperInvariant(), on ? cellOn : cell, Size(width));
-            GUI.backgroundColor = Color.white;
-            var r = GUILayoutUtility.GetLastRect();
-            if (Event.current.type == EventType.Repaint)
+            string shown = data ? text : text.ToUpperInvariant();
+            var style = on ? cellOn : cell;
+            var r = ui.Take(width > 0 ? width : Natural(shown, style) + 48, Row);
+            if (Repainting)
             {
                 bool over = r.Contains(Event.current.mousePosition);
+                GUI.backgroundColor = on ? Lime : Surface;
+                style.Draw(r, Content(shown), over, false, false, false);
+                GUI.backgroundColor = Color.white;
                 if (!on) Outline(r, over ? Ink : Edge);
                 Hover(r);
             }
+            bool clicked = Clicked(r);
             if (clicked) Native.prx_haptic_pulse(1, 0.35f, 0.02f);
             return clicked;
         }
@@ -590,28 +602,46 @@ namespace Parallax
 
         void Eyebrow(string number, string word)
         {
-            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GUILayout.Label(number + " // ", eyebrow, new[] { GUILayout.Height(32), GUILayout.ExpandWidth(false) });
-            GUILayout.Label(word, eyebrowWord, new[] { GUILayout.Height(32), GUILayout.ExpandWidth(false) });
-            GUILayout.EndHorizontal();
+            ui.BeginRow();
+            Label(number + " // ", eyebrow, 0, 32);
+            Label(word, eyebrowWord, 0, 32);
+            ui.EndRow();
         }
 
-        void Label(string text, GUIStyle style, float width) => GUILayout.Label(text, style, Size(width));
+        // Width 0: the text's own width in a row, the column's width in a column.
+        void Label(string text, GUIStyle style, float width, float height = Row) =>
+            Text(ui.Take(width > 0 ? width : ui.InRow ? Natural(text, style) : 0, height), text, style);
 
-        static GUILayoutOption[] Size(float width) =>
-            width > 0 ? new[] { GUILayout.Height(Row), GUILayout.Width(width) } : new[] { GUILayout.Height(Row) };
+        void Text(Rect r, string text, GUIStyle style, bool hover = false)
+        {
+            if (Repainting) style.Draw(r, Content(text), hover && r.Contains(Event.current.mousePosition), false, false, false);
+        }
 
-        // GUILayout.Space and GUI.DrawTexture are stripped in some IL2CPP games; empty rects and a filled label style
-        // stand in for them.
-        static void Gap(float px) => GUILayoutUtility.GetRect(0, px, new[] { GUILayout.Height(px) });
+        // Camera previews through an image-only style: GUI.DrawTexture is stripped in some IL2CPP games.
+        void Image(Rect r, Texture texture)
+        {
+            if (!images.TryGetValue(texture.GetInstanceID(), out var content)) images[texture.GetInstanceID()] = content = new GUIContent { image = texture };
+            imageStyle.Draw(r, content, false, false, false, false);
+        }
 
-        static void GapX(float px) => GUILayoutUtility.GetRect(px, 0, new[] { GUILayout.Width(px), GUILayout.Height(0) });
+        float Natural(string text, GUIStyle style) => style.CalcSize(Content(text)).x;
+
+        GUIContent Content(string text)
+        {
+            if (!contents.TryGetValue(text, out var c)) contents[text] = c = new GUIContent(text);
+            return c;
+        }
+
+        bool Repainting => !ui.Measuring && Event.current.type == EventType.Repaint;
+
+        bool Clicked(Rect r) => !ui.Measuring && Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition);
 
         static GUIStyle fillStyle;
 
+        // Also draws the pointer dot outside the menu.
         internal static void Fill(Rect r, Color c)
         {
-            if (Event.current.type != EventType.Repaint) return;
+            if (Event.current.type != EventType.Repaint || (MenuLayout.Current != null && MenuLayout.Current.Measuring)) return;
             if (fillStyle == null)
             {
                 fillStyle = new GUIStyle();
@@ -621,12 +651,11 @@ namespace Parallax
             GUI.color = c;
             try
             {
-                // Whichever rect drawing call the game kept: games strip different ones.
-                if (fillMode == 0) GUI.Label(r, GUIContent.none, fillStyle);
-                else if (fillMode == 1) fillStyle.Draw(r, false, false, false, false);
+                // GUIStyle.Draw goes straight to the engine; DrawTexture only if a game lacks it.
+                if (fillMode == 0) fillStyle.Draw(r, false, false, false, false);
                 else GUI.DrawTexture(r, Texture2D.whiteTexture);
             }
-            catch (System.Exception ex) when (fillMode < 2 && (ex is System.NotSupportedException || ex is System.MissingMethodException))
+            catch (System.Exception ex) when (fillMode < 1 && (ex is System.NotSupportedException || ex is System.MissingMethodException))
             {
                 fillMode++;
             }
@@ -671,6 +700,7 @@ namespace Parallax
             tabStyle = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
             tabStyle.hover.textColor = Ink;
             tabOn = Style(TextAnchor.MiddleLeft, Ink, Small, monoFont, false);
+            imageStyle = new GUIStyle { imagePosition = ImagePosition.ImageOnly, alignment = TextAnchor.MiddleCenter };
         }
 
         // Filled styles use the built-in white texture, tinted by GUI.backgroundColor when drawn (see Button).
