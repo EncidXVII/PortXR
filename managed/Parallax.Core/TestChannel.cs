@@ -14,6 +14,9 @@ namespace Parallax
         readonly UdpClient udp;
         internal Controllers[] ControllerOverride;
         internal Vector2? PointerOverride;
+        // Right controller at this offset from the play origin, aimed at the panel or at AimTarget (also from the origin).
+        internal Vector3? AimOffset, AimTarget;
+        internal string AimObject;  // or at this game object, wherever it is in the game world
         Vector3? headPos;
         float headYaw;
         int busyMs;  // simulated CPU-bound game: main-thread stall per frame
@@ -103,6 +106,16 @@ namespace Parallax
                         ControllerOverride[0].rTrigger = a[3] == "1" ? 1 : 0;
                     }
                     return "ok";
+                case "aim":
+                    AimOffset = a[1] == "off" ? (Vector3?)null : new Vector3(F(a[1]), F(a[2]), F(a[3]));
+                    AimObject = a.Length > 4 && a[4].StartsWith("@") ? a[4].Substring(1) : null;
+                    AimTarget = a.Length > 6 ? new Vector3(F(a[4]), F(a[5]), F(a[6])) : (Vector3?)null;
+                    return "ok";
+                case "hider":
+                    if (a[1] == "1") rig.Hider.Start();
+                    else if (a[1] == "show") rig.Hider.ShowAll();
+                    else rig.Hider.Stop();
+                    return "ok";
                 case "recenter":
                     rig.RequestRecenter();
                     return "ok";
@@ -160,7 +173,7 @@ namespace Parallax
             return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
                 "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},"curved":{{s.curvedSubmitted}},"curvedSupported":{{s.curvedSupported}},
-                "theater":{{(Settings.Theater.Value ? 1 : 0)}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},
+                "theater":{{(Settings.Theater.Value ? 1 : 0)}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},
                 "eyeL":{{V(rig.Eyes[0].transform.position)}},"eyeR":{{V(rig.Eyes[1].transform.position)}},
                 "cam":"{{(cam != null ? cam.name : "")}}","camMask":{{(cam != null ? cam.cullingMask : 0)}},"camPos":{{(cam != null ? V(cam.transform.position) : "null")}},
                 "fov":[{{f.left:0.#####}},{{f.right:0.#####}},{{f.up:0.#####}},{{f.down:0.#####}}],

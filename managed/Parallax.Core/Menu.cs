@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using BepInEx.Configuration;
 using UnityEngine;
 
@@ -32,6 +33,7 @@ namespace Parallax
         bool savedVisible;
         Vector2 scroll;
         int picking = -1;  // binding being changed in the Controls tab
+        int gesture;       // which gesture's bindings the Controls tab shows
         float hovered, lastHovered;
 
         // Game tab: one hidden camera renders a preview of one candidate per frame.
@@ -261,7 +263,7 @@ namespace Parallax
             if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Theater, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input };
             else if (tab == ViewTab)
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu };
-            else if (tab == ControlsTab) entries = Bindings.Entries;
+            else if (tab == ControlsTab) entries = Bindings.Entries.SelectMany(g => g).Where(e => e != null).ToArray();
             else return;
             var allGames = AllGamesValues();
             foreach (var e in entries)
@@ -292,9 +294,8 @@ namespace Parallax
                 new[] { "Off", "Low", "High" }, VignetteLevel.Off);
 
             // Same order as the app: Keyboard & mouse first.
-            bool pad = Settings.Input.Value == InputMode.Gamepad;
-            Choice("Controls", "Keyboard & mouse", "Gamepad", ref pad);
-            Settings.Input.Value = pad ? InputMode.Gamepad : InputMode.KeyboardMouse;
+            Options("Controls", Settings.Input, new[] { InputMode.KeyboardMouse, InputMode.Gamepad, InputMode.Off },
+                new[] { "Keyboard & mouse", "Gamepad", "Off" }, InputMode.Off);
         }
 
         void DrawView()
@@ -314,6 +315,12 @@ namespace Parallax
 
         void DrawControls()
         {
+            if (Settings.Input.Value == InputMode.Off)
+            {
+                Label("Controls are off: the controllers only work this menu and the laser pointer. Play with your own", muted, 0);
+                Label("keyboard, mouse or gamepad. Switch Controls in Quick to use the controllers in the game.", muted, 0);
+                return;
+            }
             if (Settings.Input.Value == InputMode.Gamepad)
             {
                 Label("Gamepad mode: the controllers act as an Xbox pad. Sticks, triggers, A B X Y, grips as", muted, 0);
@@ -325,8 +332,17 @@ namespace Parallax
                 DrawKeyPicker();
                 return;
             }
-            Label("Left stick moves (W A S D), right stick looks. Pick a button to change what it presses.", muted, 0);
-            GUILayout.Space(8);
+            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            for (int g = 0; g < Bindings.Gestures.Length; g++)
+            {
+                if (Button(Bindings.Gestures[g], g == gesture, 220)) gesture = g;
+                GUILayout.Space(4);
+            }
+            GUILayout.EndHorizontal();
+            Label(gesture == Bindings.Press ? "Left stick moves (W A S D), right stick looks. Pick a button to change it."
+                : gesture == Bindings.Double ? "Two quick presses. The first press still does its own key."
+                : gesture == Bindings.Hold ? "Held for half a second. A short press then taps its own key on release."
+                : "Pressed while the same hand's grip is held. The grip's own key lets go meanwhile.", muted, 0);
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
             BindingColumn("01", "Left hand", Bindings.LeftHand);
             GUILayout.Space(40);
@@ -342,9 +358,11 @@ namespace Parallax
             Eyebrow(number, name.ToUpperInvariant());
             foreach (int i in inputs)
             {
+                var entry = Bindings.Entries[gesture][i];
+                if (entry == null) continue;
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-                Label(Bindings.Labels[i], label, 220);
-                if (Button(Bindings.Entries[i].Value, false, 260)) picking = i;
+                Label(Bindings.Name(gesture, i), label, 260);
+                if (Button(entry.Value, false, 220)) picking = i;
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndVertical();
@@ -353,7 +371,8 @@ namespace Parallax
         void DrawKeyPicker()
         {
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            Label($"{Bindings.Hand(picking)} {Bindings.Labels[picking]} presses:", label, 0);
+            var picked = Bindings.Entries[gesture][picking];
+            Label($"{Bindings.Hand(picking)} {Bindings.Name(gesture, picking)} presses:", label, 0);
             GUILayout.FlexibleSpace();
             if (Button("Cancel", false, 160)) picking = -1;
             GUILayout.EndHorizontal();
@@ -365,9 +384,9 @@ namespace Parallax
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 for (int j = start; j < Mathf.Min(start + columns, names.Length); j++)
                 {
-                    if (Button(names[j], names[j] == Bindings.Entries[picking].Value, 160))
+                    if (Button(names[j], names[j] == picked.Value, 160))
                     {
-                        Bindings.Entries[picking].Value = names[j];
+                        picked.Value = names[j];
                         picking = -1;
                         break;
                     }
@@ -380,8 +399,21 @@ namespace Parallax
 
         void DrawGame()
         {
+            GUILayout.BeginHorizontal(new GUILayoutOption[0]);
+            Label("In your view? Point at it, pull the trigger. B stops.", muted, 680);
+            GUILayout.FlexibleSpace();
+            int hidden = rig.Hider.Count;
+            if (hidden > 0 && Button(hidden == 1 ? "Show 1 hidden" : $"Show {hidden} hidden", false, 260)) rig.Hider.ShowAll();
+            GUILayout.Space(4);
+            if (Button("Hide objects", false, 260))
+            {
+                Toggle();
+                rig.Hider.Start();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(16);
             Label("Game camera: the camera your view follows.", muted, 0);
-            scroll = GUILayout.BeginScrollView(scroll, new[] { GUILayout.Height(Height - 280) });
+            scroll = GUILayout.BeginScrollView(scroll, new[] { GUILayout.Height(Height - 360) });
             bool automatic = Settings.CameraName.Value.Length == 0;
             if (Button("Automatic", automatic, ThumbW)) PickCamera("");
             GUILayout.Space(16);
@@ -494,11 +526,12 @@ namespace Parallax
         {
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
             Label(name, label, 360);
-            float width = 600f / values.Length;
+            // 600 shared by label length, so a long label ("Keyboard & mouse") gets the room it needs.
+            float total = labels.Sum(l => l.Length + 6);
             for (int i = 0; i < values.Length; i++)
             {
                 bool on = entry.Value.Equals(values[i]), lit = on && !(neutral.HasValue && neutral.Value.Equals(values[i]));
-                if (Button(labels[i], lit, width)) entry.Value = values[i];
+                if (Button(labels[i], lit, 600f * (labels[i].Length + 6) / total)) entry.Value = values[i];
                 if (on && !lit && Event.current.type == EventType.Repaint) Outline(GUILayoutUtility.GetLastRect(), Ink);
             }
             GUILayout.EndHorizontal();

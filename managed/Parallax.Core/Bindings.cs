@@ -29,34 +29,73 @@ namespace Parallax
             0x02, 0x03, 0x04, 0x05, 0x148, 0x150, 0x14B, 0x14D, 0x1000, 0x1001, 0x1002,
         };
 
-        public static ConfigEntry<string>[] Entries;
+        // Gestures beyond a plain press, for the first 10 inputs (the menu button has its own tap and hold): double
+        // press, held past half a second, and pressed while the same hand's grip is held (not for the grips).
+        public const int Press = 0, Double = 1, Hold = 2, Combo = 3, GestureInputs = 10;
+        public static readonly string[] Gestures = { "Press", "Double press", "Hold", "Grip +" };
+        static readonly string[] Suffix = { "", "Double", "Hold", "Combo" };
+        static readonly string[] Meaning =
+        {
+            "what this controller input presses",
+            "what pressing this input twice quickly presses (the first press still does its own)",
+            "what holding this input for half a second presses (a short press then taps its own key on release)",
+            "what this input presses while the same hand's grip is held (the grip's own key lets go meanwhile)",
+        };
+
+        // [gesture][input]; null where a gesture does not apply to an input.
+        public static ConfigEntry<string>[][] Entries;
+
+        public static bool Applies(int gesture, int input) =>
+            gesture == Press || input < GestureInputs && !(gesture == Combo && (input == 4 || input == 5));
 
         public static void Bind(ConfigFile cfg)
         {
-            Entries = new ConfigEntry<string>[Inputs.Length];
-            for (int i = 0; i < Inputs.Length; i++)
-                Entries[i] = cfg.Bind("Bindings", Inputs[i], Defaults[i],
-                    "Keyboard & mouse mode: what this controller input presses. One of: " + string.Join(", ", KeyNames) + ".");
+            Entries = new ConfigEntry<string>[Gestures.Length][];
+            for (int g = 0; g < Gestures.Length; g++)
+            {
+                Entries[g] = new ConfigEntry<string>[Inputs.Length];
+                for (int i = 0; i < Inputs.Length; i++)
+                    if (Applies(g, i))
+                        Entries[g][i] = cfg.Bind("Bindings", Inputs[i] + Suffix[g], g == Press ? Defaults[i] : "None",
+                            "Keyboard & mouse mode: " + Meaning[g] + ". One of: " + string.Join(", ", KeyNames) + ".");
+            }
         }
 
         public static string Hand(int input) => Array.IndexOf(LeftHand, input) >= 0 ? "Left" : "Right";
 
-        public static void Codes(int[] codes)
+        public static string Name(int gesture, int input) =>
+            (gesture == Combo ? "Grip + " : "") + Labels[input] + (gesture == Double ? " twice" : gesture == Hold ? " held" : "");
+
+        static int Code(ConfigEntry<string> e)
         {
-            for (int i = 0; i < Inputs.Length; i++)
+            int k = e == null ? -1 : Array.IndexOf(KeyNames, e.Value);
+            return k >= 0 ? KeyCodes[k] : 0;
+        }
+
+        public static void Codes(ref InputConfig cfg)
+        {
+            for (int i = 0; i < Inputs.Length; i++) cfg.binds[i] = Code(Entries[Press][i]);
+            for (int i = 0; i < GestureInputs; i++)
             {
-                int k = Array.IndexOf(KeyNames, Entries[i].Value);
-                codes[i] = k >= 0 ? KeyCodes[k] : 0;
+                cfg.twice[i] = Code(Entries[Double][i]);
+                cfg.held[i] = Code(Entries[Hold][i]);
+                cfg.combo[i] = Code(Entries[Combo][i]);
             }
         }
 
-        // First key bound to two inputs, as a sentence; null when every binding is unique.
+        // First key bound twice, as a sentence; null when every binding is unique.
         public static string Conflict()
         {
-            for (int i = 0; i < Inputs.Length; i++)
-                for (int j = i + 1; j < Inputs.Length; j++)
-                    if (Entries[i].Value != "None" && Entries[i].Value == Entries[j].Value)
-                        return $"{Entries[i].Value} is on both {Hand(i)} {Labels[i]} and {Hand(j)} {Labels[j]}.";
+            var seen = new System.Collections.Generic.Dictionary<string, string>();
+            for (int g = 0; g < Gestures.Length; g++)
+                for (int i = 0; i < Inputs.Length; i++)
+                {
+                    var e = Entries[g][i];
+                    if (e == null || e.Value == "None") continue;
+                    string where = $"{Hand(i)} {Name(g, i)}";
+                    if (seen.TryGetValue(e.Value, out var first)) return $"{e.Value} is on both {first} and {where}.";
+                    seen[e.Value] = where;
+                }
             return null;
         }
     }

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "gesture.h"
 #include <MinHook.h>
 #include <Xinput.h>
 #include <algorithm>
@@ -29,6 +30,7 @@ bool g_menuDown, g_menuConsumed, g_menuHeld, g_tapPending;
 ULONGLONG g_menuPressAt, g_menuReleaseAt, g_startUntil;
 
 bool g_gripDown[2];
+Gestures g_gestures;
 float g_mouseCarry[2];
 LARGE_INTEGER g_lastUpdate;
 bool g_pointerDown;
@@ -196,17 +198,23 @@ void update_keyboard_mouse(const PrxControllers& c, const PrxInputConfig& cfg, b
     if (on) {
         keys[0x11] = c.ly > 0.5f, keys[0x1F] = c.ly < -0.5f, keys[0x1E] = c.lx < -0.5f, keys[0x20] = c.lx > 0.5f;
         // While the laser pointer is on the game window, the right trigger clicks there instead of its binding.
-        const bool pressed[BindCount] = {
+        const bool pressed[kGestureInputs] = {
             (c.buttons & BtnA) != 0,     (c.buttons & BtnB) != 0,     (c.buttons & BtnX) != 0,
             (c.buttons & BtnY) != 0,     g_gripDown[0],               g_gripDown[1],
             (c.buttons & BtnLStick) != 0, (c.buttons & BtnRStick) != 0, c.lTrigger > 0.5f,
-            c.rTrigger > 0.5f && !cfg.pointerActive, startTap, g_menuHeld};
-        for (int i = 0; i < BindCount; ++i) {
-            int code = cfg.binds[i];
-            if (!pressed[i] || code <= 0) continue;
+            c.rTrigger > 0.5f && !cfg.pointerActive};
+        auto hold = [&](int code) {
             if (code >= BindMouse && code < BindMouse + 3) mouse[code - BindMouse] = true;
-            else if (code < 0x200) keys[code] = true;
-        }
+            else if (code > 0 && code < 0x200) keys[code] = true;
+        };
+        GestureBinds gb;
+        std::memcpy(gb.press, cfg.binds, sizeof(gb.press));
+        std::memcpy(gb.twice, cfg.twice, sizeof(gb.twice));
+        std::memcpy(gb.held, cfg.held, sizeof(gb.held));
+        std::memcpy(gb.combo, cfg.combo, sizeof(gb.combo));
+        g_gestures.update(pressed, gb, GetTickCount64(), hold);
+        if (startTap) hold(cfg.binds[BindMenuTap]);
+        if (g_menuHeld) hold(cfg.binds[BindMenuHold]);
         float speed = cfg.mouseSpeed * (float)dt;
         g_mouseCarry[0] += cfg.snap ? cfg.turnX : c.rx * std::fabs(c.rx) * speed;
         g_mouseCarry[1] -= c.ry * std::fabs(c.ry) * speed;

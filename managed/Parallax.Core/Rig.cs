@@ -42,7 +42,8 @@ namespace Parallax
         bool recenterPending = true;
 
         Controllers controllers;
-        readonly int[] binds = new int[Bindings.Inputs.Length];
+        readonly int[] binds = new int[Bindings.Inputs.Length], twice = new int[Bindings.GestureInputs],
+            held = new int[Bindings.GestureInputs], combo = new int[Bindings.GestureInputs];
         bool glancing, glanceTrigger;
         // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
         bool snapArmed = true, snapping;
@@ -51,7 +52,12 @@ namespace Parallax
         Vector3 vignetteLastPos;
         float vignetteLastYaw;
         internal bool PointerActive;
+        internal readonly Hider Hider = new Hider();
+        internal int AimValid => beamOn ? 1 : 0;
         Vector2 pointerUv;
+        // Laser beam in tracking space, drawn into the eye images while the pointer is wanted.
+        bool beamOn;
+        Vector3 beamFrom, beamTo;
         bool menuKeyDown;
         bool failureHandled, restarting;
         float retryAt, retryDelay = 5f;
@@ -229,22 +235,26 @@ namespace Parallax
             if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
             UpdatePointer();
+            Hider.Apply();
             var cfg = new InputConfig
             {
                 mode = (int)Settings.Input.Value,
-                neutral = Menu.Open ? 1 : 0,
+                neutral = Menu.Open || Hider.Active ? 1 : 0,
                 pointerActive = PointerActive ? 1 : 0,
                 pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
                 pointerY = Mathf.RoundToInt(pointerUv.y * Screen.height),
                 mouseSpeed = Settings.MouseSpeed.Value,
                 binds = binds,
+                twice = twice,
+                held = held,
+                combo = combo,
             };
-            if (Settings.Turning.Value != TurnMode.Smooth && GameCam != null && !Menu.Open)
+            if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open)
             {
                 cfg.snap = 1;
                 cfg.turnX = SnapTurn(Settings.Input.Value == InputMode.Gamepad);
             }
-            Bindings.Codes(binds);
+            Bindings.Codes(ref cfg);
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
             // Test runs drive the menu themselves; real players get the welcome card once, when VR first runs.
@@ -373,6 +383,10 @@ namespace Parallax
             f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
             f.quadRadius = curved ? TheaterDistance : 0;
             f.vignette = stereo ? VignetteNow : 0;
+            f.beam = stereo && beamOn ? 1 : 0;
+            // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
+            f.fromX = beamFrom.x; f.fromY = beamFrom.y; f.fromZ = -beamFrom.z;
+            f.toX = beamTo.x; f.toY = beamTo.y; f.toZ = -beamTo.z;
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
             slot = (slot + 1) & 3;
@@ -416,6 +430,21 @@ namespace Parallax
         {
             bool onQuad = false;
             Placement(!theaterShown, out var c, out var r, out float w, out float h);
+            if (Test?.AimOffset is Vector3 offset)
+            {
+                var from = originPos + originYaw * offset;
+                var to = Test.AimTarget is Vector3 t ? originPos + originYaw * t : c;
+                var target = Test.AimObject != null ? GameObject.Find(Test.AimObject) : null;
+                if (target != null && GameCam != null)
+                {
+                    // Game world back to tracking space: the inverse of how the eyes are placed.
+                    var cam = GameCam.transform;
+                    var rel = target.transform.position - cam.position - Vector3.up * Settings.Height.Value;
+                    to = originPos + originYaw * (Quaternion.Inverse(Xr.Yaw(cam.rotation)) * rel / Settings.WorldScale.Value);
+                }
+                controllers.aimR = Xr.ToPose(from, Quaternion.LookRotation(to - from));
+                controllers.aimValidR = 1;
+            }
             if (Test?.PointerOverride is Vector2 forced)
             {
                 pointerUv = forced;
@@ -432,8 +461,52 @@ namespace Parallax
             }
             bool wanted = Menu.Open || (Settings.Pointer.Value == PointerMode.Auto && Cursor.visible && Cursor.lockState != CursorLockMode.Locked);
             bool active = onQuad && wanted;
+            if (Hider.Active)
+            {
+                UpdateHider(active);
+                return;
+            }
+            // The beam ends on the panel where it points, else after a metre.
+            beamOn = wanted && controllers.aimValidR != 0 && Test?.PointerOverride == null;
+            if (beamOn)
+            {
+                beamFrom = Xr.Position(controllers.aimR);
+                beamTo = active ? PanelPoint(pointerUv, c, r, w, h) : beamFrom + Xr.Rotation(controllers.aimR) * Vector3.forward;
+            }
             if (active && !PointerActive) Native.prx_haptic_pulse(1, 0.25f, 0.02f);
             PointerActive = active;
+        }
+
+        // Hide-object tool: the beam goes out into the game world and ends on the object it would hide. The menu
+        // button (or opening the menu) ends the tool; in the game world, so the panel pointer stays off meanwhile.
+        void UpdateHider(bool overPanel)
+        {
+            PointerActive = false;
+            var cam = GameCam;
+            beamOn = cam != null && controllers.aimValidR != 0;
+            if (!beamOn || Menu.Open)
+            {
+                if (Menu.Open) Hider.Stop();
+                return;
+            }
+            float scale = Settings.WorldScale.Value;
+            var yaw = Xr.Yaw(cam.transform.rotation);
+            var toWorld = yaw * Quaternion.Inverse(originYaw);
+            var lift = Vector3.up * Settings.Height.Value;
+            beamFrom = Xr.Position(controllers.aimR);
+            var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
+            var origin = cam.transform.position + toWorld * ((beamFrom - originPos) * scale) + lift;
+            Hider.Aim(new Ray(origin, toWorld * dir), controllers.rTrigger > 0.6f, (controllers.buttons & Buttons.B) != 0);
+            float reach = Hider.Target != null ? Hider.TargetDistance / scale : 3f;
+            beamTo = beamFrom + dir * Mathf.Min(reach, 20f);
+        }
+
+        // Panel UV back to tracking space: on the flat panel, or on the curved theater screen around the origin.
+        Vector3 PanelPoint(Vector2 uv, Vector3 center, Quaternion rot, float w, float h)
+        {
+            if (!(theaterShown && curvedTheater)) return center + rot * new Vector3((uv.x - 0.5f) * w, (0.5f - uv.y) * h, 0);
+            float a = (uv.x - 0.5f) * w / TheaterDistance;
+            return originPos + rot * new Vector3(Mathf.Sin(a) * TheaterDistance, (0.5f - uv.y) * h, Mathf.Cos(a) * TheaterDistance);
         }
 
         // Ray (in the panel's frame, panel centre at the origin, facing -Z) to panel UV; (-1, -1) for a miss.

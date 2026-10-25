@@ -32,6 +32,8 @@ struct PrxFrame {
     int32_t mirror;  // draw the left eye into the game window at Present
     float quadRadius;  // >0 (only when PrxStats.curvedSupported): curved screen, quadPose is the cylinder's centre
     float vignette;    // comfort vignette on the eye layers, 0..1
+    int32_t beam;      // draw the laser beam from beamFrom to beamTo (tracking space, metres) into the eye layers
+    float beamFrom[3], beamTo[3];
 };
 
 enum PrxButton : uint32_t {
@@ -59,6 +61,9 @@ struct PrxInputConfig {
     // mouse mode, right-stick X -1..1 in gamepad mode). The managed side closes the loop on the camera's yaw.
     int32_t snap;
     float turnX;
+    // Gesture targets for the first 10 inputs (A to right trigger), same codes as binds: double press, held past
+    // half a second, and pressed while the same hand's grip is held. 0 leaves that gesture off.
+    int32_t twice[10], held[10], combo[10];
 };
 
 enum PrxBind { BindA, BindB, BindX, BindY, BindLGrip, BindRGrip, BindLStick, BindRStick, BindLTrigger, BindRTrigger,

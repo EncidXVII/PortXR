@@ -105,6 +105,7 @@ struct App {
     sort: Sort,
     confirm_uninstall: bool,
     advanced: bool,
+    buttons: bool,
     update: Arc<Mutex<Option<Release>>>,
 }
 
@@ -157,6 +158,7 @@ impl App {
             sort: Sort::Recent,
             confirm_uninstall: false,
             advanced: false,
+            buttons: false,
             update,
         };
         app.rescan();
@@ -393,6 +395,7 @@ impl App {
         ui.add_space(24.0);
         self.settings(ui, settings::QUICK, true);
         self.advanced_section(ui, true);
+        self.buttons_section(ui, true);
         let file = g.file(installer::CONFIG);
         if self.advanced && file.exists() {
             ui.add_space(8.0);
@@ -430,25 +433,60 @@ impl App {
         ui.add_space(24.0);
         self.settings(ui, settings::QUICK, false);
         self.advanced_section(ui, false);
+        self.buttons_section(ui, false);
     }
 
     fn advanced_section(&mut self, ui: &mut Ui, game: bool) {
-        section_break(ui);
         let changed = if game { self.changed(settings::ADVANCED) } else { 0 };
-        let note = if changed > 0 && !self.advanced { format!(" · {changed} changed") } else { String::new() };
-        let mut text = eyebrow_text("02", "Advanced");
-        text.append(&format!("{}  {}", note.to_uppercase(), if self.advanced { "−" } else { "+" }), 0.0, label_format(INK2));
-        let old = std::mem::replace(&mut ui.spacing_mut().button_padding, vec2(0.0, 0.0));
-        let header = ui.add(egui::Button::new(text).frame(false).min_size(vec2(0.0, 24.0)));
-        ui.spacing_mut().button_padding = old;
-        focus_ring(ui, &header);
-        if header.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            self.advanced = !self.advanced;
-        }
-        if self.advanced {
+        if fold(ui, "02", "Advanced", changed, &mut self.advanced) {
             ui.add_space(24.0);
             self.settings(ui, settings::ADVANCED, game);
         }
+    }
+
+    // Keyboard & mouse bindings: one row per controller input, one column per gesture.
+    fn buttons_section(&mut self, ui: &mut Ui, game: bool) {
+        let changed = if game { self.changed(&settings::BINDINGS) } else { 0 };
+        if !fold(ui, "03", "Buttons", changed, &mut self.buttons) {
+            return;
+        }
+        ui.add_space(8.0);
+        let note = "What each controller input presses in Keyboard & mouse mode. Double press, hold and grip + button add more keys to a button; left at None they do nothing.";
+        ui.add(egui::Label::new(RichText::new(note).color(INK2)).wrap());
+        ui.add_space(24.0);
+        egui::Grid::new(("buttons", game)).num_columns(1 + settings::GESTURES.len()).spacing(vec2(16.0, 12.0)).show(ui, |ui| {
+            ui.label("");
+            for (_, name) in settings::GESTURES {
+                ui.label(RichText::new(name.to_uppercase()).font(mono(LABEL)).color(INK3));
+            }
+            ui.end_row();
+            for (i, (_, name, _)) in settings::INPUTS.iter().enumerate() {
+                ui.label(RichText::new(*name).color(INK));
+                for g in 0..settings::GESTURES.len() {
+                    let Some(d) = settings::binding(i, g) else {
+                        ui.label("");
+                        continue;
+                    };
+                    let global = settings::global(&self.defaults, d);
+                    let current = if game { settings::get(&self.cfg, d.section, d.key).unwrap_or_else(|| global.clone()) } else { global.clone() };
+                    // On a game page a key set for this game only reads in full ink; one that follows all games is quieter.
+                    let own = game && !settings::same(&current, &global);
+                    let tone = if current == "None" { INK3 } else if !game || own { INK } else { INK2 };
+                    let mut pick = current.clone();
+                    egui::ComboBox::from_id_salt((d.key, game)).width(132.0).selected_text(button_text(&current, tone)).show_ui(ui, |ui| {
+                        for k in settings::KEYS {
+                            ui.selectable_value(&mut pick, k.to_string(), button_text(k, INK));
+                        }
+                    });
+                    if pick != current {
+                        let text = if game { &mut self.cfg } else { &mut self.defaults };
+                        *text = settings::set(text, d.section, d.key, &pick);
+                        self.dirty = true;
+                    }
+                }
+                ui.end_row();
+            }
+        });
     }
 
     // How many of these the open game sets differently from the all-games values.
@@ -549,6 +587,22 @@ impl App {
     }
 }
 
+// A collapsible section header, "NN // WORD · N CHANGED  +"; true while open.
+fn fold(ui: &mut Ui, number: &str, word: &str, changed: usize, open: &mut bool) -> bool {
+    section_break(ui);
+    let note = if changed > 0 && !*open { format!(" · {changed} changed") } else { String::new() };
+    let mut text = eyebrow_text(number, word);
+    text.append(&format!("{}  {}", note.to_uppercase(), if *open { "−" } else { "+" }), 0.0, label_format(INK2));
+    let old = std::mem::replace(&mut ui.spacing_mut().button_padding, vec2(0.0, 0.0));
+    let header = ui.add(egui::Button::new(text).frame(false).min_size(vec2(0.0, 24.0)));
+    ui.spacing_mut().button_padding = old;
+    focus_ring(ui, &header);
+    if header.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        *open = !*open;
+    }
+    *open
+}
+
 fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
     match d.kind {
         Kind::Slider { lo, hi, step, per, .. } => {
@@ -571,6 +625,7 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
             let neutral = options.iter().find(|(v, _)| *v == "Off").map(|o| o.0);
             segmented(ui, options, options.iter().find(|(v, _)| settings::same(v, current)).map_or(options[0].0, |o| o.0), neutral).map(String::from)
         }
+        Kind::Key => None,  // drawn by the Buttons table
         Kind::Text => {
             let mut v = current.to_string();
             let edit = egui::TextEdit::singleline(&mut v).hint_text("Automatic").desired_width(260.0).margin(Margin::symmetric(12, 10));

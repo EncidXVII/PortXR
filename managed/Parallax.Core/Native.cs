@@ -31,6 +31,8 @@ namespace Parallax
         public int mirror;
         public float quadRadius;
         public float vignette;
+        public int beam;
+        public float fromX, fromY, fromZ, toX, toY, toZ;
     }
 
     [Flags]
@@ -63,6 +65,9 @@ namespace Parallax
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public int[] binds;
         public int snap;
         public float turnX;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] twice;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] held;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] combo;
     }
 
     [StructLayout(LayoutKind.Sequential)]

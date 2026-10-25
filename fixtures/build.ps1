@@ -9,7 +9,9 @@
 #   F7  Unity 6.3, URP with Bloom, IL2CPP, Direct3D 12
 #   F8  Unity 6.3, built-in pipeline, Mono
 #   F9  Unity 2022.3, built-in pipeline, Mono with managed code stripping (class libraries trimmed)
-param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9")][string]$Name, [string]$Editors = "E:\Unity\Editor")
+#   F10 Unity 2022.3, HDRP with Bloom, Mono
+#   F11 Unity 2022.3, built-in pipeline with the Post Processing v2 package (Bloom), Mono
+param([Parameter(Mandatory)][ValidateSet("F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11")][string]$Name, [string]$Editors = "E:\Unity\Editor")
 $fixtures = @{
     F0 = @{ Unity = "2018.4.36f1"; Args = "-runtime legacy"; Urp = $false }
     F1 = @{ Unity = "2022.3.62f3"; Args = ""; Urp = $false }
@@ -21,6 +23,8 @@ $fixtures = @{
     F7 = @{ Unity = "6000.3.26f1"; Args = "-backend il2cpp -gfx d3d12"; Urp = $true }
     F8 = @{ Unity = "6000.3.26f1"; Args = ""; Urp = $false }
     F9 = @{ Unity = "2022.3.62f3"; Args = "-strip low"; Urp = $false }
+    F10 = @{ Unity = "2022.3.62f3"; Args = ""; Pipeline = "FixtureHdrp.cs" }
+    F11 = @{ Unity = "2022.3.62f3"; Args = ""; Pipeline = "FixturePpv2.cs" }
 }
 $f = $fixtures[$Name]
 $project = Join-Path $PSScriptRoot $Name
@@ -31,6 +35,7 @@ New-Item -ItemType Directory -Force "$target\Editor" | Out-Null
 Copy-Item "$shared\*.cs" $target
 Copy-Item "$shared\Editor\FixtureBuild.cs" "$target\Editor"
 if ($f.Urp) { Copy-Item "$shared\Editor\FixtureUrp.cs" "$target\Editor" }
+if ($f.Pipeline) { Copy-Item "$shared\Editor\$($f.Pipeline)" "$target\Editor" }
 
 $unity = Join-Path $Editors "$($f.Unity)\Editor\Unity.exe"
 foreach ($method in "Configure", "Build") {

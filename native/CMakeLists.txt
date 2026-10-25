@@ -29,3 +29,7 @@ target_link_libraries(parallax_xr PRIVATE minhook d3d11 d3d12 dxgi d3dcompiler)
 
 add_custom_command(TARGET parallax_xr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_xr>)
+
+enable_testing()
+add_executable(gesture_test test/gesture_test.cpp)
+add_test(NAME gesture COMMAND gesture_test)

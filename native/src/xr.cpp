@@ -1,6 +1,7 @@
 #include "gpu.h"
 #include <wrl/client.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -99,14 +100,50 @@ bool ensure_swapchain(Swapchain& sc, int w, int h) {
     return true;
 }
 
-bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath, float vignette = 0) {
+// The beam segment as seen by one eye, in that eye's image UV; false when it is entirely behind the eye.
+bool beam_uv(const PrxFrame& f, int e, float out[4]) {
+    const PrxPose& v = f.eyePose[e];
+    // Rotate by the inverse of the eye orientation: q* (p - eye) q.
+    auto local = [&](const float* w, float r[3]) {
+        float px = w[0] - v.px, py = w[1] - v.py, pz = w[2] - v.pz;
+        float qx = -v.qx, qy = -v.qy, qz = -v.qz, qw = v.qw;
+        float tx = 2 * (qy * pz - qz * py), ty = 2 * (qz * px - qx * pz), tz = 2 * (qx * py - qy * px);
+        r[0] = px + qw * tx + (qy * tz - qz * ty);
+        r[1] = py + qw * ty + (qz * tx - qx * tz);
+        r[2] = pz + qw * tz + (qx * ty - qy * tx);
+    };
+    float a[3], b[3];
+    local(f.beamFrom, a);
+    local(f.beamTo, b);
+    // The eye looks down -Z; clip the segment to a near plane before projecting.
+    const float nearZ = -0.02f;
+    if (a[2] > nearZ && b[2] > nearZ) return false;
+    auto clip = [&](float* p, const float* q) {
+        if (p[2] <= nearZ) return;
+        float t = (nearZ - q[2]) / (p[2] - q[2]);
+        for (int i = 0; i < 3; ++i) p[i] = q[i] + (p[i] - q[i]) * t;
+    };
+    clip(a, b);
+    clip(b, a);
+    const PrxFov& fov = f.eyeFov[e];
+    float l = std::tan(fov.left), r = std::tan(fov.right), u = std::tan(fov.up), d = std::tan(fov.down);
+    auto project = [&](const float* p, float* uv) {
+        uv[0] = (p[0] / -p[2] - l) / (r - l);
+        uv[1] = (u - p[1] / -p[2]) / (u - d);
+    };
+    project(a, out);
+    project(b, out + 2);
+    return true;
+}
+
+bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath, const Overlay& overlay = {}) {
     int w, h;
     if (!g_gpu->size(layer.texture, w, h) || !ensure_swapchain(sc, w, h)) return false;
     uint32_t index;
     if (!xr_ok(xrAcquireSwapchainImage(sc.handle, nullptr, &index), "xrAcquireSwapchainImage")) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, nullptr, XR_INFINITE_DURATION};
     if (xr_ok(xrWaitSwapchainImage(sc.handle, &wi), "xrWaitSwapchainImage")) {
-        g_gpu->draw(layer.texture, sc.handle, index, layer.flipY != 0, vignette,
+        g_gpu->draw(layer.texture, sc.handle, index, layer.flipY != 0, overlay,
                     capturePath.empty() ? nullptr : capturePath.c_str());
     }
     xrReleaseSwapchainImage(sc.handle, nullptr);
@@ -263,9 +300,15 @@ void do_submit(int slot) {
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
+        Overlay over[2];
+        for (int e = 0; e < 2; ++e) {
+            over[e].vignette = f.vignette;
+            // About 4 mm wide at arm's length on a typical 100 degree view.
+            if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
+        }
         if (f.stereo && f.eye[0].texture && f.eye[1].texture &&
-            copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp"), f.vignette) &&
-            copy_layer(g_eyes[1], f.eye[1], path(L"right.bmp"), f.vignette)) {
+            copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp"), over[0]) &&
+            copy_layer(g_eyes[1], f.eye[1], path(L"right.bmp"), over[1])) {
             for (int e = 0; e < 2; ++e) {
                 views[e] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
                 views[e].pose = to_xr(f.eyePose[e]);

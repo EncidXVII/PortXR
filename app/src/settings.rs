@@ -7,6 +7,8 @@ pub enum Kind {
     Toggle,
     Choice(&'static [(&'static str, &'static str)]),
     Text,
+    /// A key or mouse button from KEYS (keyboard & mouse bindings).
+    Key,
 }
 
 pub struct Def {
@@ -33,7 +35,7 @@ pub const QUICK: &[Def] = &[
     def("View", "WorldScale", "World scale", "1", slider(0.5, 3.0, 0.1, "×"), "Above 1 you feel bigger and the world smaller."),
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
-    def("Controls", "Mode", "Controls", "KeyboardMouse", Kind::Choice(&[("KeyboardMouse", "Keyboard & mouse"), ("Gamepad", "Gamepad")]), "Gamepad only reaches games that read Unity's Input System or XInput."),
+    def("Controls", "Mode", "Controls", "KeyboardMouse", Kind::Choice(&[("KeyboardMouse", "Keyboard & mouse"), ("Gamepad", "Gamepad"), ("Off", "Off")]), "Off: play with your own keyboard, mouse or gamepad; controllers only work the VR menu. Gamepad only reaches games that read the Input System or XInput."),
 ];
 
 pub const ADVANCED: &[Def] = &[
@@ -47,6 +49,55 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
     def("Game", "CameraName", "Game camera", "", Kind::Text, "Name of the camera to use as your head. Easier: pick one in the VR menu's Game tab."),
 ];
+
+/// What a controller input can press, as the plugin names them.
+pub const KEYS: &[&str] = &[
+    "None", "Space", "Enter", "Esc", "Tab", "Backspace", "LeftShift", "LeftCtrl", "LeftAlt", "Q", "E", "R", "F", "G", "C", "V", "Z", "X",
+    "T", "I", "M", "1", "2", "3", "4", "Up", "Down", "Left", "Right", "MouseLeft", "MouseRight", "MouseMiddle",
+];
+
+/// Controller inputs in the plugin's [Bindings] keys, left hand first: (key, shown name, what a press does by default).
+pub const INPUTS: &[(&str, &str, &str)] = &[
+    ("X", "Left X", "E"),
+    ("Y", "Left Y", "R"),
+    ("LeftGrip", "Left grip", "LeftShift"),
+    ("LeftTrigger", "Left trigger", "MouseRight"),
+    ("LeftStickClick", "Left stick click", "C"),
+    ("MenuTap", "Menu tap", "Esc"),
+    ("MenuHold", "Menu hold", "Tab"),
+    ("A", "Right A", "Space"),
+    ("B", "Right B", "LeftCtrl"),
+    ("RightGrip", "Right grip", "Q"),
+    ("RightTrigger", "Right trigger", "MouseLeft"),
+    ("RightStickClick", "Right stick click", "None"),
+];
+
+/// Gestures as key suffixes and column names. The menu button has its own tap and hold; grips have no grip combo.
+pub const GESTURES: &[(&str, &str)] = &[("", "Press"), ("Double", "Double press"), ("Hold", "Hold"), ("Combo", "Grip +")];
+
+fn applies(input: &str, gesture: usize) -> bool {
+    gesture == 0 || !input.starts_with("Menu") && !(gesture == 3 && input.ends_with("Grip"))
+}
+
+/// One setting per input and gesture that applies to it, input-major.
+pub static BINDINGS: std::sync::LazyLock<Vec<Def>> = std::sync::LazyLock::new(|| {
+    let mut list = Vec::new();
+    for &(input, name, press) in INPUTS {
+        for (g, &(suffix, gesture)) in GESTURES.iter().enumerate() {
+            if applies(input, g) {
+                let key: &'static str = Box::leak(format!("{input}{suffix}").into_boxed_str());
+                list.push(def("Bindings", key, name, if g == 0 { press } else { "None" }, Kind::Key, gesture));
+            }
+        }
+    }
+    list
+});
+
+/// The binding for an input (index into INPUTS) and gesture, if that gesture applies.
+pub fn binding(input: usize, gesture: usize) -> Option<&'static Def> {
+    let key = format!("{}{}", INPUTS[input].0, GESTURES[gesture].0);
+    BINDINGS.iter().find(|d| d.key == key)
+}
 
 fn key_of(line: &str) -> Option<&str> {
     let (k, _) = line.split_once('=')?;
@@ -98,7 +149,7 @@ impl Def {
 }
 
 pub fn all() -> impl Iterator<Item = &'static Def> {
-    QUICK.iter().chain(ADVANCED)
+    QUICK.iter().chain(ADVANCED).chain(BINDINGS.iter())
 }
 
 /// The all-games value: the defaults file's, else Parallax's own.
@@ -148,7 +199,7 @@ pub fn shown(d: &Def, value: &str) -> String {
         Kind::Choice(options) => options.iter().find(|(v, _)| same(v, value)).map_or(value, |o| o.1).to_string(),
         Kind::Toggle => if value.eq_ignore_ascii_case("true") { "On" } else { "Off" }.into(),
         Kind::Slider { .. } => value.parse::<f32>().map_or(value.to_string(), |v| number(&d.kind, v as f64)),
-        Kind::Text => value.to_string(),
+        Kind::Text | Kind::Key => value.to_string(),
     }
 }
 
@@ -178,6 +229,9 @@ mod tests {
         assert_eq!(get(&game, "View", "WorldScale").as_deref(), Some("1.2"));
         assert_eq!(get(&game, "Game", "CameraName").as_deref(), Some(""));
         assert!(same("1", "1.00") && same("True", "true") && !same("Off", "Low"));
+        assert_eq!(get(&game, "Bindings", "A").as_deref(), Some("Space"));
+        assert_eq!(get(&game, "Bindings", "AHold").as_deref(), Some("None"));
+        assert!(binding(5, 1).is_none() && binding(2, 3).is_none() && binding(7, 3).is_some());
     }
 
     #[test]

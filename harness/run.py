@@ -24,7 +24,7 @@ OUT = os.path.join(ROOT, "harness", "out")
 APP = os.path.join(ROOT, "dist", "Parallax.exe")
 PORT = 47800
 MENU_BIT, A_BIT = 64, 1
-POST_FIXTURES = {"F2", "F5", "F7"}  # fixtures whose game camera has post-processing to carry over
+POST_FIXTURES = {"F2", "F5", "F7", "F10", "F11"}  # fixtures whose game camera has post-processing to carry over
 PAD_FIXTURES = {"F6"}  # fixtures that read the Input System package
 user32 = ctypes.windll.user32
 
@@ -387,6 +387,59 @@ def gate_menu(g):
     check("9 menu", single == 0 and opened == 1 and closed == 0, f"single tap {single}, double tap {opened}, closed {closed}")
 
 
+def gate_beam(g):
+    """Laser beam: with the menu open and the right controller aimed at the panel, a lime beam is drawn into the eye
+    image (and only then)."""
+    def lime(img):
+        return int(mask(img, (198, 255, 26), 45).sum())
+    g.cmd("menu 1")
+    try:
+        time.sleep(0.3)
+        (before,) = g.capture("beam-off", ["left.bmp"])
+        g.cmd("aim 0.25 -0.35 0.1")
+        time.sleep(0.3)
+        (on,) = g.capture("beam-on", ["left.bmp"])
+        hovering = g.stats().get("pointer")
+    finally:
+        g.cmd("aim off")
+        g.cmd("menu 0")
+    check("15 laser beam", lime(on) > lime(before) + 1000,
+          f"lime pixels {lime(before)} -> {lime(on)}, pointer {hovering}")
+
+
+def gate_hide(g):
+    """Hide-object tool: aimed at the magenta door, the trigger hides it (gone from the eye image when it was in view);
+    Show all brings it back."""
+    def door():
+        (left,) = g.capture("hide", ["left.bmp"])
+        return int(mask(left, (255, 0, 255), 60).sum())
+    g.cmd("set WorldScale 1")  # the target below is in metres of the game world; the menu gate left 1.5
+    time.sleep(0.3)
+    before = door()
+    g.cmd("hider 1")
+    try:
+        g.cmd("aim 0.2 -0.3 0.1 @Door")
+        time.sleep(0.3)
+        st = g.stats()
+        aimed = (st.get("hider"), st.get("aimValid"), st.get("scanned"), st.get("hideTarget"))
+        g.cmd("ctrl 0 0 0 0 0 0 1 0 0")
+        time.sleep(0.3)
+        g.cmd("ctrl off")
+        time.sleep(0.3)
+        gone = door()
+    finally:
+        g.cmd("aim off")
+        g.cmd("hider 0")
+    g.cmd("hider show")
+    time.sleep(0.3)
+    back = door()
+    g.cmd("set WorldScale 1.5")
+    # Earlier gates may have walked or turned the player; the pixels only count when the door was in view.
+    seen = before > 2000
+    check("16 hide objects", aimed[3] == "Door" and (not seen or (gone < before * 0.05 and back > before * 0.9)),
+          f"door pixels {before} -> hidden {gone} -> shown {back}; tool, beam, renderers, target {aimed}")
+
+
 def gate_persist(g):
     value, bound = g.cmd("get WorldScale"), g.cmd("get A")
     g.cmd("set WorldScale 1")
@@ -466,8 +519,11 @@ def main():
                     print("SKIP 7 input: pass --input to run it (takes over mouse and keyboard)", flush=True)
                 if args.fixture in PAD_FIXTURES:
                     gates.insert(4, gate_pad)
-                    gates.append(gate_snap)
                 gates.append(gate_vignette)
+                gates.append(gate_beam)
+                gates.append(gate_hide)
+                if args.fixture in PAD_FIXTURES:
+                    gates.append(gate_snap)  # last: it turns the player away from the door
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
                 for gate in gates:

@@ -133,7 +133,7 @@ public:
     }
 
     // Swapchain images are in RENDER_TARGET when acquired and must be again when released.
-    void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, float vignette,
+    void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, const Overlay& overlay,
               const wchar_t* capture) override {
         std::lock_guard lock(mutex_);
         if (!queue_) return;
@@ -143,7 +143,7 @@ public:
         auto* list = begin();
         auto desc = img.texture->GetDesc();
         blit(list, 0, src, srcState, img.texture, img.format, D3D12_RESOURCE_STATE_RENDER_TARGET, (UINT)desc.Width,
-             desc.Height, flipY, vignette, nullptr);
+             desc.Height, flipY, &overlay, nullptr);
         ComPtr<ID3D12Resource> readback;
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
         if (capture) readback = copy_to_readback(list, img.texture, fp);
@@ -191,7 +191,7 @@ public:
             BlitParams crop{};
             gpu_mirror_crop(crop, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height);
             blit(list, 1, eye, kUnityState, back.Get(), bd.Format, D3D12_RESOURCE_STATE_PRESENT, (UINT)bd.Width,
-                 bd.Height, true, 0, &crop);
+                 bd.Height, true, nullptr, &crop);
         }
         submit();
     }
@@ -272,7 +272,7 @@ private:
 
     void blit(ID3D12GraphicsCommandList* list, int n, ID3D12Resource* src, D3D12_RESOURCE_STATES srcState,
               ID3D12Resource* dst, DXGI_FORMAT dstFormat, D3D12_RESOURCE_STATES dstState, UINT w, UINT h, bool flipY,
-              float vignette, const BlitParams* crop) {
+              const Overlay* overlay, const BlitParams* crop) {
         auto* pso = pipeline(dstFormat);
         if (!pso) return;
         auto sd = src->GetDesc();
@@ -296,7 +296,7 @@ private:
         device_->CreateRenderTargetView(dst, &rd, rtv);
 
         auto p = gpu_params(flipY, srcLinear, gpu_format_linear(dstFormat));
-        p.vignette = vignette;
+        if (overlay) gpu_overlay(p, *overlay, (float)w / h);
         if (crop) {
             p.scaleX = crop->scaleX;
             p.scaleY = crop->scaleY;

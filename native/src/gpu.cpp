@@ -8,7 +8,10 @@
 using Microsoft::WRL::ComPtr;
 
 const char kBlitShader[] = R"(
-cbuffer Params : register(b0) { float flip; float decode; float encode; float vignette; float2 scale; float2 offset; };
+cbuffer Params : register(b0) {
+    float flip; float decode; float encode; float vignette; float2 scale; float2 offset;
+    float4 beam; float beamWidth; float aspect; float dstLinear;
+};
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
 
@@ -21,6 +24,7 @@ float3 toLinear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 
 float3 toSrgb(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
 
 float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+    float2 at = uv;
     if (flip > 0.5) uv.y = 1 - uv.y;
     float4 c = src.Sample(smp, uv * scale + offset);
     if (decode > 0.5) c.rgb = toLinear(saturate(c.rgb));
@@ -29,6 +33,14 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     if (vignette > 0) {
         float inner = lerp(1.25, 0.45, vignette);
         c.rgb *= 1 - smoothstep(inner, inner + 0.45, length((uv - 0.5) * 2));
+    }
+    // Laser beam: distance to the segment in height units; lime core with a soft edge, fading in from the hand.
+    if (beamWidth > 0) {
+        float2 k = float2(aspect, 1), a = beam.xy * k, b = beam.zw * k, q = at * k;
+        float t = saturate(dot(q - a, b - a) / max(dot(b - a, b - a), 1e-8));
+        float edge = 1 - smoothstep(beamWidth * 0.5, beamWidth, length(q - lerp(a, b, t)));
+        float3 lime = float3(0.776, 1, 0.102);
+        c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, edge * lerp(0.25, 0.9, t));
     }
     return c;
 }
@@ -61,8 +73,17 @@ bool gpu_format_linear(DXGI_FORMAT f) {
 }
 
 BlitParams gpu_params(bool flipY, bool srcLinear, bool dstLinear) {
-    return {flipY ? 1.f : 0.f, (dstLinear && !srcLinear) ? 1.f : 0.f, (!dstLinear && srcLinear) ? 1.f : 0.f, 0.f,
-            1.f, 1.f, 0.f, 0.f};
+    BlitParams p{flipY ? 1.f : 0.f, (dstLinear && !srcLinear) ? 1.f : 0.f, (!dstLinear && srcLinear) ? 1.f : 0.f, 0.f,
+                 1.f, 1.f, 0.f, 0.f};
+    p.dstLinear = dstLinear ? 1.f : 0.f;
+    return p;
+}
+
+void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
+    p.vignette = o.vignette;
+    for (int i = 0; i < 4; ++i) p.beam[i] = o.beam[i];
+    p.beamWidth = o.beamWidth;
+    p.aspect = aspect;
 }
 
 void gpu_mirror_crop(BlitParams& p, float eye, float screen) {

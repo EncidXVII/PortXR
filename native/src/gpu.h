@@ -2,6 +2,14 @@
 #include "common.h"
 #include <dxgi1_4.h>
 
+// Drawn over an eye image. vignette: 0 = none, up to 1 = strongest. beam: segment from (x0, y0) to (x1, y1) in the
+// image's UV (top-left origin), beamWidth in UV of the image height; 0 draws no beam.
+struct Overlay {
+    float vignette = 0;
+    float beam[4] = {};
+    float beamWidth = 0;
+};
+
 // Everything that touches the game's graphics device. One backend per API; all calls come from Unity's render
 // thread except present(), which runs on whichever thread the game presents from.
 class Gpu {
@@ -15,8 +23,8 @@ public:
     virtual void forget_images(XrSwapchain swapchain) = 0;
     virtual bool size(void* texture, int& w, int& h) = 0;
     // Draws a Unity texture into an acquired swapchain image; a non-null capture path writes it out as BMP.
-    // vignette: 0 = none, up to 1 = strongest comfort vignette (eye layers only).
-    virtual void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, float vignette,
+    // Eye layers only: comfort vignette and the laser beam drawn over the image.
+    virtual void draw(void* texture, XrSwapchain swapchain, uint32_t index, bool flipY, const Overlay& overlay,
                       const wchar_t* capture) = 0;
     // Unity < 2019.1 UI fallback: grab the backbuffer still bound at end of frame.
     virtual void capture_backbuffer() = 0;
@@ -39,7 +47,11 @@ bool gpu_hook_queue(ID3D12CommandQueue* probe);
 
 extern const char kBlitShader[];
 extern const size_t kBlitShaderSize;
-struct BlitParams { float flip, decode, encode, vignette, scaleX, scaleY, offsetX, offsetY; };
+struct BlitParams {
+    float flip, decode, encode, vignette, scaleX, scaleY, offsetX, offsetY;
+    float beam[4], beamWidth, aspect, dstLinear, pad;
+};
+void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,
 // float targets hold linear values). Typeless 8-bit sources are read raw.
 DXGI_FORMAT gpu_view_format(DXGI_FORMAT f, bool& linear);

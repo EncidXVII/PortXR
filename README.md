@@ -23,7 +23,9 @@ Working name, not final.
 | Left menu: tap / hold / double-tap | Esc / Tab / VR menu |
 | Point at the UI panel + trigger | Mouse cursor + click (when the game shows a cursor) |
 
-Every button except the sticks can be rebound in the VR menu (Controls tab) to a key or mouse button; the menu warns when two buttons press the same key.
+Every button except the sticks can be rebound to a key or mouse button, in the VR menu (Controls tab) or in Parallax.exe (Buttons, for all games or one). Each button can also press another key on a double press, when held for half a second, or while the same hand's grip is held (grip + button). The menu warns when two bindings press the same key.
+
+**Off** (Controls, VR menu Quick or the app) leaves the game to your own keyboard, mouse or gamepad: the controllers then only work the VR menu and the laser pointer.
 
 **Gamepad** mode (VR menu, Quick) presents the controllers as an Xbox pad instead. Games on Unity's Input System package and games that read XInput see it. Unity 2021+ games on the old input manager read controllers through Windows.Gaming.Input and do not; keep keyboard & mouse there.
 
@@ -35,6 +37,8 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
+- A laser beam shows where the right controller points while the pointer is on (VR menu, or whenever the game shows its cursor).
+- Something in the way of your view, like a helmet or the player's own body? VR menu, Game tab, Hide objects: point at it and pull the trigger. Parallax remembers it for that game; Show hidden brings it back.
 - Theater mode shows the flat game on a big screen 3 m away; the laser pointer works on it. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.

@@ -7,7 +7,7 @@ using UnityEngine.Rendering;
 
 namespace Parallax
 {
-    public enum InputMode { Gamepad, KeyboardMouse }
+    public enum InputMode { Gamepad, KeyboardMouse, Off }
     public enum PointerMode { Auto, MenuOnly }
     public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
     public enum VignetteLevel { Off, Low, High }
@@ -21,7 +21,7 @@ namespace Parallax
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<TurnMode> Turning;
         public static ConfigEntry<VignetteLevel> Vignette;
-        public static ConfigEntry<string> CameraName;
+        public static ConfigEntry<string> CameraName, Hidden;
         public static ConfigEntry<int> MenuKey;
 
         public static void Bind(ConfigFile cfg)
@@ -35,9 +35,11 @@ namespace Parallax
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");
             CameraName = cfg.Bind("Game", "CameraName", "", "GameObject name of the camera used as the head. Empty picks automatically.");
+            Hidden = cfg.Bind("Game", "Hidden", "", "Objects hidden from the VR menu's Game tab, as hierarchy paths separated by ;.");
             Input = cfg.Bind("Controls", "Mode", InputMode.KeyboardMouse,
                 "KeyboardMouse: sticks drive WASD and mouse look (works in any game with keyboard controls). " +
-                "Gamepad: controllers act as an Xbox pad; only games that read XInput directly see it.");
+                "Gamepad: controllers act as an Xbox pad; only games that read XInput directly see it. " +
+                "Off: controllers only work the VR menu and laser pointer; play with your own keyboard, mouse or gamepad.");
             MouseSpeed = cfg.Bind("Controls", "MouseSpeed", 1200f, "KeyboardMouse mode: pixels per second at full right-stick deflection.");
             Pointer = cfg.Bind("Controls", "Pointer", PointerMode.Auto, "Auto: laser pointer works whenever the game shows its cursor. MenuOnly: only in the VR menu.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
