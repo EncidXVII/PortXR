@@ -29,10 +29,10 @@ PAD_FIXTURES = {"F6"}  # fixtures that read the Input System package
 user32 = ctypes.windll.user32
 
 
-def placement(primary):
-    """Game window args and null-HMD window rect. Unless told otherwise, both go to a secondary monitor so a run does
-    not cover the main screen."""
-    screen = None if primary else steamvr.secondary_monitor()
+def placement(secondary):
+    """Game window args and null-HMD window rect. With secondary, both go to a second monitor so a run does not cover
+    the main screen."""
+    screen = steamvr.secondary_monitor() if secondary else None
     if screen is None:
         return ["-screen-width", "1280", "-screen-height", "720"], None
     # Windows may scale the window by the display's DPI, so leave a wide margin before choosing 1280x720.
@@ -443,12 +443,12 @@ def main():
     ap.add_argument("--soak", type=int, default=30, help="stability run length in seconds")
     ap.add_argument("--input", action="store_true",
                     help="run the input gate: it focuses the game and drives the real mouse/keyboard for a few seconds")
-    ap.add_argument("--primary", action="store_true", help="put test windows on the main screen")
+    ap.add_argument("--secondary", action="store_true", help="put test windows on a second monitor, off the main screen")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     build = os.path.join(ROOT, "fixtures", args.fixture, "Build")
     exe = os.path.join(build, args.fixture + ".exe")
-    window_args, hmd_window = placement(args.primary)
+    window_args, hmd_window = placement(args.secondary)
 
     before = tree_hash(build)
     subprocess.run([APP, "install", build], check=True)

@@ -49,7 +49,7 @@ def smoke(game_dir, seconds):
             f.write(app_id(game_dir) or "")
     tier, detail = "Fail", ""
     try:
-        window_args, hmd_window = run.placement(primary=False)
+        window_args, hmd_window = run.placement(secondary=False)
         with steamvr.null_driver(hmd_window), windows.keep_on(hmd_window, run.test_processes(exe)):
             g = run.Game(exe, window_args)
             g.log = os.path.join(run.OUT, "compat_fixture.log")

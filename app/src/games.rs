@@ -26,6 +26,12 @@ pub struct Game {
     pub other_loader: Option<&'static str>,
     pub app_id: u32,
     pub cover: Option<PathBuf>,
+    /// The folder the user added by hand that found this game, if no store knows it.
+    pub added: Option<PathBuf>,
+    /// Where it was found ("Steam", "Epic Games", "GOG", "Added by you"), for the library's store filter.
+    pub store: &'static str,
+    /// Unix seconds: Steam's own record, or the last Play in VR from this app, whichever is later.
+    pub last_played: u64,
 }
 
 impl Game {
@@ -129,6 +135,9 @@ pub fn detect(root: &Path) -> Option<Game> {
         other_loader,
         app_id: 0,
         cover: None,
+        added: None,
+        store: "",
+        last_played: 0,
         dir,
         exe,
     })
@@ -200,8 +209,19 @@ pub fn add_folder(dir: &Path) -> io::Result<usize> {
     Ok(roots.len())
 }
 
+/// Folders the user added by hand, in the order they were added.
+pub fn manual() -> Vec<PathBuf> {
+    fs::read_to_string(manual_list()).unwrap_or_default().lines().map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).collect()
+}
+
+/// Forgets a hand-added folder; the game itself is not touched.
+pub fn remove_folder(dir: &Path) -> io::Result<()> {
+    let kept: String = manual().iter().filter(|p| p.as_path() != dir).map(|p| format!("{}\n", p.display())).collect();
+    fs::write(manual_list(), kept)
+}
+
 /// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
-fn other_stores() -> Vec<(PathBuf, Option<String>)> {
+fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
     let mut found = Vec::new();
     let manifests = PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into()))
         .join(r"Epic\EpicGamesLauncher\Data\Manifests");
@@ -209,13 +229,13 @@ fn other_stores() -> Vec<(PathBuf, Option<String>)> {
         let Ok(json) = fs::read_to_string(&item).map(|t| serde_json::from_str::<serde_json::Value>(&t)) else { continue };
         let Ok(json) = json else { continue };
         if let Some(dir) = json["InstallLocation"].as_str() {
-            found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from)));
+            found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from), "Epic Games"));
         }
     }
     let gog = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\WOW6432Node\GOG.com\Games");
     for key in gog.iter().flat_map(|k| k.enum_keys().flatten().filter_map(|id| k.open_subkey(id).ok()).collect::<Vec<_>>()) {
         if let Ok(dir) = key.get_value::<String, _>("path") {
-            found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok()));
+            found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok(), "GOG"));
         }
     }
     found
@@ -235,8 +255,34 @@ fn steam_root() -> Option<PathBuf> {
     key.get_value::<String, _>("SteamPath").ok().map(PathBuf::from)
 }
 
+fn played_list() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("played.txt")
+}
+
+/// Records a launch from the app (`<unix seconds>\t<game dir>` lines) for the library's "Recently played" order.
+pub fn mark_played(dir: &Path) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let mut lines: Vec<String> = fs::read_to_string(played_list()).unwrap_or_default().lines().filter(|l| !l.ends_with(&format!("\t{}", dir.display()))).map(String::from).collect();
+    lines.push(format!("{now}\t{}", dir.display()));
+    let _ = fs::create_dir_all(played_list().parent().unwrap());
+    let _ = fs::write(played_list(), lines.join("\n") + "\n");
+}
+
+/// Steam's cached art for one game: the 2:3 cover, else the wide header. Newer Steam clients keep some of it one
+/// folder deeper, under a content hash.
+fn cover_in(cache: &Path) -> Option<PathBuf> {
+    let find = |file: &str| {
+        let top = cache.join(file);
+        if top.exists() {
+            return Some(top);
+        }
+        fs::read_dir(cache).ok()?.flatten().map(|e| e.path().join(file)).find(|p| p.exists())
+    };
+    find("library_600x900.jpg").or_else(|| find("header.jpg"))
+}
+
 pub fn scan() -> Vec<Game> {
-    let mut found: Vec<(PathBuf, u32, Option<String>)> = Vec::new();
+    let mut found: Vec<(PathBuf, u32, Option<String>, &'static str, u64)> = Vec::new();
     let steam = steam_root();
     if let Some(steam) = &steam {
         let vdf = fs::read_to_string(steam.join("config").join("libraryfolders.vdf")).unwrap_or_default();
@@ -253,29 +299,31 @@ pub fn scan() -> Vec<Game> {
                 let text = fs::read_to_string(&manifest).unwrap_or_default();
                 let Some(install) = vdf_values(&text, "installdir").next() else { continue };
                 let id = vdf_values(&text, "appid").next().and_then(|v| v.parse().ok()).unwrap_or(0);
-                found.push((apps.join("common").join(install), id, vdf_values(&text, "name").next()));
+                let last = vdf_values(&text, "LastPlayed").next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                found.push((apps.join("common").join(install), id, vdf_values(&text, "name").next(), "Steam", last));
             }
         }
     }
-    found.extend(other_stores().into_iter().map(|(dir, name)| (dir, 0, name)));
-    for line in fs::read_to_string(manual_list()).unwrap_or_default().lines().filter(|l| !l.trim().is_empty()) {
-        found.push((PathBuf::from(line.trim()), 0, None));
-    }
+    found.extend(other_stores().into_iter().map(|(dir, name, store)| (dir, 0, name, store, 0)));
+    let stores = found.len();
+    found.extend(manual().into_iter().map(|dir| (dir, 0, None, "Added by you", 0)));
+    let played = fs::read_to_string(played_list()).unwrap_or_default();
 
     let mut games: Vec<Game> = Vec::new();
-    for (dir, id, name) in found {
+    for (i, (dir, id, name, store, last)) in found.into_iter().enumerate() {
         let Some(mut g) = detect(&dir) else { continue };
         if games.iter().any(|other| other.dir == g.dir) {
             continue;
         }
+        g.added = (i >= stores).then(|| dir.clone());
+        g.store = store;
+        let ours = played.lines().filter_map(|l| l.split_once('\t')).filter(|(_, d)| Path::new(d) == g.dir).filter_map(|(t, _)| t.parse().ok()).max();
+        g.last_played = last.max(ours.unwrap_or(0));
         g.app_id = id;
         if let Some(name) = name {
             g.name = name;
         }
-        g.cover = steam.as_ref().filter(|_| id > 0).and_then(|s| {
-            let cache = s.join("appcache").join("librarycache").join(id.to_string());
-            ["library_600x900.jpg", "header.jpg"].iter().map(|f| cache.join(f)).find(|p| p.exists())
-        });
+        g.cover = steam.as_ref().filter(|_| id > 0).and_then(|s| cover_in(&s.join("appcache").join("librarycache").join(id.to_string())));
         games.push(g);
     }
     games.sort_by_key(|g| g.name.to_lowercase());

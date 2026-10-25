@@ -12,8 +12,8 @@ namespace Parallax
     {
         static readonly string[] Tabs = { "Quick", "View", "Controls", "Game", "Diagnostics" };
         const int QuickTab = 0, ViewTab = 1, ControlsTab = 2, GameTab = 3;
-        const float RefHeight = 1080f, Width = 1100f, Height = 760f, Row = 64f, Pad = 40f;
-        const int ThumbW = 320, ThumbH = 180, History = 120;
+        const float RefHeight = 1080f, Width = 1100f, Height = 760f, Row = 64f, Pad = 48f;
+        const int ThumbW = 304, ThumbH = 171, History = 120;
         static readonly Color Bg = new Color(0.039f, 0.039f, 0.039f, 0.97f), Surface = new Color(0.071f, 0.071f, 0.071f);
         static readonly Color Raised = new Color(0.10f, 0.10f, 0.10f), Line = new Color(0.15f, 0.15f, 0.15f);
         // Edge: outlines of things you can press (3:1 on the panel); Line stays for decorative dividers.
@@ -21,6 +21,8 @@ namespace Parallax
         static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.502f, 0.502f, 0.502f);
         static readonly Color Lime = new Color(0.776f, 1f, 0.102f), OnLime = new Color(0.039f, 0.039f, 0.039f);
         static readonly Color Danger = new Color(1f, 0.353f, 0.235f);
+        // Type scale (px at 1080 reference height); the app's scale times ~2 for reading at panel distance.
+        const int Display = 60, Body = 28, Small = 24;
 
         readonly Rig rig;
         internal bool Open;
@@ -126,7 +128,7 @@ namespace Parallax
             var area = new Rect((Screen.width / k - Width) / 2, (RefHeight - Height) / 2, Width, Height);
             Fill(area, Bg);
             Outline(area, Line);
-            GUILayout.BeginArea(new Rect(area.x + Pad, area.y + 28, Width - 2 * Pad, Height - 56));
+            GUILayout.BeginArea(new Rect(area.x + Pad, area.y + 32, Width - 2 * Pad, Height - 64));
             if (welcome) DrawWelcome();
             else DrawTabs();
             GUILayout.EndArea();
@@ -148,7 +150,7 @@ namespace Parallax
             for (int i = 0; i < Tabs.Length; i++)
             {
                 bool on = i == tab;
-                if (GUILayout.Button(Tabs[i].ToUpperInvariant(), on ? tabOn : tabStyle, new[] { GUILayout.Height(56) })) Select(i);
+                if (GUILayout.Button(Tabs[i].ToUpperInvariant(), on ? tabOn : tabStyle, new[] { GUILayout.Height(Row) })) Select(i);
                 var r = GUILayoutUtility.GetLastRect();
                 if (Event.current.type == EventType.Repaint)
                 {
@@ -158,9 +160,11 @@ namespace Parallax
                 GUILayout.Space(24);
             }
             GUILayout.FlexibleSpace();
-            if (tab != GameTab && Button("Reset", false, 140)) ResetTab();
+            // Only tabs with settings have something to reset.
+            if (tab <= ControlsTab && Button("Reset", false, 128)) ResetTab();
             GUILayout.Space(8);
-            if (Button("Close", false, 140)) Toggle();
+            if (Button("Close", false, 128)) Toggle();
+            GUILayout.Space(2);  // keeps the right outline inside the area's clip
             GUILayout.EndHorizontal();
             var line = GUILayoutUtility.GetRect(1, 1, new[] { GUILayout.ExpandWidth(true), GUILayout.Height(1) });
             Fill(line, Line);
@@ -175,10 +179,9 @@ namespace Parallax
 
         void DrawWelcome()
         {
-            Eyebrow("00", "WELCOME");
             GUILayout.Label("YOU ARE IN VR.", display, new[] { GUILayout.Height(72) });
             GUILayout.Space(8);
-            GUILayout.Label("Three quick checks, then play. This card shows once; the menu is always a double-tap away.", muted, new GUILayoutOption[0]);
+            GUILayout.Label("Three quick checks, then play. The menu is always a double-tap away.", muted, new GUILayoutOption[0]);
             GUILayout.Space(24);
 
             Step("01", "Stand or sit the way you will play, then set your view straight ahead.");
@@ -191,7 +194,7 @@ namespace Parallax
             Step("02", "Doors and people should look life-size. Too small or too big? Adjust the world scale.");
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
             GUILayout.Space(72);
-            StepperControls(Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}x");
+            StepperControls(Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}×");
             GUILayout.EndHorizontal();
             GUILayout.Space(16);
 
@@ -230,7 +233,28 @@ namespace Parallax
             scroll = Vector2.zero;
         }
 
-        // Back to defaults for the settings this tab shows.
+        // The player's settings for all games, kept by Parallax.exe in the same "[Section]" / "Key = Value" format;
+        // empty when the app never saved any.
+        static Dictionary<string, string> AllGamesValues()
+        {
+            var values = new Dictionary<string, string>();
+            string section = "";
+            string path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "Parallax\\defaults.cfg");
+            try
+            {
+                foreach (var raw in System.IO.File.ReadAllLines(path))
+                {
+                    string line = raw.Trim();
+                    int eq = line.IndexOf('=');
+                    if (line.StartsWith("[") && line.EndsWith("]")) section = line.Substring(1, line.Length - 2);
+                    else if (eq > 0 && !line.StartsWith("#")) values[section + "/" + line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
+                }
+            }
+            catch (System.Exception) { }
+            return values;
+        }
+
+        // Back to the player's all-games settings (else the plugin's defaults) for the settings this tab shows.
         void ResetTab()
         {
             ConfigEntryBase[] entries;
@@ -239,7 +263,12 @@ namespace Parallax
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu };
             else if (tab == ControlsTab) entries = Bindings.Entries;
             else return;
-            foreach (var e in entries) e.BoxedValue = e.DefaultValue;
+            var allGames = AllGamesValues();
+            foreach (var e in entries)
+            {
+                if (allGames.TryGetValue(e.Definition.Section + "/" + e.Definition.Key, out var v)) e.SetSerializedValue(v);
+                else e.BoxedValue = e.DefaultValue;
+            }
             picking = -1;
             if (tab == ViewTab) rig.ApplyRenderScale();
         }
@@ -256,22 +285,23 @@ namespace Parallax
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
 
-            Stepper("World scale", Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}x");
+            Stepper("World scale", Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}×");
             Options("Turning", Settings.Turning, new[] { TurnMode.Smooth, TurnMode.Snap15, TurnMode.Snap30, TurnMode.Snap45 },
                 new[] { "Smooth", "Snap 15°", "Snap 30°", "Snap 45°" }, null);
             Options("Comfort vignette", Settings.Vignette, new[] { VignetteLevel.Off, VignetteLevel.Low, VignetteLevel.High },
                 new[] { "Off", "Low", "High" }, VignetteLevel.Off);
 
-            bool kbm = Settings.Input.Value == InputMode.KeyboardMouse;
-            Choice("Controls", "Gamepad", "Keyboard & mouse", ref kbm);
-            Settings.Input.Value = kbm ? InputMode.KeyboardMouse : InputMode.Gamepad;
+            // Same order as the app: Keyboard & mouse first.
+            bool pad = Settings.Input.Value == InputMode.Gamepad;
+            Choice("Controls", "Keyboard & mouse", "Gamepad", ref pad);
+            Settings.Input.Value = pad ? InputMode.Gamepad : InputMode.KeyboardMouse;
         }
 
         void DrawView()
         {
             Stepper("Height", Settings.Height, 0.05f, -1f, 1f, "{0:+0.00;-0.00;0.00} m");
             float scale = Settings.RenderScale.Value;
-            Stepper("Resolution", Settings.RenderScale, 0.1f, 0.5f, 2f, "{0:0.0}x");
+            Stepper("Resolution", Settings.RenderScale, 0.1f, 0.5f, 2f, "{0:0.0}×");
             if (Settings.RenderScale.Value != scale) rig.ApplyRenderScale();
             Toggle("Auto resolution", Settings.AutoRenderScale);
             Stepper("UI distance", Settings.UiDistance, 0.1f, 0.5f, 3f, "{0:0.0} m");
@@ -335,7 +365,7 @@ namespace Parallax
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 for (int j = start; j < Mathf.Min(start + columns, names.Length); j++)
                 {
-                    if (Button(names[j], names[j] == Bindings.Entries[picking].Value, 164))
+                    if (Button(names[j], names[j] == Bindings.Entries[picking].Value, 160))
                     {
                         Bindings.Entries[picking].Value = names[j];
                         picking = -1;
@@ -350,7 +380,7 @@ namespace Parallax
 
         void DrawGame()
         {
-            Label("Head camera: the game camera your view follows.", muted, 0);
+            Label("Game camera: the camera your view follows.", muted, 0);
             scroll = GUILayout.BeginScrollView(scroll, new[] { GUILayout.Height(Height - 280) });
             bool automatic = Settings.CameraName.Value.Length == 0;
             if (Button("Automatic", automatic, ThumbW)) PickCamera("");
@@ -368,7 +398,7 @@ namespace Parallax
                     else Fill(rect, Surface);
                     Outline(rect, cam == rig.GameCam ? Lime : Line);
                     // Lime fill only for a camera the player picked; the automatic pick gets the lime outline above.
-                    if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW)) PickCamera(cam.name);
+                    if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW, true)) PickCamera(cam.name);
                     GUILayout.EndVertical();
                     GUILayout.Space(16);
                 }
@@ -492,11 +522,12 @@ namespace Parallax
             if (Button("+", false, 96)) entry.Value = Mathf.Round(Mathf.Min(max, entry.Value + step) * 100) / 100;
         }
 
-        // Secondary cell: hairline outline, raised on hover; `on` fills it lime (selected state).
-        bool Button(string text, bool on, float width)
+        // Secondary cell: edge outline, ink outline on hover; `on` fills it lime (selected state). Labels are UPPERCASE
+        // like the app's buttons; `data` (a camera object name) is shown as the game wrote it.
+        bool Button(string text, bool on, float width, bool data = false)
         {
             GUI.backgroundColor = on ? Lime : Surface;
-            bool clicked = GUILayout.Button(text, on ? cellOn : cell, Size(width));
+            bool clicked = GUILayout.Button(data ? text : text.ToUpperInvariant(), on ? cellOn : cell, Size(width));
             GUI.backgroundColor = Color.white;
             var r = GUILayoutUtility.GetLastRect();
             if (Event.current.type == EventType.Repaint)
@@ -509,8 +540,8 @@ namespace Parallax
             return clicked;
         }
 
-        // The one primary action of a view: lime fill with an arrow.
-        bool Primary(string text, float width) => Button(text.ToUpperInvariant() + "  →", true, width);
+        // The one primary action of a view: lime fill.
+        bool Primary(string text, float width) => Button(text, true, width);
 
         void Hover(Rect r)
         {
@@ -520,7 +551,7 @@ namespace Parallax
         void Eyebrow(string number, string word)
         {
             GUILayout.BeginHorizontal(new GUILayoutOption[0]);
-            GUILayout.Label(number + "  //  ", eyebrow, new[] { GUILayout.Height(32), GUILayout.ExpandWidth(false) });
+            GUILayout.Label(number + " // ", eyebrow, new[] { GUILayout.Height(32), GUILayout.ExpandWidth(false) });
             GUILayout.Label(word, eyebrowWord, new[] { GUILayout.Height(32), GUILayout.ExpandWidth(false) });
             GUILayout.EndHorizontal();
         }
@@ -557,20 +588,20 @@ namespace Parallax
                 displayFont = Font.CreateDynamicFontFromOSFont("Impact", 60);
                 monoFont = Font.CreateDynamicFontFromOSFont("Consolas", 22);
             });
-            cell = Style(TextAnchor.MiddleCenter, Ink, 26, null, true);
-            cellOn = Style(TextAnchor.MiddleCenter, OnLime, 26, null, true);
-            label = Style(TextAnchor.MiddleLeft, Ink, 28, null, false);
-            muted = Style(TextAnchor.MiddleLeft, Ink2, 26, null, false);
-            warn = Style(TextAnchor.MiddleLeft, Danger, 26, null, false);
+            cell = Style(TextAnchor.MiddleCenter, Ink, Small, null, true);
+            cellOn = Style(TextAnchor.MiddleCenter, OnLime, Small, null, true);
+            label = Style(TextAnchor.MiddleLeft, Ink, Body, null, false);
+            muted = Style(TextAnchor.MiddleLeft, Ink2, Small, null, false);
+            warn = Style(TextAnchor.MiddleLeft, Danger, Small, null, false);
             label.wordWrap = muted.wordWrap = warn.wordWrap = true;
-            value = Style(TextAnchor.MiddleCenter, Ink, 28, monoFont, false);
-            data = Style(TextAnchor.MiddleLeft, Ink, 26, monoFont, false);
-            display = Style(TextAnchor.MiddleLeft, Ink, 60, displayFont, false);
-            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, 24, monoFont, false);
-            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, 24, monoFont, false);
-            tabStyle = Style(TextAnchor.MiddleLeft, Ink3, 24, monoFont, false);
+            value = Style(TextAnchor.MiddleCenter, Ink, Body, monoFont, false);
+            data = Style(TextAnchor.MiddleLeft, Ink, Body, monoFont, false);
+            display = Style(TextAnchor.MiddleLeft, Ink, Display, displayFont, false);
+            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
+            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, Small, monoFont, false);
+            tabStyle = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
             tabStyle.hover.textColor = Ink;
-            tabOn = Style(TextAnchor.MiddleLeft, Ink, 24, monoFont, false);
+            tabOn = Style(TextAnchor.MiddleLeft, Ink, Small, monoFont, false);
         }
 
         // Filled styles use the built-in white texture, tinted by GUI.backgroundColor when drawn (see Button).

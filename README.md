@@ -7,7 +7,7 @@ Working name, not final.
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
-2. Pick a game marked **Ready**, adjust its settings if you like, and press **Play in VR**. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
+2. Pick a game marked **Ready** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Controls (default: keyboard & mouse emulation)
@@ -62,7 +62,7 @@ pip install pillow numpy
 python harness\run.py --fixture F1 --soak 600
 ```
 
-Test windows open on a secondary monitor when there is one (`--primary` to override). The input gate takes over the real mouse and keyboard for a few seconds, so it only runs with `--input`.
+Test windows open on the main screen; `--secondary` moves them to a second monitor. The input gate takes over the real mouse and keyboard for a few seconds, so it only runs with `--input`.
 
 Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`, then tested with `python harness\run.py --fixture F1`. They need Unity under `E:\Unity\Editor\<version>` (`-Editors` to change).
 
@@ -85,7 +85,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 - `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation.
 - `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
-- `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam libraries and manual adds, per-game settings (kept in `%APPDATA%\Parallax` across uninstalls), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases. `Parallax.exe <gameDir>` opens straight to that game's page.
+- `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam, Epic, GOG and manual adds with search, status and store filters and a recently-played order, settings for all games with per-game changes (kept in `%APPDATA%\Parallax` across uninstalls; a game follows a changed all-games value unless it was set differently for that game, in the app or its VR menu), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases. `Parallax.exe <gameDir>` opens straight to that game's page.
 
 ## License
 

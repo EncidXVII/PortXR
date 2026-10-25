@@ -32,7 +32,7 @@ Statically linked into `parallax_xr.dll`. BSD-2-Clause.
     ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Rust crates in Parallax.exe
-Statically linked. egui, eframe, egui_extras, egui-winit, winit, glow, glutin (MIT OR Apache-2.0); image, serde, serde_json, sha2, ureq, rustls, zip, dirs, winreg, rfd, windows-sys (MIT OR Apache-2.0, or MIT); ring (ISC and BSD-style); webpki-roots (CDLA-Permissive-2.0). Full list with versions: `app/Cargo.lock`.
+Statically linked. egui, eframe, egui_extras, egui-winit, winit, glow, glutin, accesskit (MIT OR Apache-2.0); image, serde, serde_json, sha2, ureq, rustls, zip, dirs, winreg, rfd, windows-sys (MIT OR Apache-2.0, or MIT); ring (ISC and BSD-style); webpki-roots (CDLA-Permissive-2.0). Full list with versions: `app/Cargo.lock`.
 
 ## Anton font
 Bundled in Parallax.exe as the headline face. SIL Open Font License 1.1.
