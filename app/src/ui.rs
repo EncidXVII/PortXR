@@ -28,6 +28,8 @@ const DANGER: Color32 = Color32::from_rgb(255, 90, 60);
 // Shape and rhythm shared by every control: sharp corners, one control height, one uppercase tracking.
 const RADIUS: u8 = 0;
 const CONTROL_H: f32 = 40.0;
+// Widest a page's column grows on a big window, so rows and their links stay together.
+const PAGE_W: f32 = 1040.0;
 const TRACK: f32 = 1.2;
 // Type scale, nothing in between: Anton titles, Segoe UI body and small text, mono labels.
 const TITLE: f32 = 48.0;
@@ -44,7 +46,7 @@ pub fn run(open: Option<PathBuf>) -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Parallax")
             .with_inner_size([1120.0, 720.0])
-            .with_min_inner_size([760.0, 480.0]),
+            .with_min_inner_size([960.0, 560.0]),
         ..Default::default()
     };
     eframe::run_native("Parallax", options, Box::new(|cc| Ok(Box::new(App::new(cc, open)))))
@@ -215,7 +217,10 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(RichText::new("YOUR GAMES.").font(display(TITLE)).color(INK));
             if !self.games.is_empty() {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.sort_menu(ui));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
+                    ui.add_sized([280.0, CONTROL_H], search);
+                });
             }
         });
         if !self.status.0.is_empty() {
@@ -274,13 +279,10 @@ impl App {
         }
     }
 
-    // Search, status (with counts), store and order in one row; a filter with one possible value is left out.
+    // Status (with counts) on the left; store and order on the right. A filter with one possible value is left out.
     fn toolbar(&mut self, ui: &mut Ui) {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 12.0);
-            let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
-            ui.add_sized([220.0, CONTROL_H], search);
-
             let count = |f: Filter| self.games.iter().filter(|g| f == Filter::All || filter_of(g) == f).count();
             let labels = [Filter::All, Filter::Ready, Filter::Installed, Filter::Unsupported].map(|f| {
                 let name = match f {
@@ -296,21 +298,23 @@ impl App {
                 self.filter = f;
             }
 
-            let mut stores: Vec<&'static str> = self.games.iter().map(|g| g.store).collect();
-            stores.sort();
-            stores.dedup();
-            if stores.len() > 1 {
-                egui::ComboBox::from_id_salt("store").selected_text(button_text(self.store.unwrap_or("All stores"), INK)).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.store, None, button_text("All stores", INK));
-                    for s in stores {
-                        ui.selectable_value(&mut self.store, Some(s), button_text(s, INK));
-                    }
-                });
-            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                self.sort_menu(ui);
+                let mut stores: Vec<&'static str> = self.games.iter().map(|g| g.store).collect();
+                stores.sort();
+                stores.dedup();
+                if stores.len() > 1 {
+                    egui::ComboBox::from_id_salt("store").selected_text(button_text(self.store.unwrap_or("All stores"), INK)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.store, None, button_text("All stores", INK));
+                        for s in stores {
+                            ui.selectable_value(&mut self.store, Some(s), button_text(s, INK));
+                        }
+                    });
+                }
+            });
         });
     }
 
-    // Order sits with the heading it sorts, so the filter row stays one line at the default window size.
     fn sort_menu(&mut self, ui: &mut Ui) {
         let order = if self.sort == Sort::Recent { "Recently played" } else { "Name A-Z" };
         egui::ComboBox::from_id_salt("sort").selected_text(button_text(order, INK)).show_ui(ui, |ui| {
@@ -331,72 +335,84 @@ impl App {
 
     fn game_page(&mut self, ui: &mut Ui, i: usize) {
         let g = self.games[i].clone();
+        if tertiary(ui, "← Library").on_hover_text("Esc").clicked() {
+            self.back();
+            return;
+        }
+        ui.add_space(16.0);
+        // One page column, the same as the Settings page: the header sits on top, sections run its full width.
+        ui.set_max_width(ui.available_width().min(PAGE_W));
         ui.horizontal_top(|ui| {
-            let (rect, _) = ui.allocate_exact_size(vec2(200.0, 300.0), Sense::hover());
+            let (rect, _) = ui.allocate_exact_size(vec2(160.0, 240.0), Sense::hover());
             cover(ui, &g, rect);
             ui.add_space(32.0);
             ui.vertical(|ui| {
-                // Settings rows stay readable on a wide window instead of drifting to its right edge.
-                ui.set_max_width(880.0);
                 ui.add(egui::Label::new(RichText::new(g.name.to_uppercase()).font(display(TITLE)).color(INK)).wrap());
                 // Anton reserves a tall line; pull the metadata up so it groups with the title.
                 ui.add_space(-10.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     chip(ui, &format!("Unity {}", g.unity), ChipKind::Plain);
                     chip(ui, g.backend(), ChipKind::Plain);
                     chip(ui, g.badge(), chip_kind(&g));
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new(g.dir.display().to_string()).font(mono(LABEL)).color(INK3));
+                ui.add(egui::Label::new(RichText::new(g.dir.display().to_string()).font(mono(LABEL)).color(INK3)).wrap());
                 ui.add_space(24.0);
-                ui.horizontal(|ui| self.actions(ui, &g));
-                ui.add_space(12.0);
+                ui.horizontal_wrapped(|ui| self.actions(ui, &g));
                 let (text, tone) = if self.status.0.is_empty() { warning(&g) } else { self.status.clone() };
                 if !text.is_empty() {
                     status_line(ui, &text, tone);
                 }
-                if g.compat() != Compat::Supported {
-                    return;
+            });
+        });
+        if g.compat() != Compat::Supported {
+            return;
+        }
+        section_break(ui);
+        let changed = self.changed(settings::QUICK) + self.changed(settings::ADVANCED);
+        ui.horizontal(|ui| {
+            eyebrow(ui, "01", "Basics");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                if tertiary(ui, "All games →").clicked() {
+                    self.back_to = Some(i);
+                    self.page = Page::Settings;
                 }
-                section_break(ui);
-                let changed = self.changed(settings::QUICK) + self.changed(settings::ADVANCED);
-                ui.horizontal(|ui| {
-                    eyebrow(ui, "01", "Basics");
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 24.0;
-                        if tertiary(ui, "All games →").clicked() {
-                            self.back_to = Some(i);
-                            self.page = Page::Settings;
-                        }
-                        if changed > 0 && tertiary(ui, "Reset all").on_hover_text("Back to your settings for all games").clicked() {
-                            self.cfg = settings::all().fold(self.cfg.clone(), |t, d| settings::set(&t, d.section, d.key, &settings::global(&self.defaults, d)));
-                            self.dirty = true;
-                        }
-                    });
-                });
-                let text = match changed {
-                    0 => "Follows your settings for all games. Change one here for this game only; it applies on the next start.".to_string(),
-                    1 => "1 setting changed for this game only. Changes apply on the next start.".to_string(),
-                    n => format!("{n} settings changed for this game only. Changes apply on the next start."),
-                };
-                ui.label(RichText::new(text).color(INK2));
-                ui.add_space(24.0);
-                self.settings(ui, settings::QUICK, true);
-                self.advanced_section(ui, true);
-                let file = g.file(installer::CONFIG);
-                if self.advanced && file.exists() {
-                    ui.add_space(8.0);
-                    if tertiary(ui, "Open settings file").clicked() {
-                        let _ = Command::new("notepad").arg(file).spawn();
-                    }
+                if changed > 0 && tertiary(ui, "Reset all").on_hover_text("Back to your settings for all games").clicked() {
+                    self.cfg = settings::all().fold(self.cfg.clone(), |t, d| settings::set(&t, d.section, d.key, &settings::global(&self.defaults, d)));
+                    self.dirty = true;
                 }
             });
         });
+        let text = match changed {
+            0 => "Follows your settings for all games. Change one here for this game only; it applies on the next start.".to_string(),
+            1 => "1 setting changed for this game only. Changes apply on the next start.".to_string(),
+            n => format!("{n} settings changed for this game only. Changes apply on the next start."),
+        };
+        ui.add(egui::Label::new(RichText::new(text).color(INK2)).wrap());
+        ui.add_space(24.0);
+        self.settings(ui, settings::QUICK, true);
+        self.advanced_section(ui, true);
+        let file = g.file(installer::CONFIG);
+        if self.advanced && file.exists() {
+            ui.add_space(8.0);
+            if tertiary(ui, "Open settings file").clicked() {
+                let _ = Command::new("notepad").arg(file).spawn();
+            }
+        }
     }
 
     // The all-games values every game starts from.
     fn settings_page(&mut self, ui: &mut Ui) {
-        ui.set_max_width(1112.0);
+        ui.set_max_width(ui.available_width().min(PAGE_W));
+        // Opened from a game page: a way straight back to it.
+        if let Some(i) = self.back_to {
+            if tertiary(ui, &format!("← {}", self.games[i].name)).on_hover_text("Esc").clicked() {
+                self.back();
+                return;
+            }
+            ui.add_space(16.0);
+        }
         ui.label(RichText::new("SETTINGS.").font(display(TITLE)).color(INK));
         ui.label(RichText::new("For every game. A game's page can change any of them for that game only.").color(INK2));
         section_break(ui);
@@ -444,7 +460,8 @@ impl App {
 
     fn actions(&mut self, ui: &mut Ui, g: &Game) {
         ui.spacing_mut().item_spacing.x = 8.0;
-        if ui.add_enabled_ui(g.compat() == Compat::Supported, |ui| primary(ui, "Play in VR ↗")).inner.clicked() {
+        let playable = g.compat() == Compat::Supported;
+        if playable && primary(ui, "Play in VR ↗").clicked() {
             self.report(play(g, &self.defaults));
             self.confirm_uninstall = false;
         }
@@ -460,7 +477,9 @@ impl App {
         }
         // Everything below is occasional, so it reads as links, not buttons competing with Play.
         ui.spacing_mut().item_spacing.x = 24.0;
-        ui.add_space(16.0);
+        if playable || g.installed() {
+            ui.add_space(16.0);
+        }
         if tertiary(ui, "Open folder").clicked() {
             let _ = Command::new("explorer").arg(&g.dir).spawn();
         }
@@ -498,13 +517,15 @@ impl App {
     // On a game page (`game`) the rows show that game's values; one that differs from the all-games value gets a link
     // back to it. On the settings page they edit the all-games values.
     fn settings(&mut self, ui: &mut Ui, defs: &[Def], game: bool) {
-        egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(300.0).show(ui, |ui| {
+        // Name column up to 300, giving way first when the window is narrow; controls keep their natural width.
+        let name_w = (ui.available_width() - 32.0 - 480.0).clamp(180.0, 300.0);
+        egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {
             for d in defs.iter().filter(|d| game || !d.per_game()) {
                 let global = settings::global(&self.defaults, d);
                 let current = if game { settings::get(&self.cfg, d.section, d.key).unwrap_or_else(|| global.clone()) } else { global.clone() };
                 let mut back = false;
                 ui.vertical(|ui| {
-                    ui.set_max_width(300.0);
+                    ui.set_max_width(name_w);
                     ui.spacing_mut().item_spacing.y = 4.0;
                     // Centre the name's first line on the control beside it; hint and reset link hang below.
                     ui.add_space((CONTROL_H - ui.text_style_height(&egui::TextStyle::Body)) / 2.0);
@@ -597,12 +618,13 @@ impl eframe::App for App {
                 });
             });
         });
-        let body = egui::Frame::new().fill(BG).inner_margin(Margin { left: 32, right: 32, top: 32, bottom: 32 });
-        egui::CentralPanel::default().frame(body).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match self.page {
-                Page::Library => self.library(ui),
-                Page::Game(i) => self.game_page(ui, i),
-                Page::Settings => self.settings_page(ui),
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                egui::Frame::new().inner_margin(Margin::same(32)).show(ui, |ui| match self.page {
+                    Page::Library => self.library(ui),
+                    Page::Game(i) => self.game_page(ui, i),
+                    Page::Settings => self.settings_page(ui),
+                })
             })
         });
         // A slider drag changes the value every frame; write the file once it is let go.
@@ -751,11 +773,11 @@ fn nav(ui: &mut Ui, text: &str, active: bool) -> egui::Response {
 
 // Quiet text action for occasional things: no box, underlined on hover.
 fn tertiary(ui: &mut Ui, text: &str) -> egui::Response {
+    let old = std::mem::replace(&mut ui.spacing_mut().button_padding, vec2(0.0, 0.0));
     let r = ui.add(egui::Button::new(button_text(text, INK2)).frame(false).min_size(vec2(0.0, CONTROL_H)));
+    ui.spacing_mut().button_padding = old;
     if r.hovered() {
-        let y = r.rect.center().y + 9.0;
-        let x = r.rect.x_range().shrink(ui.spacing().button_padding.x);
-        ui.painter().hline(x, y, Stroke::new(1.0, INK2));
+        ui.painter().hline(r.rect.x_range(), r.rect.center().y + 9.0, Stroke::new(1.0, INK2));
     }
     focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -875,13 +897,7 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
     // Ready is the normal case, so it gets no tag; only the exceptions do.
-    let chip_text = match g.compat() {
-        Compat::Supported if g.installed() => Some("Installed"),
-        Compat::Supported => None,
-        Compat::AntiCheat => Some("Anti-cheat"),
-        Compat::X86 => Some("32-bit"),
-        Compat::Stripped => Some("Trimmed"),
-    };
+    let chip_text = (g.compat() != Compat::Supported || g.installed()).then(|| g.badge());
     if let Some(text) = chip_text {
         paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, chip_kind(g));
     }
@@ -1049,6 +1065,7 @@ fn style(ctx: &egui::Context) {
         s.spacing.item_spacing = vec2(8.0, 8.0);
         s.spacing.button_padding = vec2(16.0, 8.0);
         s.spacing.slider_width = 260.0;
+        s.spacing.scroll = egui::style::ScrollStyle::solid();
         s.spacing.interact_size.y = CONTROL_H;
         for (style, size) in [(egui::TextStyle::Body, BODY), (egui::TextStyle::Button, SMALL), (egui::TextStyle::Small, LABEL)] {
             s.text_styles.insert(style, body(size));

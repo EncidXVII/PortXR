@@ -51,9 +51,9 @@ impl Game {
         match self.compat() {
             Compat::Supported if self.installed() => "Installed",
             Compat::Supported => "Ready",
-            Compat::AntiCheat => "Anti-cheat: blocked",
-            Compat::X86 => "32-bit: no VR runtime",
-            Compat::Stripped => "Trimmed engine: not supported",
+            Compat::AntiCheat => "Anti-cheat",
+            Compat::X86 => "32-bit",
+            Compat::Stripped => "Trimmed engine",
         }
     }
 
