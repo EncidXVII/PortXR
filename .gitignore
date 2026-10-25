@@ -20,3 +20,4 @@ compat/results.csv
 release/
 fixtures/*/.vscode/
 fixtures/*/*.slnx
+app/target/
