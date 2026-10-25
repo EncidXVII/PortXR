@@ -147,8 +147,33 @@ public:
         ComPtr<ID3D12Resource> readback;
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
         if (capture) readback = copy_to_readback(list, img.texture, fp);
+        // Opacity probe: read the previous copy once the GPU passed it, then copy this image.
+        bool probing = false;
+        if (overlay.probe) {
+            if (probeBuf_ && fence_->GetCompletedValue() >= probeDone_) {
+                void* data = nullptr;
+                if (SUCCEEDED(probeBuf_->Map(0, nullptr, &data))) {
+                    probeResult_ = gpu_opaque_fraction((const uint8_t*)data + probeFp_.Offset, probeFp_.Footprint.Width,
+                                                       probeFp_.Footprint.Height, probeFp_.Footprint.RowPitch, probeFormat_);
+                    probeBuf_->Unmap(0, nullptr);
+                }
+                probeBuf_.Reset();
+            }
+            if (!probeBuf_) {
+                probeBuf_ = copy_to_readback(list, img.texture, probeFp_);
+                probeFormat_ = img.format;
+                probing = probeBuf_ != nullptr;
+            }
+        }
         uint64_t done = submit();
+        if (probing) probeDone_ = done;
         if (readback) save_bmp(readback.Get(), fp, img.format, done, capture);
+    }
+
+    float opaque_fraction() override {
+        float f = probeResult_;
+        probeResult_ = -1;
+        return f;
     }
 
     void capture_backbuffer() override {}
@@ -386,6 +411,11 @@ private:
     ComPtr<ID3D12DescriptorHeap> srvHeap_, rtvHeap_;
     UINT srvStep_ = 0, rtvStep_ = 0;
     ComPtr<ID3D12Fence> fence_;
+    ComPtr<ID3D12Resource> probeBuf_;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT probeFp_{};
+    DXGI_FORMAT probeFormat_ = DXGI_FORMAT_UNKNOWN;
+    uint64_t probeDone_ = 0;
+    float probeResult_ = -1;
     uint64_t fenceValue_ = 0;
     HANDLE event_ = nullptr;
     Cmd ring_[kRing];

@@ -10,7 +10,8 @@ using Microsoft::WRL::ComPtr;
 const char kBlitShader[] = R"(
 cbuffer Params : register(b0) {
     float flip; float decode; float encode; float vignette; float2 scale; float2 offset;
-    float4 beam; float beamWidth; float aspect; float dstLinear;
+    float4 beam; float beamWidth; float aspect; float dstLinear; float key;
+    float4 watch;
 };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
@@ -27,6 +28,8 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float2 at = uv;
     if (flip > 0.5) uv.y = 1 - uv.y;
     float4 c = src.Sample(smp, uv * scale + offset);
+    // Keying judges brightness as displayed (sRGB), so dark UI (menu panels) stays solid while true black goes.
+    float3 shown = decode > 0.5 ? c.rgb : (encode > 0.5 || dstLinear > 0.5) ? toSrgb(saturate(c.rgb)) : c.rgb;
     if (decode > 0.5) c.rgb = toLinear(saturate(c.rgb));
     if (encode > 0.5) c.rgb = toSrgb(saturate(c.rgb));
     // Comfort vignette: the clear centre shrinks as the strength rises; a wide smoothstep keeps the edge soft.
@@ -41,6 +44,23 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float edge = 1 - smoothstep(beamWidth * 0.5, beamWidth, length(q - lerp(a, b, t)));
         float3 lime = float3(0.776, 1, 0.102);
         c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, edge * lerp(0.25, 0.9, t));
+    }
+    // UI panel keying: near-black becomes see-through.
+    if (key > 0) c.a *= saturate(max(shown.r, max(shown.g, shown.b)) * 40);
+    // Watch face: dark disc, lime rim, and a menu glyph (three bars) that turns lime while glanced at.
+    if (watch.z > 0) {
+        float2 k = float2(aspect, 1), q = (at - watch.xy) * k / watch.z;
+        float d = length(q), aa = 0.06;
+        if (d < 1 + aa) {
+            float3 lime = float3(0.776, 1, 0.102), ink = float3(0.64, 0.64, 0.64), black = float3(0.04, 0.04, 0.04);
+            float face = 1 - smoothstep(1 - aa, 1, d);
+            float rim = face * smoothstep(watch.w > 0.5 ? 0.72 : 0.84, (watch.w > 0.5 ? 0.72 : 0.84) + aa, d);
+            float bars = (1 - smoothstep(0.42, 0.42 + aa, abs(q.x))) *
+                         (1 - smoothstep(0.07, 0.07 + aa, abs(abs(q.y) < 0.15 ? q.y : abs(q.y) - 0.28)));
+            float3 col = lerp(black, watch.w > 0.5 ? lime : ink, saturate(rim + bars * step(abs(q.y), 0.4)));
+            if (dstLinear > 0.5) col = toLinear(col);
+            c.rgb = lerp(c.rgb, col, face * 0.92);
+        }
     }
     return c;
 }
@@ -83,6 +103,8 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     p.vignette = o.vignette;
     for (int i = 0; i < 4; ++i) p.beam[i] = o.beam[i];
     p.beamWidth = o.beamWidth;
+    for (int i = 0; i < 4; ++i) p.watch[i] = o.watch[i];
+    p.key = o.key;
     p.aspect = aspect;
 }
 
@@ -90,6 +112,17 @@ void gpu_mirror_crop(BlitParams& p, float eye, float screen) {
     float visible = eye / screen < 1 ? eye / screen : 1.f;
     p.scaleY = visible;
     p.offsetY = (1 - visible) / 2;
+}
+
+float gpu_opaque_fraction(const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format) {
+    bool bytes = format == DXGI_FORMAT_R8G8B8A8_TYPELESS || format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+                 format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_B8G8R8A8_TYPELESS ||
+                 format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    if (!bytes || !w || !h) return -1;
+    int opaque = 0, total = 0;
+    for (UINT y = h / 64; y < h; y += h / 32 + 1)
+        for (UINT x = w / 128; x < w; x += w / 64 + 1, ++total) opaque += data[y * pitch + x * 4 + 3] > 128;
+    return total ? (float)opaque / total : -1;
 }
 
 void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format) {

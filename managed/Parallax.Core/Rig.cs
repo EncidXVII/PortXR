@@ -30,6 +30,14 @@ namespace Parallax
         CameraClearFlags savedClear;
         Color savedBackground;
         bool camHidden;
+        Action headPost, headLayer;  // undo the head camera's post-processing switch-off (URP, PPv2)
+        // Other cameras drawing to the screen while the eyes render, with what they had before we changed them; keyed
+        // by instance ID, since IL2CPP hands out a new proxy object per lookup.
+        struct Other { public Camera cam; public int mask; public CameraClearFlags clear; public Color background; public Action post; }
+        readonly System.Collections.Generic.Dictionary<int, Other> others = new System.Collections.Generic.Dictionary<int, Other>();
+        bool headLayerOff;
+        int extraMask;  // their world layers, drawn by the eyes instead
+        const int UiLayers = 1 << 5;
         bool eyesRendered;
         bool theaterShown;  // the last frame showed the theater screen, not the UI panel
         bool curvedTheater;  // the runtime draws curved layers (SteamVR does not)
@@ -44,9 +52,34 @@ namespace Parallax
         Controllers controllers;
         readonly int[] binds = new int[Bindings.Inputs.Length], twice = new int[Bindings.GestureInputs],
             held = new int[Bindings.GestureInputs], combo = new int[Bindings.GestureInputs];
-        bool glancing, glanceTrigger;
+        bool glancing, glanceTrigger, watchShown;
+        Vector3 watchAt;
+        const float WatchRadius = 0.022f;
         // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
         bool snapArmed = true, snapping;
+        // The view turns with the body yaw: it follows the game camera's heading, except under head aim, where the game
+        // camera follows the head and only the right stick turns the body.
+        float bodyYaw, lastHeading;
+        bool bodyKnown, aiming;
+        Quaternion Body => Quaternion.Euler(0, bodyYaw, 0);
+        // Head aim loop: last game camera angles, last push, learned degrees per pixel (signed: games may invert Y),
+        // and for the virtual pad the learned stick direction per axis.
+        float aimLastYaw, aimLastPitch, aimPushX, aimPushY, aimDppX, aimDppY;
+        float padSignX = 1, padSignY = 1;
+        int padWrongX, padWrongY;
+        // Orbit check: how far in front of the game camera its rotation pivot sits, from frames where it turned.
+        // First-person cameras turn about themselves (near 0); third-person cameras orbit the player (metres).
+        Vector3 orbitLastPos, orbitLastFwd;
+        float orbitNum, orbitDen;
+        int orbitSamples;
+        const float SmoothTurnDegPerSec = 120f;
+        // Step smoothing: a game camera moved in FixedUpdate steps at the physics rate (often 50 Hz) while the headset
+        // shows 90, so the world judders as you move. Seen as frames where a moving camera stood still; then the eyes
+        // follow a line between its last two positions, one step behind.
+        Vector3 stepFrom, stepTo;
+        float stepAt, stepLen = 0.02f, lastMoveAt;
+        int stepMoved, stepStill, stepFrames;
+        internal bool StepSmoothing;
         float snapTarget, snapUntil, snapLastYaw, snapLastPush, degPerPixel;
         internal float VignetteNow;
         Vector3 vignetteLastPos;
@@ -144,7 +177,11 @@ namespace Parallax
             for (int e = 0; e < 2; e++)
             {
                 // Frames already queued for the render thread keep the old texture alive: Unity destroys it after them.
-                if (eyeTargets[e] != null) Destroy(eyeTargets[e]);
+                if (eyeTargets[e] != null)
+                {
+                    if (Eyes[e] != null) Eyes[e].targetTexture = null;
+                    Destroy(eyeTargets[e]);
+                }
                 eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
                 {
                     name = "Parallax Eye " + e,
@@ -249,7 +286,16 @@ namespace Parallax
                 held = held,
                 combo = combo,
             };
-            if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open)
+            aiming = HeadAimWanted();
+            if (aiming)
+            {
+                cfg.snap = 1;
+                cfg.aim = 1;
+                HeadAim(Settings.Input.Value == InputMode.Gamepad);
+                cfg.turnX = aimPushX;
+                cfg.turnY = aimPushY;
+            }
+            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open)
             {
                 cfg.snap = 1;
                 cfg.turnX = SnapTurn(Settings.Input.Value == InputMode.Gamepad);
@@ -283,7 +329,7 @@ namespace Parallax
                 Test?.ApplyHead(Views);
                 if (recenterPending) Recenter();
             }
-            var cam = located && !Settings.Theater.Value && !forcedTheater ? EnsureCamera() : null;
+            var cam = located && !Settings.Theater.Value && !forcedTheater && !VideoWatch.Playing() ? EnsureCamera() : null;
             if (cam == null)
             {
                 SetEyes(false);
@@ -291,11 +337,20 @@ namespace Parallax
                 return;
             }
             HideGameCamera();
-            // Pipeline settings rarely change; a refresh every second catches in-game graphics option changes.
+            HideOtherCameras();
+            // Pipeline settings rarely change; a refresh every second catches in-game graphics option changes. The
+            // eyes copy them as the game set them, so the head camera's post-processing is back on for the copy.
             bool refreshExtras = extrasCamera != cam || Time.frameCount % 60 == 0;
             extrasCamera = cam;
+            if (refreshExtras)
+            {
+                headPost?.Invoke();
+                headPost = null;
+            }
             var camT = cam.transform;
-            var yaw = Xr.Yaw(camT.rotation);
+            TrackBody(camT);
+            var yaw = Body;
+            var basePos = Smoothed(camT.position);
             var unYaw = Quaternion.Inverse(originYaw);
             float scale = Settings.WorldScale.Value;
             var lift = Vector3.up * Settings.Height.Value;
@@ -303,17 +358,23 @@ namespace Parallax
             {
                 var eye = Eyes[e];
                 eye.CopyFrom(cam);
-                eye.cullingMask = savedMask;
+                eye.cullingMask = savedMask | extraMask;
                 eye.clearFlags = savedClear;
                 eye.backgroundColor = savedBackground;
                 eye.targetTexture = eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
-                eye.transform.SetPositionAndRotation(camT.position + yaw * (rel * scale) + lift,
+                eye.transform.SetPositionAndRotation(basePos + yaw * (rel * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
                 eye.projectionMatrix = Xr.Projection(Fovs[e], eye.nearClipPlane, eye.farClipPlane);
                 eye.enabled = true;
+            }
+            if (refreshExtras) headPost = CameraPost.Off(cam, true);
+            if (headLayer == null && !headLayerOff)
+            {
+                headLayer = CameraPost.Off(cam, false);
+                headLayerOff = true;
             }
             eyesRendered = true;
         }
@@ -387,6 +448,12 @@ namespace Parallax
             // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
             f.fromX = beamFrom.x; f.fromY = beamFrom.y; f.fromZ = -beamFrom.z;
             f.toX = beamTo.x; f.toY = beamTo.y; f.toZ = -beamTo.z;
+            f.watch = stereo && watchShown ? 1 : 0;
+            f.watchLit = glancing ? 1 : 0;
+            f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
+            f.watchRadius = WatchRadius;
+            f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;
+            f.scene = sceneHandle;
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
             slot = (slot + 1) & 3;
@@ -440,7 +507,7 @@ namespace Parallax
                     // Game world back to tracking space: the inverse of how the eyes are placed.
                     var cam = GameCam.transform;
                     var rel = target.transform.position - cam.position - Vector3.up * Settings.Height.Value;
-                    to = originPos + originYaw * (Quaternion.Inverse(Xr.Yaw(cam.rotation)) * rel / Settings.WorldScale.Value);
+                    to = originPos + originYaw * (Quaternion.Inverse(Body) * rel / Settings.WorldScale.Value);
                 }
                 controllers.aimR = Xr.ToPose(from, Quaternion.LookRotation(to - from));
                 controllers.aimValidR = 1;
@@ -490,7 +557,7 @@ namespace Parallax
                 return;
             }
             float scale = Settings.WorldScale.Value;
-            var yaw = Xr.Yaw(cam.transform.rotation);
+            var yaw = Body;
             var toWorld = yaw * Quaternion.Inverse(originYaw);
             var lift = Vector3.up * Settings.Height.Value;
             beamFrom = Xr.Position(controllers.aimR);
@@ -506,7 +573,7 @@ namespace Parallax
         {
             if (!(theaterShown && curvedTheater)) return center + rot * new Vector3((uv.x - 0.5f) * w, (0.5f - uv.y) * h, 0);
             float a = (uv.x - 0.5f) * w / TheaterDistance;
-            return originPos + rot * new Vector3(Mathf.Sin(a) * TheaterDistance, (0.5f - uv.y) * h, Mathf.Cos(a) * TheaterDistance);
+            return originPos + rot * new Vector3(Xr.Sin(a) * TheaterDistance, (0.5f - uv.y) * h, Xr.Cos(a) * TheaterDistance);
         }
 
         // Ray (in the panel's frame, panel centre at the origin, facing -Z) to panel UV; (-1, -1) for a miss.
@@ -525,9 +592,9 @@ namespace Parallax
             float a = d.x * d.x + d.z * d.z, b = 2 * (p.x * d.x + p.z * d.z), c = p.x * p.x + p.z * p.z - TheaterDistance * TheaterDistance;
             float disc = b * b - 4 * a * c;
             if (a < 1e-6f || disc < 0) return new Vector2(-1, -1);
-            float t = (-b + Mathf.Sqrt(disc)) / (2 * a);
+            float t = (-b + Xr.Sqrt(disc)) / (2 * a);
             var hit = p + d * t;
-            return t > 0 ? new Vector2(Mathf.Atan2(hit.x, hit.z) * TheaterDistance / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
+            return t > 0 ? new Vector2(Xr.Atan2(hit.x, hit.z) * TheaterDistance / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
         }
 
         void OnGUI()
@@ -539,17 +606,10 @@ namespace Parallax
 
         void DrawPointer()
         {
-            {
-                // Built-in white texture tinted: IL2CPP games often strip the Texture2D constructor.
-                GUI.matrix = Matrix4x4.identity;
-                float x = pointerUv.x * Screen.width, y = pointerUv.y * Screen.height, s = Screen.height / 60f;
-                var tint = GUI.color;
-                GUI.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
-                GUI.DrawTexture(new Rect(x - s / 2, y - s / 2, s, s), Texture2D.whiteTexture);
-                GUI.color = Color.white;
-                GUI.DrawTexture(new Rect(x - s / 4, y - s / 4, s / 2, s / 2), Texture2D.whiteTexture);
-                GUI.color = tint;
-            }
+            GUI.matrix = Matrix4x4.identity;
+            float x = pointerUv.x * Screen.width, y = pointerUv.y * Screen.height, s = Screen.height / 60f;
+            Menu.Fill(new Rect(x - s / 2, y - s / 2, s, s), new Color(0.1f, 0.1f, 0.1f, 0.8f));
+            Menu.Fill(new Rect(x - s / 4, y - s / 4, s / 2, s / 2), Color.white);
         }
 
         internal void RequestRecenter() => recenterPending = true;
@@ -604,7 +664,9 @@ namespace Parallax
 
         Camera EnsureCamera()
         {
-            if (GameCam != null && GameCam.isActiveAndEnabled) return GameCam;
+            // Every two seconds a better camera may have come up (the game camera enabled again after a menu that
+            // only had a weapon or UI camera running).
+            if (GameCam != null && GameCam.isActiveAndEnabled && (Time.frameCount % 120 != 0 || PickCamera() == GameCam)) return GameCam;
             ReleaseCamera();
             GameCam = PickCamera();
             if (GameCam != null)
@@ -624,11 +686,15 @@ namespace Parallax
             int bestScore = int.MinValue;
             foreach (var cam in Camera.allCameras)
             {
-                if (IsEye(cam) || cam.targetTexture != null) continue;
+                if (IsEye(cam) || !Candidate(cam)) continue;
                 if (wanted.Length > 0 && cam.name == wanted) return cam;
                 // tag, not CompareTag: the Unity 6 IL2CPP bindings route CompareTag through a span method that is missing there.
-                int score = BitCount(cam.cullingMask) - (cam.orthographic ? 50 : 0) + (cam.tag == "MainCamera" ? 100 : 0);
-                if (score > bestScore)
+                // Masks we changed are scored as the game set them. The tag counts only on a camera that draws a world
+                // (pixel-art games tag the camera that merely shows the world's texture on a plane).
+                int mask = cam == GameCam ? savedMask : others.TryGetValue(cam.GetInstanceID(), out var o) ? o.mask : cam.cullingMask;
+                int layers = BitCount(mask);
+                int score = layers - (cam.orthographic ? 50 : 0) + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0);
+                if (score > bestScore || (score == bestScore && cam == GameCam))  // ties keep the current head
                 {
                     best = cam;
                     bestScore = score;
@@ -637,10 +703,26 @@ namespace Parallax
             return best;
         }
 
+        // Cameras drawing to the screen, and ones drawing the world into a screen-shaped texture that the game then
+        // shows on a quad (low-resolution pixel art, CRT looks): the world camera is the head there. Our own preview
+        // camera and small or odd-shaped textures (mirrors, minimaps, portraits) are not candidates.
+        internal static bool Candidate(Camera cam)
+        {
+            var rt = cam.targetTexture;
+            if (rt == null) return true;
+            if (cam.orthographic || cam.name.StartsWith("Parallax")) return false;
+            float screen = (float)Screen.width / Mathf.Max(1, Screen.height), aspect = (float)rt.width / Mathf.Max(1, rt.height);
+            return Mathf.Abs(aspect - screen) < screen * 0.1f;
+        }
+
         internal void ReleaseCamera()
         {
             RestoreCamera();
             GameCam = null;
+            bodyKnown = false;
+            orbitSamples = 0;
+            orbitNum = orbitDen = 0;
+            orbitLastFwd = Vector3.zero;
         }
 
         // Re-read before hiding: a value that is not ours means the game changed it since last frame.
@@ -658,6 +740,43 @@ namespace Parallax
             camHidden = true;
         }
 
+        // Weapon and hand cameras (perspective, world layers) draw over the head camera's picture: the eyes take their
+        // layers, and on the screen they keep only the UI layer, clearing to transparent if they cleared at all.
+        // Orthographic cameras are left drawing: they usually carry the HUD. None may run post-processing.
+        void HideOtherCameras()
+        {
+            extraMask = 0;
+            foreach (var cam in Camera.allCameras)
+            {
+                if (cam == GameCam || IsEye(cam) || cam.targetTexture != null || cam.rect.width < 0.99f || cam.rect.height < 0.99f) continue;
+                bool known = others.TryGetValue(cam.GetInstanceID(), out var o);
+                if (!known) o = new Other { cam = cam, mask = cam.cullingMask, clear = cam.clearFlags, background = cam.backgroundColor, post = (Action)CameraPost.Off(cam, true) + CameraPost.Off(cam, false) };
+                int world = cam.orthographic ? 0 : o.mask & ~UiLayers;
+                // A mask that is not ours means the game changed it since last frame.
+                if (known && cam.cullingMask != (world != 0 ? o.mask & UiLayers : o.mask))
+                {
+                    o.mask = cam.cullingMask;
+                    world = cam.orthographic ? 0 : o.mask & ~UiLayers;
+                }
+                if (world != 0)
+                {
+                    extraMask |= world;
+                    cam.cullingMask = o.mask & UiLayers;
+                    if (cam.clearFlags != CameraClearFlags.Depth && cam.clearFlags != CameraClearFlags.Nothing)
+                    {
+                        if (cam.backgroundColor != Color.clear || cam.clearFlags != CameraClearFlags.SolidColor)
+                        {
+                            o.clear = cam.clearFlags;
+                            o.background = cam.backgroundColor;
+                        }
+                        cam.clearFlags = CameraClearFlags.SolidColor;
+                        cam.backgroundColor = Color.clear;
+                    }
+                }
+                others[cam.GetInstanceID()] = o;
+            }
+        }
+
         void RestoreCamera()
         {
             if (camHidden && GameCam != null)
@@ -666,6 +785,21 @@ namespace Parallax
                 GameCam.clearFlags = savedClear;
                 GameCam.backgroundColor = savedBackground;
             }
+            headPost?.Invoke();
+            headLayer?.Invoke();
+            headPost = headLayer = null;
+            headLayerOff = false;
+            extrasCamera = null;
+            foreach (var o in others.Values)
+            {
+                if (o.cam == null) continue;
+                o.cam.cullingMask = o.mask;
+                o.cam.clearFlags = o.clear;
+                o.cam.backgroundColor = o.background;
+                o.post?.Invoke();
+            }
+            others.Clear();
+            extraMask = 0;
             camHidden = false;
         }
 
@@ -734,23 +868,139 @@ namespace Parallax
             if (level == VignetteLevel.Off || GameCam == null) return 0;
             float dt = Mathf.Max(Time.unscaledDeltaTime, 1e-3f);
             var pos = GameCam.transform.position;
-            float yaw = GameCam.transform.eulerAngles.y;
+            float yaw = bodyYaw;
             float speed = (pos - vignetteLastPos).magnitude / dt, turn = Mathf.Abs(Mathf.DeltaAngle(vignetteLastYaw, yaw)) / dt;
             vignetteLastPos = pos;
             vignetteLastYaw = yaw;
-            float stick = Mathf.Sqrt(controllers.lx * controllers.lx + controllers.ly * controllers.ly);
+            float stick = Xr.Sqrt(controllers.lx * controllers.lx + controllers.ly * controllers.ly);
             float motion = Mathf.Max(Mathf.Max(stick, snapping ? 1f : 0f), Mathf.Max(speed < 50 ? speed / 3f : 0f, turn / 90f));
             float target = (level == VignetteLevel.High ? 1f : 0.55f) * Mathf.Clamp01(motion);
             return Mathf.MoveTowards(VignetteNow, target, dt * (target > VignetteNow ? 4f : 1.5f));
         }
 
+        Vector3 Smoothed(Vector3 pos)
+        {
+            float now = Time.realtimeSinceStartup;
+            if (pos != stepTo)
+            {
+                if ((pos - stepTo).sqrMagnitude > 4f) stepFrom = pos;  // a jump: teleport or cut, no line to it
+                else stepFrom = stepTo;
+                stepLen = Mathf.Clamp(now - stepAt, 0.005f, 0.1f);
+                stepTo = pos;
+                stepAt = lastMoveAt = now;
+                stepMoved++;
+            }
+            else if (now - lastMoveAt < 0.1f) stepStill++;
+            // Judged every 90 frames: a fifth of the moving frames standing still turns it on, a twentieth turns it off.
+            if (++stepFrames >= 90)
+            {
+                float still = stepMoved > 20 ? (float)stepStill / (stepMoved + stepStill) : 0;
+                if (still > 0.2f) StepSmoothing = true;
+                else if (still < 0.05f) StepSmoothing = false;
+                stepFrames = stepMoved = stepStill = 0;
+            }
+            return StepSmoothing ? Vector3.Lerp(stepFrom, stepTo, (now - stepAt) / stepLen) : pos;
+        }
+
+        // Compass heading of a camera, stable when it looks straight up or down: the forward's horizontal part vanishes
+        // there and the up vector's takes over.
+        static float Heading(Transform t)
+        {
+            var f = t.forward;
+            var h = f - t.up * f.y;
+            return Xr.Atan2(h.x, h.z) * Mathf.Rad2Deg;
+        }
+
+        void TrackBody(Transform camT)
+        {
+            float heading = Heading(camT);
+            if (!bodyKnown) bodyYaw = heading;
+            else if (!aiming) bodyYaw += Mathf.DeltaAngle(lastHeading, heading);
+            bodyKnown = true;
+            lastHeading = heading;
+            SampleOrbit(camT);
+        }
+
+        void SampleOrbit(Transform t)
+        {
+            Vector3 p = t.position, f = t.forward, dc = p - orbitLastPos, df = f - orbitLastFwd;
+            bool primed = orbitLastFwd != Vector3.zero;
+            orbitLastPos = p;
+            orbitLastFwd = f;
+            // A turn of at least 0.3 degrees; a jump over a metre is a teleport or a cut.
+            if (!primed || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 1f) return;
+            orbitNum = orbitNum * 0.99f - Vector3.Dot(dc, df);
+            orbitDen = orbitDen * 0.99f + df.sqrMagnitude;
+            orbitSamples++;
+        }
+
+        internal float OrbitRadius => orbitDen > 0 ? orbitNum / orbitDen : 0;
+        internal bool Aiming => aiming;
+        internal float BodyYaw => bodyYaw;
+
+        // On is unconditional outside the VR menu. Auto needs the game's cursor hidden (play, not its menus) and 40
+        // turning frames of evidence, then holds with hysteresis (on below 0.3 m, off above 0.6 m).
+        bool HeadAimWanted()
+        {
+            var mode = Settings.HeadAim.Value;
+            if (mode == AimMode.Off || Settings.Input.Value == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
+                || Menu.Open || Hider.Active || State != XrState.Running)
+                return false;
+            if (mode == AimMode.On) return true;
+            bool gameplay = !Cursor.visible || Cursor.lockState == CursorLockMode.Locked;
+            return gameplay && orbitSamples >= 40 && OrbitRadius < (aiming ? 0.6f : 0.3f);
+        }
+
+        // Steers the game camera to where the head looks, closed loop on its angles: mouse pixels from a learned
+        // degrees-per-pixel (half the error per frame, as the game may apply input a frame late), or a proportional
+        // right stick. The right stick turns the body instead, smoothly or in snaps. Sets this frame's push (aimPushX/Y).
+        // No ref parameters on Rig: IL2CPP's class injector cannot convert them.
+        void HeadAim(bool pad)
+        {
+            float rx = controllers.rx;
+            if (Settings.Turning.Value == TurnMode.Smooth) bodyYaw += rx * Mathf.Abs(rx) * SmoothTurnDegPerSec * Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            else if (Mathf.Abs(rx) < 0.3f) snapArmed = true;
+            else if (snapArmed && Mathf.Abs(rx) > 0.7f)
+            {
+                snapArmed = false;
+                bodyYaw += Mathf.Sign(rx) * SnapAngle(Settings.Turning.Value);
+            }
+            var look = Quaternion.Inverse(originYaw) * Xr.Rotation(Views[0]) * Vector3.forward;
+            float wantYaw = bodyYaw + Xr.Atan2(look.x, look.z) * Mathf.Rad2Deg;
+            float wantPitch = Mathf.Clamp(Xr.Asin(Mathf.Clamp(look.y, -1, 1)) * Mathf.Rad2Deg, -80, 80);
+            var camT = GameCam.transform;
+            float yaw = Heading(camT), pitch = Xr.Asin(Mathf.Clamp(camT.forward.y, -1, 1)) * Mathf.Rad2Deg;
+            float movedX = Mathf.DeltaAngle(aimLastYaw, yaw), movedY = pitch - aimLastPitch;
+            float errX = Mathf.DeltaAngle(yaw, wantYaw), errY = wantPitch - pitch;
+            if (pad)
+            {
+                AimLoop.LearnStick(ref padSignX, ref padWrongX, movedX, aimPushX);
+                AimLoop.LearnStick(ref padSignY, ref padWrongY, movedY, aimPushY);
+                aimPushX = Mathf.Abs(errX) < 1f ? 0 : Mathf.Sign(errX) * Mathf.Clamp(Mathf.Abs(errX) / 25f, 0.3f, 1f) * padSignX;
+                aimPushY = Mathf.Abs(errY) < 1f ? 0 : Mathf.Sign(errY) * Mathf.Clamp(Mathf.Abs(errY) / 25f, 0.3f, 1f) * padSignY;
+            }
+            else
+            {
+                AimLoop.LearnPixels(ref aimDppX, movedX, aimPushX);
+                AimLoop.LearnPixels(ref aimDppY, movedY, aimPushY);
+                aimPushX = AimLoop.PixelPush(errX, aimDppX);
+                aimPushY = AimLoop.PixelPush(errY, aimDppY);
+            }
+            aimLastYaw = yaw;
+            aimLastPitch = pitch;
+        }
+
         // Watch check: the left controller close to the face with the back of the hand (its outer, -X side) turned
         // up toward the eyes.
+        // The watch face sits there too, on the back of the wrist behind the controller.
         bool WristGlance()
         {
-            if (!Settings.WristMenu.Value || controllers.aimValidL == 0 || State != XrState.Running) return false;
-            var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - Xr.Position(controllers.aimL);
-            return toHead.magnitude < 0.6f && Vector3.Angle(Xr.Rotation(controllers.aimL) * Vector3.left, toHead) < 35f;
+            watchShown = Settings.WristMenu.Value && controllers.aimValidL != 0 && State == XrState.Running && !Menu.Open;
+            if (!watchShown) return false;
+            var hand = Xr.Rotation(controllers.aimL);
+            watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
+            var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
+            return toHead.magnitude < 0.6f && Vector3.Angle(hand * Vector3.left, toHead) < 35f;
         }
 
         static int BitCount(int v)
@@ -789,5 +1039,35 @@ namespace Parallax
         }
 
         internal Vector2Int EyeSize => new Vector2Int(eyeTargets[0].width, eyeTargets[0].height);
+    }
+
+    // Head aim loop helpers, outside Rig so the IL2CPP class injector never sees their ref parameters.
+    internal static class AimLoop
+    {
+        internal static void LearnPixels(ref float dpp, float moved, float push)
+        {
+            if (Mathf.Abs(push) < 4 || Mathf.Abs(moved) < 0.05f) return;
+            float sample = moved / push;
+            // Over 2 degrees per pixel is not our push; against the learned direction is noise (bob, recoil).
+            if (Mathf.Abs(sample) > 2f || (dpp != 0 && Mathf.Sign(sample) != Mathf.Sign(dpp))) return;
+            dpp = dpp != 0 ? Mathf.Lerp(dpp, sample, 0.3f) : sample;
+        }
+
+        // Ten frames of the camera moving against the push means the game inverts that axis.
+        internal static void LearnStick(ref float sign, ref int wrong, float moved, float push)
+        {
+            if (Mathf.Abs(push) < 0.3f || Mathf.Abs(moved) < 0.05f) return;
+            wrong = Mathf.Sign(moved) == Mathf.Sign(push) ? 0 : wrong + 1;
+            if (wrong < 10) return;
+            sign = -sign;
+            wrong = 0;
+        }
+
+        // Before the rate is learned, a small probe in the error's direction.
+        internal static float PixelPush(float err, float dpp)
+        {
+            if (Mathf.Abs(err) < 0.3f) return 0;
+            return dpp != 0 ? Mathf.Clamp(err * 0.5f / dpp, -800, 800) : Mathf.Sign(err) * Mathf.Min(Mathf.Abs(err) * 2, 30);
+        }
     }
 }

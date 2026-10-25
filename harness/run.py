@@ -114,7 +114,7 @@ class Game:
         while time.time() < end and not all(os.path.exists(p) for p in paths):
             time.sleep(0.1)
         time.sleep(0.2)
-        return [np.asarray(Image.open(p).convert("RGBA")).astype(np.int32) for p in paths]
+        return [load_bmp(p) for p in paths]
 
     def hold(self, ctrl, seconds):
         self.cmd("ctrl " + ctrl)
@@ -147,6 +147,15 @@ class Game:
             except Exception:
                 self.proc.kill()
                 self.proc.wait()  # the next instance needs the test port free
+
+
+def load_bmp(path):
+    """RGBA from the capture's 32-bit BMP. PIL reads BI_RGB 32-bit as RGB and drops the alpha the UI gates need."""
+    b = open(path, "rb").read()
+    off = int.from_bytes(b[10:14], "little")
+    w, h = int.from_bytes(b[18:22], "little", signed=True), int.from_bytes(b[22:26], "little", signed=True)
+    img = np.frombuffer(b, np.uint8, abs(w * h) * 4, off).reshape(abs(h), w, 4)[..., [2, 1, 0, 3]]
+    return (img if h < 0 else img[::-1]).astype(np.int32)
 
 
 def mask(img, rgb, tol=60):
@@ -242,6 +251,9 @@ def gate_ui(g):
     rest = white[int(h * 0.2):].sum()
     blue = mask(quad, (51, 153, 255), 50).sum()
     check("6 ui", top > 500 and top > rest and blue > 2000, f"title pixels top={top} rest={rest} button={blue}")
+    # The world shows through: post-processing on the hidden game camera would make the whole panel opaque.
+    opaque = (quad[..., 3] > 128).mean()
+    check("6b ui see-through", opaque < 0.3, f"{opaque:.0%} of the panel opaque")
 
 
 def gate_input(g):
@@ -333,6 +345,25 @@ def gate_snap(g):
     check("14 snap turn", abs(abs(turned) - 30) < 5, f"one flick turned {turned:.1f}deg (want 30)")
 
 
+def gate_aim(g):
+    """Head aim on an Input System game in gamepad mode: turning the head 40 degrees turns the game camera with it."""
+    g.cmd("set Mode Gamepad")
+    g.cmd("set HeadAim On")
+    try:
+        time.sleep(0.5)
+        f0 = g.fixture()
+        g.cmd("head 0 1.6 0 40")
+        time.sleep(2.0)
+        f1 = g.fixture()
+        s = g.stats()
+    finally:
+        g.cmd("head off")
+        g.cmd("set HeadAim Auto")
+        g.cmd("set Mode KeyboardMouse")
+    turned = (f1["yaw"] - f0["yaw"] + 180) % 360 - 180
+    check("17 head aim", s["aim"] == 1 and abs(turned - 40) < 5, f"aim {s['aim']}, head turned 40, game turned {turned:.1f}deg")
+
+
 def gate_theater(g):
     g.cmd("theater 1")
     time.sleep(0.5)
@@ -380,11 +411,17 @@ def gate_menu(g):
     single = g.stats()["menu"]
     tap_menu(g, 2)
     opened = g.stats()["menu"]
+    time.sleep(0.5)
+    (quad,) = g.capture("menu", ["quad.bmp"])
+    h, w = quad.shape[:2]
+    # The menu's own background must stay solid, also where the panel's black is keyed out.
+    panel = int(np.median(quad[int(h * 0.3):int(h * 0.8), int(w * 0.3):int(w * 0.7), 3]))
     g.cmd("set WorldScale 1.5")
     g.cmd("set A F")  # rebind: right A presses F
     tap_menu(g, 2)
     closed = g.stats()["menu"]
     check("9 menu", single == 0 and opened == 1 and closed == 0, f"single tap {single}, double tap {opened}, closed {closed}")
+    check("9b menu solid", panel > 200, f"menu panel alpha {panel}")
 
 
 def gate_beam(g):
@@ -523,7 +560,8 @@ def main():
                 gates.append(gate_beam)
                 gates.append(gate_hide)
                 if args.fixture in PAD_FIXTURES:
-                    gates.append(gate_snap)  # last: it turns the player away from the door
+                    gates.append(gate_aim)
+                    gates.append(gate_snap)  # last: they turn the player away from the door
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
                 for gate in gates:

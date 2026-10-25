@@ -63,7 +63,13 @@ namespace Parallax
                 {
                     if (f.IsNotSerialized || f.IsLiteral || (!f.IsPublic && !f.IsDefined(typeof(SerializeField), true))) continue;
                     if (ReferencesCameras(f.FieldType)) continue;  // camera stacks are not cloned
-                    f.SetValue(dst, Clone(f.GetValue(src), f.FieldType));
+                    object value = f.GetValue(src), current = f.GetValue(dst);
+                    // A nested settings object the eye already has is updated in place: it may hold state set up when
+                    // the component was enabled (PPv2's debug layer and its monitors), which a fresh clone lacks.
+                    if (value != null && current != null && current != value && value.GetType() == current.GetType() && Cloneable(value.GetType()))
+                        CopyFields(value, current, value.GetType());
+                    else
+                        f.SetValue(dst, Clone(value, f.FieldType));
                 }
             }
         }
@@ -71,11 +77,15 @@ namespace Parallax
         static object Clone(object value, Type type)
         {
             if (value == null || type.IsValueType || type == typeof(string) || typeof(UnityEngine.Object).IsAssignableFrom(type)) return value;
-            if (!type.IsDefined(typeof(SerializableAttribute), false) || type.IsArray || type.GetConstructor(Type.EmptyTypes) == null) return value;
+            if (!Cloneable(type)) return value;
             var copy = Activator.CreateInstance(type);
             CopyFields(value, copy, type);
             return copy;
         }
+
+        static bool Cloneable(Type type) =>
+            !type.IsValueType && type != typeof(string) && !typeof(UnityEngine.Object).IsAssignableFrom(type) &&
+            type.IsDefined(typeof(SerializableAttribute), false) && !type.IsArray && type.GetConstructor(Type.EmptyTypes) != null;
 
         static bool ReferencesCameras(Type t) =>
             typeof(Camera).IsAssignableFrom(t) || t == typeof(Camera[]) || t == typeof(List<Camera>);

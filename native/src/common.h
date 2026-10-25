@@ -34,6 +34,13 @@ struct PrxFrame {
     float vignette;    // comfort vignette on the eye layers, 0..1
     int32_t beam;      // draw the laser beam from beamFrom to beamTo (tracking space, metres) into the eye layers
     float beamFrom[3], beamTo[3];
+    // Wrist watch: a round face at watchAt (tracking space) on the back of the left hand, watchRadius metres; lit
+    // while the player glances at it (the menu is a trigger pull away).
+    int32_t watch, watchLit;
+    float watchAt[3], watchRadius;
+    // UI panel black: 0 auto (made see-through once the panel is found fully opaque, e.g. a full-screen effect on a
+    // UI camera wrote alpha 1; until `scene` changes), 1 always see-through, 2 never.
+    int32_t uiKey, scene;
 };
 
 enum PrxButton : uint32_t {
@@ -64,6 +71,10 @@ struct PrxInputConfig {
     // Gesture targets for the first 10 inputs (A to right trigger), same codes as binds: double press, held past
     // half a second, and pressed while the same hand's grip is held. 0 leaves that gesture off.
     int32_t twice[10], held[10], combo[10];
+    // Head aim: the right stick no longer looks up or down by itself either; turnY does (mouse pixels, up positive, or
+    // right-stick Y). The managed side steers the game camera toward where the head looks.
+    int32_t aim;
+    float turnY;
 };
 
 enum PrxBind { BindA, BindB, BindX, BindY, BindLGrip, BindRGrip, BindLStick, BindRStick, BindLTrigger, BindRTrigger,

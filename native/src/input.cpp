@@ -217,7 +217,7 @@ void update_keyboard_mouse(const PrxControllers& c, const PrxInputConfig& cfg, b
         if (g_menuHeld) hold(cfg.binds[BindMenuHold]);
         float speed = cfg.mouseSpeed * (float)dt;
         g_mouseCarry[0] += cfg.snap ? cfg.turnX : c.rx * std::fabs(c.rx) * speed;
-        g_mouseCarry[1] -= c.ry * std::fabs(c.ry) * speed;
+        g_mouseCarry[1] -= cfg.aim ? cfg.turnY : c.ry * std::fabs(c.ry) * speed;
         int dx = (int)g_mouseCarry[0], dy = (int)g_mouseCarry[1];
         g_mouseCarry[0] -= dx, g_mouseCarry[1] -= dy;
         if (dx || dy) {
@@ -252,7 +252,7 @@ void update_pointer(const PrxControllers& c, const PrxInputConfig& cfg) {
 void update_pad(const PrxControllers& c, const PrxInputConfig& cfg, bool start) {
     XINPUT_GAMEPAD gp{};
     if (!cfg.neutral) {
-        gp.sThumbLX = axis(c.lx), gp.sThumbLY = axis(c.ly), gp.sThumbRX = axis(cfg.snap ? cfg.turnX : c.rx), gp.sThumbRY = axis(c.ry);
+        gp.sThumbLX = axis(c.lx), gp.sThumbLY = axis(c.ly), gp.sThumbRX = axis(cfg.snap ? cfg.turnX : c.rx), gp.sThumbRY = axis(cfg.aim ? cfg.turnY : c.ry);
         gp.bLeftTrigger = (BYTE)(c.lTrigger * 255);
         gp.bRightTrigger = cfg.pointerActive ? 0 : (BYTE)(c.rTrigger * 255);
         WORD b = 0;

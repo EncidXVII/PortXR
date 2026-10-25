@@ -89,6 +89,7 @@ enum Page {
 struct App {
     games: Vec<Game>,
     page: Page,
+    shown_page: Option<Page>,
     // The game page the settings page was opened from, so going back returns there.
     back_to: Option<usize>,
     // Window focus last frame: coming back to the window rescans the library.
@@ -145,6 +146,7 @@ impl App {
         let mut app = App {
             games: Vec::new(),
             page: Page::Library,
+            shown_page: None,
             back_to: None,
             focused: true,
             status: (String::new(), Tone::Info),
@@ -503,6 +505,10 @@ impl App {
             self.report(play(g, &self.defaults));
             self.confirm_uninstall = false;
         }
+        if playable && !g.installed() && secondary(ui, "Install").clicked() {
+            self.report(install(g, &self.defaults));
+            self.cfg = load_cfg(g);
+        }
         if g.installed() {
             let label = if self.confirm_uninstall { "Confirm uninstall" } else { "Uninstall" };
             if destructive(ui, label, self.confirm_uninstall).clicked() {
@@ -674,7 +680,15 @@ impl eframe::App for App {
             });
         });
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            // Each page keeps its own scroll position; a game page or Settings opens at the top.
+            let entered = self.shown_page != Some(self.page);
+            self.shown_page = Some(self.page);
+            let salt = match self.page { Page::Library => 0, Page::Game(_) => 1, Page::Settings => 2 };
+            let mut area = egui::ScrollArea::vertical().id_salt(salt).auto_shrink(false);
+            if entered && self.page != Page::Library {
+                area = area.vertical_scroll_offset(0.0);
+            }
+            area.show(ui, |ui| {
                 egui::Frame::new().inner_margin(Margin::same(32)).show(ui, |ui| match self.page {
                     Page::Library => self.library(ui),
                     Page::Game(i) => self.game_page(ui, i),
@@ -1006,13 +1020,18 @@ fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
 
 // ---- actions and storage ----------------------------------------------------------------------------------------
 
+fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
+    installer::install(&g.dir)?;
+    // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the plugin;
+    // everything else comes from the all-games values.
+    let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
+    write(&g.file(installer::CONFIG), settings::fill(&saved, defaults).as_bytes())?;
+    Ok("Installed. Start the game from here or from Steam with your headset on.".into())
+}
+
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     if !g.installed() {
-        installer::install(&g.dir)?;
-        // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the
-        // plugin; everything else comes from the all-games values.
-        let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
-        write(&g.file(installer::CONFIG), settings::fill(&saved, defaults).as_bytes())?;
+        install(g, defaults)?;
     }
     g.launch()?;
     games::mark_played(&g.dir);

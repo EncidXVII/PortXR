@@ -108,6 +108,43 @@ public:
         gpu_overlay(p, overlay, (float)desc.Width / desc.Height);
         blit((ID3D11Texture2D*)texture, img.rtv.Get(), (int)desc.Width, (int)desc.Height, p);
         if (capture) save_bmp(img.texture, capture);
+        if (overlay.probe) probe(img.texture);
+    }
+
+    float opaque_fraction() override {
+        float f = probeResult_;
+        probeResult_ = -1;
+        return f;
+    }
+
+    // Reads the previous copy if the GPU is done with it, then copies this image for the next call.
+    void probe(ID3D11Texture2D* tex) {
+        D3D11_TEXTURE2D_DESC desc;
+        tex->GetDesc(&desc);
+        if (probe_) {
+            D3D11_MAPPED_SUBRESOURCE m;
+            HRESULT hr = ctx_->Map(probe_.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+            if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return;
+            if (SUCCEEDED(hr)) {
+                D3D11_TEXTURE2D_DESC have;
+                probe_->GetDesc(&have);
+                probeResult_ = gpu_opaque_fraction((const uint8_t*)m.pData, have.Width, have.Height, m.RowPitch, have.Format);
+                ctx_->Unmap(probe_.Get(), 0);
+            }
+            D3D11_TEXTURE2D_DESC have;
+            probe_->GetDesc(&have);
+            if (have.Width != desc.Width || have.Height != desc.Height || have.Format != desc.Format) probe_.Reset();
+        }
+        if (!probe_) {
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            desc.MiscFlags = 0;
+            desc.ArraySize = 1;
+            desc.MipLevels = 1;
+            if (FAILED(device_->CreateTexture2D(&desc, nullptr, &probe_))) return;
+        }
+        ctx_->CopySubresourceRegion(probe_.Get(), 0, 0, 0, 0, tex, 0, nullptr);
     }
 
     void capture_backbuffer() override {
@@ -246,7 +283,8 @@ private:
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11Buffer> params_;
     ComPtr<ID3DDeviceContextState> state_;
-    ComPtr<ID3D11Texture2D> backbufferCopy_;
+    ComPtr<ID3D11Texture2D> backbufferCopy_, probe_;
+    float probeResult_ = -1;
     std::map<XrSwapchain, std::vector<Image>> images_;
     std::atomic<void*> mirror_{nullptr};
     bool warnedMsaa_ = false;

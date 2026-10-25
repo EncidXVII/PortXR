@@ -8,6 +8,12 @@ struct Overlay {
     float vignette = 0;
     float beam[4] = {};
     float beamWidth = 0;
+    // Watch face: centre (u, v), radius in UV of the image height (0 draws none), lit 0 or 1.
+    float watch[4] = {};
+    // Near-black pixels made see-through (UI panel whose alpha the game filled in).
+    float key = 0;
+    // Copy the drawn image for an opacity measurement, read back without stalling on a later draw.
+    bool probe = false;
 };
 
 // Everything that touches the game's graphics device. One backend per API; all calls come from Unity's render
@@ -33,6 +39,8 @@ public:
     // Eye texture Present draws into the game window; null leaves the window alone.
     virtual void set_mirror(void* texture) = 0;
     virtual void present(IDXGISwapChain* swapchain) = 0;
+    // Share of opaque pixels in the latest probed image that finished reading back, else -1; each result once.
+    virtual float opaque_fraction() = 0;
 };
 
 // A zero runtime LUID (SteamVR null driver) accepts any adapter; a mismatch is logged.
@@ -49,7 +57,8 @@ extern const char kBlitShader[];
 extern const size_t kBlitShaderSize;
 struct BlitParams {
     float flip, decode, encode, vignette, scaleX, scaleY, offsetX, offsetY;
-    float beam[4], beamWidth, aspect, dstLinear, pad;
+    float beam[4], beamWidth, aspect, dstLinear, key;
+    float watch[4];
 };
 void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,
@@ -59,4 +68,6 @@ bool gpu_format_linear(DXGI_FORMAT f);
 BlitParams gpu_params(bool flipY, bool srcLinear, bool dstLinear);
 // Crop that fills a window of aspect `screen` with the middle of an eye image of aspect `eye`.
 void gpu_mirror_crop(BlitParams& p, float eye, float screen);
+// Share of pixels with alpha over one half, on a sparse grid; -1 for formats it cannot read.
+float gpu_opaque_fraction(const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format);
 void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format);

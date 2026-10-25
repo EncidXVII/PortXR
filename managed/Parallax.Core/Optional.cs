@@ -22,7 +22,9 @@ namespace Parallax
             catch (Exception ex) when (ex is NotSupportedException || ex is MissingMethodException || ex is EntryPointNotFoundException)
             {
                 off = true;
-                Plugin.Log.LogWarning($"{feature} is unavailable in this game ({ex.Message}); continuing without it.");
+                // The first stack frame names the stripped member, which is what a fix needs.
+                string at = ex.StackTrace?.Split('\n')[0].Trim() ?? "";
+                Plugin.Log.LogWarning($"{feature} is unavailable in this game ({ex.Message} {at}); continuing without it.");
                 return false;
             }
         }

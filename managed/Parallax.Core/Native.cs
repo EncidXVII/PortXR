@@ -33,6 +33,9 @@ namespace Parallax
         public float vignette;
         public int beam;
         public float fromX, fromY, fromZ, toX, toY, toZ;
+        public int watch, watchLit;
+        public float watchX, watchY, watchZ, watchRadius;
+        public int uiKey, scene;
     }
 
     [Flags]
@@ -68,6 +71,8 @@ namespace Parallax
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] twice;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] held;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] combo;
+        public int aim;
+        public float turnY;
     }
 
     [StructLayout(LayoutKind.Sequential)]

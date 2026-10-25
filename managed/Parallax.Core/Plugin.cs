@@ -11,6 +11,8 @@ namespace Parallax
     public enum PointerMode { Auto, MenuOnly }
     public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
     public enum VignetteLevel { Off, Low, High }
+    public enum AimMode { Auto, On, Off }
+    public enum UiBackground { Auto, SeeThrough, Keep }
 
     internal static class Settings
     {
@@ -21,6 +23,8 @@ namespace Parallax
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<TurnMode> Turning;
         public static ConfigEntry<VignetteLevel> Vignette;
+        public static ConfigEntry<AimMode> HeadAim;
+        public static ConfigEntry<UiBackground> UiBlack;
         public static ConfigEntry<string> CameraName, Hidden;
         public static ConfigEntry<int> MenuKey;
 
@@ -34,6 +38,8 @@ namespace Parallax
             Theater = cfg.Bind("View", "Theater", false, "Show the flat game on a large screen instead of stereo.");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");
+            UiBlack = cfg.Bind("View", "UiBlack", UiBackground.Auto,
+                "Auto: when the game paints the whole UI panel opaque, its black turns see-through. SeeThrough: always. Keep: never.");
             CameraName = cfg.Bind("Game", "CameraName", "", "GameObject name of the camera used as the head. Empty picks automatically.");
             Hidden = cfg.Bind("Game", "Hidden", "", "Objects hidden from the VR menu's Game tab, as hierarchy paths separated by ;.");
             Input = cfg.Bind("Controls", "Mode", InputMode.KeyboardMouse,
@@ -42,6 +48,9 @@ namespace Parallax
                 "Off: controllers only work the VR menu and laser pointer; play with your own keyboard, mouse or gamepad.");
             MouseSpeed = cfg.Bind("Controls", "MouseSpeed", 1200f, "KeyboardMouse mode: pixels per second at full right-stick deflection.");
             Pointer = cfg.Bind("Controls", "Pointer", PointerMode.Auto, "Auto: laser pointer works whenever the game shows its cursor. MenuOnly: only in the VR menu.");
+            HeadAim = cfg.Bind("Controls", "HeadAim", AimMode.Auto,
+                "On: the game camera turns to where you look, so first-person games aim with your head (also in their menus). Auto: on in " +
+                "first-person games while the game hides the cursor, off for cameras that orbit the player. Off: the head only looks around.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
             FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");
@@ -80,6 +89,7 @@ namespace Parallax
         static bool Start(ConfigFile config)
         {
             Settings.Bind(config);
+            TestChannel.ApplyRuntimeOverride();
             var api = SystemInfo.graphicsDeviceType;
             if (api != GraphicsDeviceType.Direct3D11 && api != GraphicsDeviceType.Direct3D12)
             {

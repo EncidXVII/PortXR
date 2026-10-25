@@ -23,9 +23,25 @@ namespace Parallax
 
         TestChannel(int port) { udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, port)); }
 
+        // Harness file next to the plugin: the UDP port, then optionally an OpenXR runtime manifest. Games that relaunch
+        // themselves through Steam lose the harness's environment, so both can come from here instead.
+        static string[] TestFile()
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(TestChannel).Assembly.Location), "test-port.txt");
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllLines(path) : new string[0];
+        }
+
+        public static void ApplyRuntimeOverride()
+        {
+            var lines = TestFile();
+            if (lines.Length > 1 && lines[1].Trim().Length > 0) Environment.SetEnvironmentVariable("XR_RUNTIME_JSON", lines[1].Trim());
+        }
+
         public static TestChannel FromEnvironment()
         {
-            if (!int.TryParse(Environment.GetEnvironmentVariable("PARALLAX_TEST_PORT"), out int port)) return null;
+            string text = Environment.GetEnvironmentVariable("PARALLAX_TEST_PORT");
+            if (string.IsNullOrEmpty(text) && TestFile().Length > 0) text = TestFile()[0].Trim();
+            if (!int.TryParse(text, out int port)) return null;
             try
             {
                 var channel = new TestChannel(port);
@@ -141,6 +157,20 @@ namespace Parallax
                     return "ok";
                 case "stats":
                     return Stats(rig);
+#if !IL2CPP
+                case "videos":
+                    var vp = Type.GetType("UnityEngine.Video.VideoPlayer, UnityEngine.VideoModule");
+                    if (vp == null) return "no video module";
+                    string Get(object o, string n) => vp.GetProperty(n)?.GetValue(o, null)?.ToString() ?? "null";
+                    return string.Join("\n", UnityEngine.Object.FindObjectsOfType(vp).Select(o =>
+                        $"{((Component)o).name} mode {Get(o, "renderMode")} cam {Get(o, "targetCamera")} rt {Get(o, "targetTexture")} " +
+                        $"playing {Get(o, "isPlaying")} prepared {Get(o, "isPrepared")} frame {Get(o, "frame")} enabled {((Behaviour)o).isActiveAndEnabled}").ToArray());
+#endif
+                case "cams":
+                    return string.Join("\n", Camera.allCameras.Select(c =>
+                        $"{c.name} depth {c.depth} mask {c.cullingMask:X} clear {c.clearFlags} bg {c.backgroundColor} ortho {c.orthographic} " +
+                        $"rect {c.rect} rt {(c.targetTexture != null ? $"{c.targetTexture.width}x{c.targetTexture.height} {c.targetTexture.format}" : "-")} " +
+                        $"pos {V(c.transform.position)} rot {V(c.transform.eulerAngles)} parent {(c.transform.parent != null ? c.transform.parent.name : "-")}").ToArray());
                 case "quit":
                     Application.Quit();
                     return "ok";
@@ -173,7 +203,7 @@ namespace Parallax
             return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
                 "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},"curved":{{s.curvedSubmitted}},"curvedSupported":{{s.curvedSupported}},
-                "theater":{{(Settings.Theater.Value ? 1 : 0)}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},
+                "theater":{{(Settings.Theater.Value ? 1 : 0)}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},"aim":{{(rig.Aiming ? 1 : 0)}},"smoothing":{{(rig.StepSmoothing ? 1 : 0)}},"orbit":{{rig.OrbitRadius:0.###}},"body":{{rig.BodyYaw:0.#}},
                 "eyeL":{{V(rig.Eyes[0].transform.position)}},"eyeR":{{V(rig.Eyes[1].transform.position)}},
                 "cam":"{{(cam != null ? cam.name : "")}}","camMask":{{(cam != null ? cam.cullingMask : 0)}},"camPos":{{(cam != null ? V(cam.transform.position) : "null")}},
                 "fov":[{{f.left:0.#####}},{{f.right:0.#####}},{{f.up:0.#####}},{{f.down:0.#####}}],

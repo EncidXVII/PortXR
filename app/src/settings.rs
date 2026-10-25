@@ -36,6 +36,7 @@ pub const QUICK: &[Def] = &[
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
     def("Controls", "Mode", "Controls", "KeyboardMouse", Kind::Choice(&[("KeyboardMouse", "Keyboard & mouse"), ("Gamepad", "Gamepad"), ("Off", "Off")]), "Off: play with your own keyboard, mouse or gamepad; controllers only work the VR menu. Gamepad only reaches games that read the Input System or XInput."),
+    def("Controls", "HeadAim", "Head aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera turns to where you look, so you aim with your head. Auto: first-person games, while you play."),
 ];
 
 pub const ADVANCED: &[Def] = &[
@@ -44,6 +45,7 @@ pub const ADVANCED: &[Def] = &[
     def("View", "AutoRenderScale", "Auto resolution", "true", Kind::Toggle, "Lowers resolution while the headset misses frames."),
     def("View", "UiDistance", "UI distance", "1.2", slider(0.5, 3.0, 0.1, " m"), ""),
     def("View", "UiWidth", "UI width", "1.6", slider(0.5, 4.0, 0.1, " m"), ""),
+    def("View", "UiBlack", "UI black", "Auto", Kind::Choice(&[("Auto", "Auto"), ("SeeThrough", "See-through"), ("Keep", "Keep")]), "Auto: when a game paints the whole UI panel opaque, its black turns see-through."),
     def("Controls", "MouseSpeed", "Look speed", "1200", Kind::Slider { lo: 240.0, hi: 3840.0, step: 60.0, per: 12.0, unit: "%" }, "Keyboard & mouse: how fast the right stick turns."),
     def("Controls", "Pointer", "Laser pointer", "Auto", Kind::Choice(&[("Auto", "With game cursor"), ("MenuOnly", "Menu only")]), ""),
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),

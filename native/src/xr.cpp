@@ -101,6 +101,56 @@ bool ensure_swapchain(Swapchain& sc, int w, int h) {
 }
 
 // The beam segment as seen by one eye, in that eye's image UV; false when it is entirely behind the eye.
+// A point as seen by one eye: image UV and distance in front; false behind the eye.
+bool point_uv(const PrxFrame& f, int e, const float w[3], float uv[2], float& depth) {
+    const PrxPose& v = f.eyePose[e];
+    float px = w[0] - v.px, py = w[1] - v.py, pz = w[2] - v.pz;
+    float qx = -v.qx, qy = -v.qy, qz = -v.qz, qw = v.qw;
+    float tx = 2 * (qy * pz - qz * py), ty = 2 * (qz * px - qx * pz), tz = 2 * (qx * py - qy * px);
+    float r0 = px + qw * tx + (qy * tz - qz * ty), r1 = py + qw * ty + (qz * tx - qx * tz), r2 = pz + qw * tz + (qx * ty - qy * tx);
+    if (r2 > -0.02f) return false;
+    const PrxFov& fov = f.eyeFov[e];
+    float l = std::tan(fov.left), r = std::tan(fov.right), u = std::tan(fov.up), d = std::tan(fov.down);
+    depth = -r2;
+    uv[0] = (r0 / depth - l) / (r - l);
+    uv[1] = (u - r1 / depth) / (u - d);
+    return true;
+}
+
+// The watch face for one eye: centre UV and radius in UV of the image height.
+bool watch_uv(const PrxFrame& f, int e, float out[4]) {
+    float depth;
+    if (!point_uv(f, e, f.watchAt, out, depth)) return false;
+    out[2] = f.watchRadius / depth / (std::tan(f.eyeFov[e].up) - std::tan(f.eyeFov[e].down));
+    out[3] = f.watchLit ? 1.f : 0.f;
+    return true;
+}
+
+// UI panel keying (PrxFrame::uiKey). Auto latches after two probes in a row find the panel over 97% opaque: the game
+// filled in the alpha, so the panel would hide the world. A new scene measures again.
+bool g_uiKeyed = false;
+int g_opaqueProbes = 0, g_keyScene = 0;
+uint64_t g_panelFrames = 0;
+
+bool ui_key(const PrxFrame& f) {
+    if (!f.quadAlpha || f.uiKey == 2) return false;
+    if (f.uiKey == 1) return true;
+    if (f.scene != g_keyScene) {
+        g_keyScene = f.scene;
+        g_uiKeyed = false;
+        g_opaqueProbes = 0;
+    }
+    float opaque = g_gpu->opaque_fraction();
+    if (opaque >= 0 && !g_uiKeyed) {
+        g_opaqueProbes = opaque > 0.97f ? g_opaqueProbes + 1 : 0;
+        if (g_opaqueProbes >= 2) {
+            g_uiKeyed = true;
+            prx_log("UI panel is opaque (%.0f%%); its black is made see-through", opaque * 100);
+        }
+    }
+    return g_uiKeyed;
+}
+
 bool beam_uv(const PrxFrame& f, int e, float out[4]) {
     const PrxPose& v = f.eyePose[e];
     // Rotate by the inverse of the eye orientation: q* (p - eye) q.
@@ -305,6 +355,7 @@ void do_submit(int slot) {
             over[e].vignette = f.vignette;
             // About 4 mm wide at arm's length on a typical 100 degree view.
             if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
+            if (f.watch) watch_uv(f, e, over[e].watch);
         }
         if (f.stereo && f.eye[0].texture && f.eye[1].texture &&
             copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp"), over[0]) &&
@@ -322,7 +373,11 @@ void do_submit(int slot) {
             stereo = true;
         }
         PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
-        if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"))) {
+        Overlay panel;
+        panel.key = ui_key(f) ? 1.f : 0.f;
+        // Measured unkeyed, about twice a second, until it latches.
+        panel.probe = f.quadAlpha && f.uiKey == 0 && !g_uiKeyed && (g_panelFrames++ % 45) == 0;
+        if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"), panel)) {
             XrCompositionLayerFlags flags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
             XrSwapchainSubImage image{g_quad.handle, {{0, 0}, {g_quad.width, g_quad.height}}, 0};
             XrPosef pose = to_xr(f.quadPose);

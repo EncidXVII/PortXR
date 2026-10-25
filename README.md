@@ -7,7 +7,7 @@ Working name, not final.
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
-2. Pick a game marked **Ready** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
+2. Pick a game marked **Ready** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. **Install** sets a game up without starting it. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Controls (default: keyboard & mouse emulation)
@@ -37,6 +37,10 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
+- Head aim: in first-person games the game camera turns to where you look, so you aim with your head; the right stick turns your body. Auto (the default) turns it on while you play (cursor hidden) and off for third-person cameras that orbit the player; On or Off in Quick, Controls.
+- The game's UI floats on a see-through panel. When a game paints that panel solid (a full-screen effect on its UI camera), Parallax notices and makes the black see-through (View, UI black: Auto, See-through or Keep).
+- Intro and cutscene videos that a game draws straight onto its camera play on the theater screen, then the view returns to stereo.
+- A round watch face sits on the back of your left wrist; it lights up when you glance at it, and a right trigger pull then opens the VR menu.
 - A laser beam shows where the right controller points while the pointer is on (VR menu, or whenever the game shows its cursor).
 - Something in the way of your view, like a helmet or the player's own body? VR menu, Game tab, Hide objects: point at it and pull the trigger. Parallax remembers it for that game; Show hidden brings it back.
 - Theater mode shows the flat game on a big screen 3 m away; the laser pointer works on it. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
