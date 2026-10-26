@@ -121,7 +121,7 @@ class Game:
         time.sleep(seconds)
         self.cmd("ctrl off")
 
-    def focus(self):
+    def windows(self):
         hwnds = []
         proc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 
@@ -133,7 +133,10 @@ class Game:
             return True
 
         user32.EnumWindows(proc(cb), 0)
-        for h in hwnds:
+        return hwnds
+
+    def focus(self):
+        for h in self.windows():
             # A synthetic Alt press lifts the foreground lock for this process.
             user32.keybd_event(0x12, 0, 0, 0)
             user32.SetForegroundWindow(h)
@@ -203,6 +206,54 @@ def gate_stereo(g):
     span = rows.max() - rows.min() + 1
     expected = h * (2.0 / 4.95) / (up - down)
     check("3 scale", abs(span - expected) / expected < 0.03, f"door {span}px expected {expected:.1f}px")
+
+
+def gate_mirror(g):
+    """The desktop window mirrors the left eye: the world, not only the UI."""
+    (left,) = g.capture("mirror", ["left.bmp"])
+    hwnd = next(h for h in g.windows() if window_class(h) == "UnityWndClass")
+    window = print_window(hwnd)
+    shot = np.asarray(Image.fromarray(window).convert("L").resize((32, 18)), dtype=float)
+    eh, ew = left.shape[:2]
+    h, w = window.shape[:2]
+    visible = min(1.0, (ew / eh) / (w / h))  # the mirror shows the eye's middle rows at the window's aspect
+    top = int(eh * (1 - visible) / 2)
+    crop = left[top:eh - top, :, :3].mean(axis=2).astype(np.uint8)
+    eye = np.asarray(Image.fromarray(crop).resize((32, 18)), dtype=float)
+    corr = float(np.corrcoef(shot.ravel(), eye.ravel())[0, 1]) if shot.std() > 1 else 0.0
+    Image.fromarray(window).save(os.path.join(OUT, "mirror", "window.png"))
+    check("1b desktop mirror", corr > 0.6, f"window vs left eye correlation {corr:.2f}")
+
+
+def window_class(hwnd):
+    name = ctypes.create_unicode_buffer(64)
+    user32.GetClassNameW(hwnd, name, 64)
+    return name.value
+
+
+def client_size(hwnd):
+    r = wt.RECT()
+    user32.GetClientRect(hwnd, ctypes.byref(r))
+    return r.right, r.bottom
+
+
+def print_window(hwnd):
+    """The window's own content, even under other windows (PW_RENDERFULLCONTENT reads DirectX windows too)."""
+    user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    gdi32 = ctypes.windll.gdi32
+    w, h = client_size(hwnd)
+    wdc = user32.GetDC(hwnd)
+    dc = gdi32.CreateCompatibleDC(wdc)
+    bmp = gdi32.CreateCompatibleBitmap(wdc, w, h)
+    gdi32.SelectObject(dc, bmp)
+    user32.PrintWindow(hwnd, dc, 3)  # PW_CLIENTONLY | PW_RENDERFULLCONTENT
+    header = (ctypes.c_uint32 * 10)(40, w, (-h) & 0xFFFFFFFF, 1 | (32 << 16), 0, 0, 0, 0, 0, 0)
+    buf = (ctypes.c_ubyte * (w * h * 4))()
+    gdi32.GetDIBits(dc, bmp, 0, h, buf, header, 0)
+    gdi32.DeleteObject(bmp)
+    gdi32.DeleteDC(dc)
+    user32.ReleaseDC(hwnd, wdc)
+    return np.frombuffer(buf, np.uint8).reshape(h, w, 4)[:, :, 2::-1].copy()
 
 
 def gate_post(g):
@@ -562,7 +613,7 @@ def main():
                 g.start()
                 # IL2CPP first launch generates interop assemblies before plugins load.
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
-                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_menu, gate_render_scale]
+                gates = [gate_stereo, gate_mirror, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_menu, gate_render_scale]
                 if args.input:
                     gates.insert(5, gate_input)
                 else:

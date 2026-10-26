@@ -41,6 +41,8 @@ namespace Parallax
                     dst = go.AddComponent(type);
                     CopyFields(src, dst, type);
                     AvoidTemporalAa(dst, type);
+                    // Added after the PostProcessLayer, so its OnPreCull runs later and undoes that one's reset.
+                    if (type.Name == "PostProcessLayer" && go.GetComponent<EyeProjection>() == null) go.AddComponent<EyeProjection>();
                     go.SetActive(active);
                     continue;
                 }

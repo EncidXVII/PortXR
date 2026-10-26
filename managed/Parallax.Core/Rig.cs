@@ -73,8 +73,8 @@ namespace Parallax
         // Head aim loop: last game camera angles, last push, learned degrees per pixel (signed: games may invert Y),
         // and for the virtual pad the learned stick direction per axis.
         float aimLastYaw, aimLastPitch, aimPushX, aimPushY, aimDppX, aimDppY;
-        float padSignX = 1, padSignY = 1;
-        int padWrongX, padWrongY;
+        float padSignX = 1, padSignY = 1;  // X stays 1: see AimLoop.LearnPixels
+        int padWrongY, aimWrongX, aimWrongY;
         // Orbit check: how far in front of the game camera its rotation pivot sits, from frames where it turned.
         // First-person cameras turn about themselves (near 0); third-person cameras orbit the player (metres).
         Vector3 orbitLastPos, orbitLastFwd;
@@ -338,7 +338,10 @@ namespace Parallax
                 cfg.turnX = aimPushX;
                 cfg.turnY = aimPushY;
             }
-            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open)
+            // Snap turns are for a camera that turns about itself. A third-person camera (Lunistice), or one not seen
+            // turning yet, gets the right stick as is, so it orbits the player as on a flat screen.
+            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open
+                     && (snapping || (orbitSamples >= 10 && OrbitRadius < 0.45f)))
             {
                 cfg.snap = 1;
                 cfg.turnX = SnapTurn(Settings.Input.Value == InputMode.Gamepad);
@@ -423,7 +426,7 @@ namespace Parallax
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
                 eye.transform.SetPositionAndRotation(basePos + yaw * (rel * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
-                eye.projectionMatrix = Xr.Projection(Fovs[e], eye.nearClipPlane, eye.farClipPlane);
+                SetProjection(eye, Fovs[e]);
                 eye.enabled = true;
                 StackPasses(e, eye, refreshExtras);
             }
@@ -466,7 +469,7 @@ namespace Parallax
                 // Where the game put that camera, moved as the head pass is moved from the head camera (a 3D-skybox
                 // camera sits elsewhere and turns along).
                 pass.transform.SetPositionAndRotation(o.cam.transform.position + offset, head.transform.rotation);
-                pass.projectionMatrix = Xr.Projection(Fovs[e], pass.nearClipPlane, pass.farClipPlane);
+                SetProjection(pass, Fovs[e]);
                 if (refreshExtras)
                 {
                     o.post?.Invoke();
@@ -481,6 +484,15 @@ namespace Parallax
             foreach (var c in passes)
                 if (c.enabled && c.depth == first && Overlays(c.clearFlags)) c.clearFlags = CameraClearFlags.SolidColor;
             if (head.depth == first && Overlays(head.clearFlags)) head.clearFlags = CameraClearFlags.SolidColor;
+        }
+
+        void SetProjection(Camera c, Fov fov)
+        {
+            c.projectionMatrix = Xr.Projection(fov, c.nearClipPlane, c.farClipPlane);
+#if !IL2CPP
+            var keep = c.GetComponent<EyeProjection>();
+            if (keep != null) keep.Matrix = c.projectionMatrix;
+#endif
         }
 
         static bool Overlays(CameraClearFlags clear) => clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
@@ -522,7 +534,7 @@ namespace Parallax
             if (stereo)
             {
                 // A managed blit would land in the D3D12 UI grab; there, and where Graphics.Blit is stripped, Present draws it.
-                f.mirror = D3D12 || !mirror.Run(() => Mirror(native)) ? 1 : 0;
+                f.mirror = D3D12 || !mirror.Run(Mirror) ? 1 : 0;
                 for (int e = 0; e < 2; e++)
                 {
                     var rt = eyeTargets[e];
@@ -573,17 +585,13 @@ namespace Parallax
             slot = (slot + 1) & 3;
         }
 
-        void Mirror(bool nativeCapture)
+        // The desktop shows the left eye, as the native mirror does. Not the captured UI over it: games often fill that
+        // capture opaque (black under their HUD), which hid the world on the screen.
+        void Mirror()
         {
             var eye = eyeTargets[0];
             float visible = Mathf.Min(1f, (float)eye.width / eye.height / ((float)Screen.width / Screen.height));
             Graphics.Blit(eye, (RenderTexture)null, new Vector2(1, visible), new Vector2(0, (1 - visible) / 2));
-            if (nativeCapture) return;  // the UI only reaches the headset on this path
-            RenderTexture.active = null;
-            GL.PushMatrix();
-            GL.LoadPixelMatrix(0, Screen.width, Screen.height, 0);
-            Graphics.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), uiTarget, new Rect(0, 1, 1, -1), 0, 0, 0, 0);
-            GL.PopMatrix();
         }
 
         void EnsureUiTarget()
@@ -638,7 +646,14 @@ namespace Parallax
                 var d = inv * (Xr.Rotation(controllers.aimR) * Vector3.forward);
                 var uv = theaterShown && curvedTheater ? HitCylinder(inv * (p - originPos), d, w, h) : HitPlane(inv * (p - c), d, w, h);
                 onQuad = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
-                if (onQuad) pointerUv = uv;
+                // Hand tremor would shake the game's cursor (and the real mouse with it): small moves are eased, large
+                // ones followed at once, and a trigger being pulled (which tips the controller down) holds it steadier.
+                if (onQuad && PointerActive)
+                {
+                    float follow = Mathf.Clamp((uv - pointerUv).magnitude * 60f, controllers.rTrigger > 0.15f ? 0.04f : 0.15f, 1f);
+                    pointerUv = Vector2.Lerp(pointerUv, uv, follow);
+                }
+                else if (onQuad) pointerUv = uv;
             }
             bool wanted = Menu.Open || (Settings.Pointer.Value == PointerMode.Auto && Cursor.visible && Cursor.lockState != CursorLockMode.Locked);
             bool active = onQuad && wanted;
@@ -1060,8 +1075,10 @@ namespace Parallax
             orbitLastPos = p;
             orbitLastFwd = f;
             // A turn of at least 0.3 degrees; a jump over half a metre is a teleport, a cut or a dash, which says nothing
-            // about the pivot.
-            if (!primed || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 0.25f) return;
+            // about the pivot. Nor does a turn while the player walks: circle-strafing a target moves a first-person
+            // camera exactly like an orbit (ULTRAKILL flipped between verdicts), so only turns standing still count.
+            bool walking = controllers.lx * controllers.lx + controllers.ly * controllers.ly > 0.04f;
+            if (!primed || walking || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 0.25f) return;
             orbitNum = orbitNum * 0.99f - Vector3.Dot(dc, df);
             orbitDen = orbitDen * 0.99f + df.sqrMagnitude;
             orbitSamples++;
@@ -1122,15 +1139,14 @@ namespace Parallax
             float errX = Mathf.DeltaAngle(yaw, wantYaw), errY = wantPitch - pitch;
             if (pad)
             {
-                AimLoop.LearnStick(ref padSignX, ref padWrongX, movedX, aimPushX);
                 AimLoop.LearnStick(ref padSignY, ref padWrongY, movedY, aimPushY);
                 aimPushX = Mathf.Abs(errX) < 1f ? 0 : Mathf.Sign(errX) * Mathf.Clamp(Mathf.Abs(errX) / 25f, 0.3f, 1f) * padSignX;
                 aimPushY = Mathf.Abs(errY) < 1f ? 0 : Mathf.Sign(errY) * Mathf.Clamp(Mathf.Abs(errY) / 25f, 0.3f, 1f) * padSignY;
             }
             else
             {
-                AimLoop.LearnPixels(ref aimDppX, movedX, aimPushX);
-                AimLoop.LearnPixels(ref aimDppY, movedY, aimPushY);
+                AimLoop.LearnPixels(ref aimDppX, ref aimWrongX, movedX, aimPushX, false);
+                AimLoop.LearnPixels(ref aimDppY, ref aimWrongY, movedY, aimPushY, true);
                 aimPushX = AimLoop.PixelPush(errX, aimDppX);
                 aimPushY = AimLoop.PixelPush(errY, aimDppY);
             }
@@ -1193,12 +1209,20 @@ namespace Parallax
     // Head aim loop helpers, outside Rig so the IL2CPP class injector never sees their ref parameters.
     internal static class AimLoop
     {
-        internal static void LearnPixels(ref float dpp, float moved, float push)
+        // Over 2 degrees per pixel is not our push. A sample against the learned direction is noise (bob, recoil, the
+        // game's own camera motion); only ten in a row invert an axis the game may invert (Y). Horizontal look is never
+        // inverted: a wrong sign there would hold the camera facing backwards, where the loop's error is stable.
+        internal static void LearnPixels(ref float dpp, ref int wrong, float moved, float push, bool invertible)
         {
             if (Mathf.Abs(push) < 4 || Mathf.Abs(moved) < 0.05f) return;
             float sample = moved / push;
-            // Over 2 degrees per pixel is not our push; against the learned direction is noise (bob, recoil).
-            if (Mathf.Abs(sample) > 2f || (dpp != 0 && Mathf.Sign(sample) != Mathf.Sign(dpp))) return;
+            if (Mathf.Abs(sample) > 2f || (!invertible && sample < 0)) return;
+            if (dpp != 0 && Mathf.Sign(sample) != Mathf.Sign(dpp))
+            {
+                if (++wrong < 10) return;
+                dpp = 0;
+            }
+            wrong = 0;
             dpp = dpp != 0 ? Mathf.Lerp(dpp, sample, 0.3f) : sample;
         }
 
