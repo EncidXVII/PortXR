@@ -297,7 +297,7 @@ impl App {
                 let name = match f {
                     Filter::All => "All",
                     Filter::Ready => "Ready",
-                    Filter::Installed => "Installed",
+                    Filter::Installed => "VR added",
                     Filter::Unsupported => "Unsupported",
                 };
                 (f, format!("{name}  {}", count(f)))
@@ -970,8 +970,8 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
-    // Ready is the normal case, so it gets no tag; only the exceptions do.
-    let chip_text = (g.compat() != Compat::Supported || g.installed()).then(|| g.badge());
+    // Supported is the normal case, so it gets no tag; only the exceptions do.
+    let chip_text = (g.compat() != Compat::Supported).then(|| g.badge());
     if let Some(text) = chip_text {
         paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, chip_kind(g));
     }

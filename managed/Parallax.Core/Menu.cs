@@ -337,9 +337,9 @@ namespace Parallax
             Options("Comfort vignette", Settings.Vignette, new[] { VignetteLevel.Off, VignetteLevel.Low, VignetteLevel.High },
                 new[] { "Off", "Low", "High" }, VignetteLevel.Off);
 
-            // Same order as the app: Keyboard & mouse first.
-            Options("Controls", Settings.Input, new[] { InputMode.KeyboardMouse, InputMode.Gamepad, InputMode.Off },
-                new[] { "Keyboard & mouse", "Gamepad", "Off" }, InputMode.Off);
+            // Same order as the app.
+            Options("Controls", Settings.Input, new[] { InputMode.Auto, InputMode.Gamepad, InputMode.KeyboardMouse, InputMode.Off },
+                new[] { "Auto", "Gamepad", "Keyboard & mouse", "Off" }, InputMode.Off);
             Options("Head aim", Settings.HeadAim, new[] { AimMode.Auto, AimMode.On, AimMode.Off }, new[] { "Auto", "On", "Off" }, AimMode.Off);
         }
 
@@ -362,13 +362,13 @@ namespace Parallax
 
         void DrawControls()
         {
-            if (Settings.Input.Value == InputMode.Off)
+            if (Settings.InputNow == InputMode.Off)
             {
                 Label("Controls are off: the controllers only work this menu and the laser pointer. Play with your own", muted, 0);
                 Label("keyboard, mouse or gamepad. Switch Controls in Quick to use the controllers in the game.", muted, 0);
                 return;
             }
-            if (Settings.Input.Value == InputMode.Gamepad)
+            if (Settings.InputNow == InputMode.Gamepad)
             {
                 Label("Gamepad mode: the controllers act as an Xbox pad. Sticks, triggers, A B X Y, grips as", muted, 0);
                 Label("shoulder buttons, stick clicks; menu tap is Start. Switch to Keyboard & mouse in Quick to rebind.", muted, 0);

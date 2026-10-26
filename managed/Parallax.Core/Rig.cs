@@ -69,7 +69,12 @@ namespace Parallax
         // camera follows the head and only the right stick turns the body.
         float bodyYaw, lastHeading;
         bool bodyKnown, aiming;
-        Quaternion Body => Quaternion.Euler(0, bodyYaw, 0);
+        // The body stands on the player's ground: world up, or the player body's own up where the game applies its own
+        // gravity (Outer Wilds' small planets), carried along without twist so headings stay continuous.
+        Quaternion upFrame = Quaternion.identity;
+        Rigidbody playerBody;
+        Camera playerBodyOf;
+        Quaternion Body => upFrame * Quaternion.Euler(0, bodyYaw, 0);
         // Head aim loop: last game camera angles, last push, learned degrees per pixel (signed: games may invert Y),
         // and for the virtual pad the learned stick direction per axis.
         float aimLastYaw, aimLastPitch, aimPushX, aimPushY, aimDppX, aimDppY;
@@ -87,8 +92,12 @@ namespace Parallax
         readonly System.Collections.Generic.Dictionary<string, bool> firstPerson = new System.Collections.Generic.Dictionary<string, bool>();
         string sceneName = "";
         string AimKey => sceneName + "/" + GameCam.name;
-        float probeIgnored;
-        int probeFailedAt = -1;  // orbit samples when the probe ended; a new sample (the camera turned) restarts it
+        // The probe gets one go per camera and scene: 4 s, or 1.5 s of ignored pushes. While it runs the right stick turns
+        // the body, so it must end (a third-person camera seen only while running, Lunistice). After it, turns made
+        // standing still still give the verdict.
+        float probeIgnored, probeTime;
+        bool probeEnded;
+        string probeKey;
         const float SmoothTurnDegPerSec = 120f;
         // Step smoothing: a game camera moved in FixedUpdate steps at the physics rate (often 50 Hz) while the headset
         // shows 90, so the world judders as you move. Seen as frames where a moving camera stood still; then the eyes
@@ -127,7 +136,8 @@ namespace Parallax
         static readonly Action<RenderTexture> captureIntoTexture = FindCapture();
         readonly Optional managedCapture = new Optional("Screen capture into a texture"), mirror = new Optional("Desktop mirror"),
             recreate = new Optional("Eye target recreation"), resolve = new Optional("MSAA resolve"),
-            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset");
+            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset"),
+            bodyLookup = new Optional("Player body lookup");
         bool viewMatrixReset;
 
         static Action<RenderTexture> FindCapture()
@@ -317,7 +327,7 @@ namespace Parallax
             Hider.Apply();
             var cfg = new InputConfig
             {
-                mode = (int)Settings.Input.Value,
+                mode = (int)Settings.InputNow,
                 neutral = Menu.Open || Hider.Active ? 1 : 0,
                 pointerActive = PointerActive ? 1 : 0,
                 pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
@@ -334,17 +344,17 @@ namespace Parallax
             {
                 cfg.snap = 1;
                 cfg.aim = 1;
-                HeadAim(Settings.Input.Value == InputMode.Gamepad);
+                HeadAim(Settings.InputNow == InputMode.Gamepad);
                 cfg.turnX = aimPushX;
                 cfg.turnY = aimPushY;
             }
             // Snap turns are for a camera that turns about itself. A third-person camera (Lunistice), or one not seen
             // turning yet, gets the right stick as is, so it orbits the player as on a flat screen.
-            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.Input.Value != InputMode.Off && GameCam != null && !Menu.Open
+            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.InputNow != InputMode.Off && GameCam != null && !Menu.Open
                      && (snapping || (orbitSamples >= 10 && OrbitRadius < 0.45f)))
             {
                 cfg.snap = 1;
-                cfg.turnX = SnapTurn(Settings.Input.Value == InputMode.Gamepad);
+                cfg.turnX = SnapTurn(Settings.InputNow == InputMode.Gamepad);
             }
             Bindings.Codes(ref cfg);
             uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
@@ -860,8 +870,8 @@ namespace Parallax
             orbitSamples = 0;
             orbitNum = orbitDen = 0;
             orbitLastFwd = Vector3.zero;
-            probeIgnored = 0;
-            probeFailedAt = -1;
+            probeIgnored = probeTime = 0;
+            probeEnded = false;
         }
 
         // Re-read before hiding: a value that is not ours means the game changed it since last frame.
@@ -976,7 +986,7 @@ namespace Parallax
         // (keyboard + mouse), or a proportional stick (gamepad). Returns this frame's push (PrxInputConfig.turnX).
         float SnapTurn(bool pad)
         {
-            float yaw = GameCam.transform.eulerAngles.y, rx = controllers.rx;
+            float yaw = Heading(GameCam.transform), rx = controllers.rx;
             if (!snapping)
             {
                 if (Mathf.Abs(rx) < 0.3f) snapArmed = true;
@@ -1051,15 +1061,32 @@ namespace Parallax
 
         // Compass heading of a camera, stable when it looks straight up or down: the forward's horizontal part vanishes
         // there and the up vector's takes over.
-        static float Heading(Transform t)
+        float Heading(Transform t)
         {
-            var f = t.forward;
-            var h = f - t.up * f.y;
+            var un = Quaternion.Inverse(upFrame);
+            Vector3 f = un * t.forward, h = f - un * t.up * f.y;
             return Xr.Atan2(h.x, h.z) * Mathf.Rad2Deg;
+        }
+
+        float Pitch(Transform t) => Xr.Asin(Mathf.Clamp((Quaternion.Inverse(upFrame) * t.forward).y, -1, 1)) * Mathf.Rad2Deg;
+
+        Vector3 PlayerUp()
+        {
+            if (playerBodyOf != GameCam || Time.frameCount % 120 == 0)
+            {
+                playerBodyOf = GameCam;
+                playerBody = null;
+                bodyLookup.Run(() =>
+                {
+                    for (var t = GameCam.transform; t != null && playerBody == null; t = t.parent) playerBody = t.GetComponent<Rigidbody>();
+                });
+            }
+            return playerBody != null && !playerBody.useGravity ? playerBody.transform.up : Vector3.up;
         }
 
         void TrackBody(Transform camT)
         {
+            upFrame = Quaternion.FromToRotation(upFrame * Vector3.up, PlayerUp()) * upFrame;
             float heading = Heading(camT);
             if (!bodyKnown) bodyYaw = heading;
             else if (!aiming) bodyYaw += Mathf.DeltaAngle(lastHeading, heading);
@@ -1094,7 +1121,7 @@ namespace Parallax
         bool HeadAimWanted()
         {
             var mode = Settings.HeadAim.Value;
-            if (mode == AimMode.Off || Settings.Input.Value == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
+            if (mode == AimMode.Off || Settings.InputNow == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
                 || Menu.Open || Hider.Active || State != XrState.Running)
                 return false;
             if (mode == AimMode.On) return true;
@@ -1112,8 +1139,13 @@ namespace Parallax
                 return fp;
             }
             if (known) return fp;
-            if (probeFailedAt >= 0 && orbitSamples > probeFailedAt) probeFailedAt = -1;
-            return probeFailedAt < 0;
+            if (probeKey != key)
+            {
+                probeKey = key;
+                probeIgnored = probeTime = 0;
+                probeEnded = false;
+            }
+            return !probeEnded;
         }
 
         // Steers the game camera to where the head looks, closed loop on its angles: mouse pixels from a learned
@@ -1134,7 +1166,7 @@ namespace Parallax
             float wantYaw = bodyYaw + Xr.Atan2(look.x, look.z) * Mathf.Rad2Deg;
             float wantPitch = Mathf.Clamp(Xr.Asin(Mathf.Clamp(look.y, -1, 1)) * Mathf.Rad2Deg, -80, 80);
             var camT = GameCam.transform;
-            float yaw = Heading(camT), pitch = Xr.Asin(Mathf.Clamp(camT.forward.y, -1, 1)) * Mathf.Rad2Deg;
+            float yaw = Heading(camT), pitch = Pitch(camT);
             float movedX = Mathf.DeltaAngle(aimLastYaw, yaw), movedY = pitch - aimLastPitch;
             float errX = Mathf.DeltaAngle(yaw, wantYaw), errY = wantPitch - pitch;
             if (pad)
@@ -1156,10 +1188,11 @@ namespace Parallax
             if (firstPerson.ContainsKey(AimKey) || Settings.HeadAim.Value != AimMode.Auto) return;
             if (Mathf.Abs(errX) > 5f && Mathf.Abs(movedX) < 0.05f) probeIgnored += Time.unscaledDeltaTime;
             else if (Mathf.Abs(movedX) > 0.2f) probeIgnored = 0;
-            if (probeIgnored > 1.5f)
+            probeTime += Time.unscaledDeltaTime;
+            if (probeIgnored > 1.5f || probeTime > 4f)
             {
-                probeFailedAt = orbitSamples;
-                probeIgnored = 0;
+                probeEnded = true;
+                Plugin.Log.LogInfo($"Head aim (auto): no verdict for {AimKey} yet; off until the camera turns while you stand still");
             }
         }
 
@@ -1209,29 +1242,35 @@ namespace Parallax
     // Head aim loop helpers, outside Rig so the IL2CPP class injector never sees their ref parameters.
     internal static class AimLoop
     {
-        // Over 2 degrees per pixel is not our push. A sample against the learned direction is noise (bob, recoil, the
-        // game's own camera motion); only ten in a row invert an axis the game may invert (Y). Horizontal look is never
-        // inverted: a wrong sign there would hold the camera facing backwards, where the loop's error is stable.
+        // Over 2 degrees per pixel is not our push. Movement against the expected direction (up is up until shown
+        // otherwise) is noise: bob, recoil, screen shake. Only a camera clearly running away from strong pushes, five
+        // frames in a row, inverts an axis that may be inverted (Y); horizontal look never is, as a wrong sign there
+        // holds the camera facing backwards. A noise-learned flip on Y pinned ULTRAKILL's view to the floor.
         internal static void LearnPixels(ref float dpp, ref int wrong, float moved, float push, bool invertible)
         {
             if (Mathf.Abs(push) < 4 || Mathf.Abs(moved) < 0.05f) return;
             float sample = moved / push;
-            if (Mathf.Abs(sample) > 2f || (!invertible && sample < 0)) return;
-            if (dpp != 0 && Mathf.Sign(sample) != Mathf.Sign(dpp))
+            if (Mathf.Abs(sample) > 2f) return;
+            if (Mathf.Sign(sample) != (dpp != 0 ? Mathf.Sign(dpp) : 1f))
             {
-                if (++wrong < 10) return;
+                wrong = Mathf.Abs(push) >= 20 && Mathf.Abs(moved) >= 1f ? wrong + 1 : 0;
+                if (!invertible || wrong < 5) return;
                 dpp = 0;
             }
             wrong = 0;
             dpp = dpp != 0 ? Mathf.Lerp(dpp, sample, 0.3f) : sample;
         }
 
-        // Ten frames of the camera moving against the push means the game inverts that axis.
         internal static void LearnStick(ref float sign, ref int wrong, float moved, float push)
         {
             if (Mathf.Abs(push) < 0.3f || Mathf.Abs(moved) < 0.05f) return;
-            wrong = Mathf.Sign(moved) == Mathf.Sign(push) ? 0 : wrong + 1;
-            if (wrong < 10) return;
+            if (Mathf.Sign(moved) == Mathf.Sign(push))  // push is already signed
+            {
+                wrong = 0;
+                return;
+            }
+            wrong = Mathf.Abs(push) >= 0.5f && Mathf.Abs(moved) >= 1f ? wrong + 1 : 0;
+            if (wrong < 5) return;
             sign = -sign;
             wrong = 0;
         }

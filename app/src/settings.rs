@@ -35,7 +35,7 @@ pub const QUICK: &[Def] = &[
     def("View", "WorldScale", "World scale", "1", slider(0.5, 3.0, 0.1, "×"), "Above 1 you feel bigger and the world smaller."),
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
-    def("Controls", "Mode", "Controls", "KeyboardMouse", Kind::Choice(&[("KeyboardMouse", "Keyboard & mouse"), ("Gamepad", "Gamepad"), ("Off", "Off")]), "Off: play with your own keyboard, mouse or gamepad; controllers only work the VR menu. Gamepad only reaches games that read the Input System or XInput."),
+    def("Controls", "Mode", "Controls", "Auto", Kind::Choice(&[("Auto", "Auto"), ("Gamepad", "Gamepad"), ("KeyboardMouse", "Keyboard & mouse"), ("Off", "Off")]), "Auto: gamepad in games made for one, else keyboard & mouse. Off: play with your own devices; controllers only work the VR menu."),
     def("Controls", "HeadAim", "Head aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera turns to where you look, so you aim with your head. Auto: first-person games, while you play."),
 ];
 

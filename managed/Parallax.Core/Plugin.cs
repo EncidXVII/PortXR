@@ -7,7 +7,7 @@ using UnityEngine.Rendering;
 
 namespace Parallax
 {
-    public enum InputMode { Gamepad, KeyboardMouse, Off }
+    public enum InputMode { Gamepad, KeyboardMouse, Off, Auto }
     public enum PointerMode { Auto, MenuOnly }
     public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
     public enum VignetteLevel { Off, Low, High }
@@ -16,6 +16,25 @@ namespace Parallax
 
     internal static class Settings
     {
+        // Controls as played: Auto picks the gamepad for games that ship a gamepad input library, as their controller
+        // layouts are then made for it; keyboard and mouse otherwise.
+        internal static InputMode InputNow => Input.Value != InputMode.Auto ? Input.Value : PadGame() ? InputMode.Gamepad : InputMode.KeyboardMouse;
+        static bool? padGame;
+
+        static bool PadGame()
+        {
+            if (padGame is bool known) return known;
+            string[] pads = { "Unity.InputSystem", "Rewired_Core", "InControl", "XInputDotNetPure", "SharpDX.XInput", "XInputInterface" };
+            padGame = false;
+            // Mono games ship them in Managed; IL2CPP games get interop assemblies of the same names.
+            string[] dirs = { System.IO.Path.Combine(UnityEngine.Application.dataPath, "Managed"), System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "interop") };
+            foreach (var dir in dirs)
+                foreach (var name in pads)
+                    if (System.IO.File.Exists(System.IO.Path.Combine(dir, name + ".dll"))) padGame = true;
+            Plugin.Log.LogInfo($"Controls (auto): {(padGame.Value ? "gamepad" : "keyboard and mouse")}");
+            return padGame.Value;
+        }
+
         public static ConfigFile File;
         public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth;
         public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu, FirstRun;
@@ -42,7 +61,8 @@ namespace Parallax
                 "Auto: when the game paints the whole UI panel opaque, its black turns see-through. SeeThrough: always. Keep: never.");
             CameraName = cfg.Bind("Game", "CameraName", "", "GameObject name of the camera used as the head. Empty picks automatically.");
             Hidden = cfg.Bind("Game", "Hidden", "", "Objects hidden from the VR menu's Game tab, as hierarchy paths separated by ;.");
-            Input = cfg.Bind("Controls", "Mode", InputMode.KeyboardMouse,
+            Input = cfg.Bind("Controls", "Mode", InputMode.Auto,
+                "Auto: Gamepad when the game ships a gamepad input library (Input System, Rewired, InControl, XInput wrappers), else KeyboardMouse. " +
                 "KeyboardMouse: sticks drive WASD and mouse look (works in any game with keyboard controls). " +
                 "Gamepad: controllers act as an Xbox pad; only games that read XInput directly see it. " +
                 "Off: controllers only work the VR menu and laser pointer; play with your own keyboard, mouse or gamepad.");

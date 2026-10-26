@@ -49,7 +49,7 @@ impl Game {
 
     pub fn badge(&self) -> &'static str {
         match self.compat() {
-            Compat::Supported if self.installed() => "Installed",
+            Compat::Supported if self.installed() => "VR added",
             Compat::Supported => "Ready",
             Compat::AntiCheat => "Anti-cheat",
             Compat::X86 => "32-bit",
@@ -232,10 +232,30 @@ fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
             found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from), "Epic Games"));
         }
     }
-    let gog = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\WOW6432Node\GOG.com\Games");
-    for key in gog.iter().flat_map(|k| k.enum_keys().flatten().filter_map(|id| k.open_subkey(id).ok()).collect::<Vec<_>>()) {
+    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+    let gog = [r"SOFTWARE\WOW6432Node\GOG.com\Games", r"SOFTWARE\GOG.com\Games"].map(|k| hklm.open_subkey(k));
+    for key in gog.iter().flatten().flat_map(|k| k.enum_keys().flatten().filter_map(|id| k.open_subkey(id).ok()).collect::<Vec<_>>()) {
         if let Ok(dir) = key.get_value::<String, _>("path") {
             found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok(), "GOG"));
+        }
+    }
+    // Everything else (itch, Amazon, Xbox, DRM-free copies, unregistered Steam libraries): each folder in the usual
+    // game locations on every drive; detect() looks two levels into it for a Unity player.
+    let env = |v: &str| PathBuf::from(std::env::var(v).unwrap_or_default());
+    let mut roots = vec![env("APPDATA").join(r"itch\apps"), env("LOCALAPPDATA").join("Programs")];
+    for drive in b'C'..=b'Z' {
+        let drive = PathBuf::from(format!("{}:\\", drive as char));
+        if !drive.exists() {
+            continue;
+        }
+        for rel in ["Games", "GOG Games", "Epic Games", "Itch Games", r"Amazon Games\Library", "XboxGames", "Program Files",
+                    "Program Files (x86)", r"SteamLibrary\steamapps\common", r"Steam\steamapps\common"] {
+            roots.push(drive.join(rel));
+        }
+    }
+    for root in roots {
+        for dir in fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            found.push((dir, None, "On disk"));
         }
     }
     found
