@@ -19,7 +19,7 @@ namespace Parallax
                 action();
                 return true;
             }
-            catch (Exception ex) when (ex is NotSupportedException || ex is MissingMethodException || ex is EntryPointNotFoundException || ex is TypeInitializationException)
+            catch (Exception ex) when (ex is NotSupportedException || ex is MissingMethodException || ex is EntryPointNotFoundException || ex is TypeInitializationException || ex is InvalidProgramException)
             {
                 off = true;
                 // The first stack frame names the stripped member, which is what a fix needs.

@@ -221,6 +221,7 @@ void pick_format() {
 // Session creation waits for the backend: on D3D12 the game's queue is only known after its first Present.
 void create_session() {
     if (g_xr.state != StateInstance || !g_gpu || !g_gpu->ready()) return;
+    prx_log("creating session");
     if (!g_gpu->create_session(&g_xr.session)) return (void)fail("session creation failed");
     XrReferenceSpaceCreateInfo rs{XR_TYPE_REFERENCE_SPACE_CREATE_INFO, nullptr, XR_REFERENCE_SPACE_TYPE_LOCAL,
                                   {{0, 0, 0, 1}, {0, 0, 0}}};

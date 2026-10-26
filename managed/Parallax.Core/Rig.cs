@@ -27,6 +27,7 @@ namespace Parallax
 
         internal Camera GameCam;
         int savedMask;
+        internal int SavedMask => savedMask;
         CameraClearFlags savedClear;
         Color savedBackground;
         bool camHidden;
@@ -113,6 +114,7 @@ namespace Parallax
         internal bool PointerActive;
         internal readonly Hider Hider = new Hider();
         readonly CanvasOverlay canvases = new CanvasOverlay();
+        readonly ScreenQuads screenQuads = new ScreenQuads();
         internal int AimValid => beamOn ? 1 : 0;
         Vector2 pointerUv;
         // Laser beam in tracking space, drawn into the eye images while the pointer is wanted.
@@ -405,6 +407,7 @@ namespace Parallax
                 headPost = null;
             }
             var camT = cam.transform;
+            screenQuads.Grow(cam);
             TrackBody(camT);
             var yaw = Body;
             var basePos = Smoothed(camT.position);
@@ -532,6 +535,7 @@ namespace Parallax
 
         void SubmitFrame()
         {
+            screenQuads.Restore();
             // The game camera drew nothing, so the backbuffer now holds only overlay UI and IMGUI.
             bool native = D3D12 || captureIntoTexture == null || !managedCapture.Run(() =>
             {
@@ -935,6 +939,7 @@ namespace Parallax
         void RestoreCamera()
         {
             canvases.Restore();
+            screenQuads.Restore();
             if (camHidden && GameCam != null)
             {
                 GameCam.cullingMask = savedMask;

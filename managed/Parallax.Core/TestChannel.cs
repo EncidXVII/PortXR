@@ -173,6 +173,16 @@ namespace Parallax
                         $"{c.name} on {c.isActiveAndEnabled} depth {c.depth} mask {c.cullingMask:X} clear {c.clearFlags} bg {c.backgroundColor} ortho {c.orthographic} " +
                         $"rect {c.rect} rt {(c.targetTexture != null ? $"{c.targetTexture.width}x{c.targetTexture.height} {c.targetTexture.format}" : "-")} " +
                         $"pos {V(c.transform.position)} rot {V(c.transform.eulerAngles)} parent {(c.transform.parent != null ? c.transform.parent.name : "-")}").ToArray());
+                case "near":
+                    // Renderers within a metre of the head camera: the player's own body, hats, screen quads.
+                    {
+                        var head = rig.GameCam;
+                        if (head == null) return "no camera";
+                        var at = head.transform.position;
+                        return string.Join("\n", UnityEngine.Object.FindObjectsOfType<Renderer>().Where(r => r.enabled && r.bounds.SqrDistance(at) < 1f).Select(r =>
+                            $"{Path(r.transform)} layer {r.gameObject.layer} shadows {r.shadowCastingMode} dist {Mathf.Sqrt(r.bounds.SqrDistance(at)):0.00} size {V(r.bounds.size)} " +
+                            $"inMask {(head.cullingMask & (1 << r.gameObject.layer)) != 0} savedMask {(rig.SavedMask & (1 << r.gameObject.layer)) != 0}").ToArray());
+                    }
                 case "scenes":
                     return string.Join("\n", Enumerable.Range(0, SceneManager.sceneCountInBuildSettings)
                         .Select(i => i + " " + SceneUtility.GetScenePathByBuildIndex(i)).ToArray()) + "\nactive " + SceneManager.GetActiveScene().name;
@@ -185,6 +195,8 @@ namespace Parallax
             }
             return "error unknown command";
         }
+
+        static string Path(Transform t) => t.parent == null ? t.name : Path(t.parent) + "/" + t.name;
 
         static BepInEx.Configuration.ConfigEntryBase Entry(string key) =>
             Settings.File[Settings.File.Keys.First(d => d.Key == key)];
