@@ -30,13 +30,21 @@ namespace Parallax
         CameraClearFlags savedClear;
         Color savedBackground;
         bool camHidden;
-        Action headPost, headLayer;  // undo the head camera's post-processing switch-off (URP, PPv2)
+        Action headPost;  // undo the head camera's post-processing switch-off (URP, PPv2, HDRP)
         // Other cameras drawing to the screen while the eyes render, with what they had before we changed them; keyed
         // by instance ID, since IL2CPP hands out a new proxy object per lookup.
         struct Other { public Camera cam; public int mask; public CameraClearFlags clear; public Color background; public Action post; }
         readonly System.Collections.Generic.Dictionary<int, Other> others = new System.Collections.Generic.Dictionary<int, Other>();
-        bool headLayerOff;
         int extraMask;  // their world layers, drawn by the eyes instead
+        float extraNear, extraFar;  // and the clip range they drew them in
+        // Built-in pipeline: each of those cameras (sky, world over a sky camera, weapon, hands) gets its own pass in each
+        // eye, in the game's depth order and with its own clear, as on the screen; merged into one pass, a weapon pokes
+        // through walls and a sky dome can cover the world. Render pipelines merge them into the head's pass (URP
+        // stacks cameras its own way). `stack` lists this frame's, `stackEyes` the pass cameras per eye.
+        bool builtIn;
+        readonly System.Collections.Generic.List<int> stack = new System.Collections.Generic.List<int>();
+        readonly System.Collections.Generic.List<Camera>[] stackEyes = { new System.Collections.Generic.List<Camera>(), new System.Collections.Generic.List<Camera>() };
+        readonly System.Collections.Generic.HashSet<int> eyeIds = new System.Collections.Generic.HashSet<int>();
         const int UiLayers = 1 << 5;
         bool eyesRendered;
         bool theaterShown;  // the last frame showed the theater screen, not the UI panel
@@ -72,6 +80,15 @@ namespace Parallax
         Vector3 orbitLastPos, orbitLastFwd;
         float orbitNum, orbitDen;
         int orbitSamples;
+        // Auto head aim's verdict per scene and camera name (true: first person), kept when the game switches cameras
+        // or reloads the scene. Per scene, as a menu's slowly orbiting camera may share the player camera's name.
+        // Without one, head aim probes: its own pushes turn the camera, which is the evidence. A camera that ignores
+        // them (a menu scene, input the game drops) ends the probe until it turns some other way.
+        readonly System.Collections.Generic.Dictionary<string, bool> firstPerson = new System.Collections.Generic.Dictionary<string, bool>();
+        string sceneName = "";
+        string AimKey => sceneName + "/" + GameCam.name;
+        float probeIgnored;
+        int probeFailedAt = -1;  // orbit samples when the probe ended; a new sample (the camera turned) restarts it
         const float SmoothTurnDegPerSec = 120f;
         // Step smoothing: a game camera moved in FixedUpdate steps at the physics rate (often 50 Hz) while the headset
         // shows 90, so the world judders as you move. Seen as frames where a moving camera stood still; then the eyes
@@ -86,6 +103,7 @@ namespace Parallax
         float vignetteLastYaw;
         internal bool PointerActive;
         internal readonly Hider Hider = new Hider();
+        readonly CanvasOverlay canvases = new CanvasOverlay();
         internal int AimValid => beamOn ? 1 : 0;
         Vector2 pointerUv;
         // Laser beam in tracking space, drawn into the eye images while the pointer is wanted.
@@ -109,7 +127,8 @@ namespace Parallax
         static readonly Action<RenderTexture> captureIntoTexture = FindCapture();
         readonly Optional managedCapture = new Optional("Screen capture into a texture"), mirror = new Optional("Desktop mirror"),
             recreate = new Optional("Eye target recreation"), resolve = new Optional("MSAA resolve"),
-            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot");
+            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset");
+        bool viewMatrixReset;
 
         static Action<RenderTexture> FindCapture()
         {
@@ -139,7 +158,9 @@ namespace Parallax
                 DontDestroyOnLoad(go);
                 Eyes[e] = go.AddComponent<Camera>();
                 Eyes[e].enabled = false;
+                eyeIds.Add(Eyes[e].GetInstanceID());
             }
+            builtIn = BuiltInPipeline();
             Native.prx_set_init_texture(eyePtrs[0]);
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
             curvedTheater = CurvedLayers();
@@ -167,6 +188,22 @@ namespace Parallax
             Test = TestChannel.FromEnvironment();
         }
 
+        // GraphicsSettings.currentRenderPipeline (2019.3+) also sees a quality level's pipeline; older engines only have
+        // the global asset.
+        static bool BuiltInPipeline()
+        {
+            try
+            {
+                var gs = typeof(UnityEngine.Rendering.GraphicsSettings);
+                var p = gs.GetProperty("currentRenderPipeline") ?? gs.GetProperty("renderPipelineAsset");
+                return p.GetValue(null, null) == null;
+            }
+            catch (Exception)
+            {
+                return false;  // unknown: merge passes, which works under every pipeline
+            }
+        }
+
         void CreateEyeTargets()
         {
             float scale = Mathf.Clamp(Settings.RenderScale.Value, 0.25f, 2f) * autoScale;
@@ -182,7 +219,8 @@ namespace Parallax
                     if (Eyes[e] != null) Eyes[e].targetTexture = null;
                     Destroy(eyeTargets[e]);
                 }
-                eyeTargets[e] = new RenderTexture(w, h, 24, format, RenderTextureReadWrite.Default)
+                // 32-bit depth: with the near plane of a weapon camera and a far plane of a kilometre, 24 bits z-fight.
+                eyeTargets[e] = new RenderTexture(w, h, 32, format, RenderTextureReadWrite.Default)
                 {
                     name = "Parallax Eye " + e,
                     // The D3D12 path reads the camera's own target, which must not be multisampled.
@@ -263,6 +301,7 @@ namespace Parallax
             if (scene != sceneHandle)
             {
                 sceneHandle = scene;
+                sceneName = SceneManager.GetActiveScene().name;
                 ReleaseCamera();
                 nextScaleCheck = Time.realtimeSinceStartup + 10f;
                 slowChecks = 0;
@@ -272,6 +311,9 @@ namespace Parallax
             if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
             UpdatePointer();
+            var pointerAt = new Vector2(pointerUv.x * Screen.width, pointerUv.y * Screen.height);
+            Menu.Point(PointerActive && Menu.Open, pointerAt, controllers.rTrigger);
+            bool uiTaken = UiPointer.Update(PointerActive && !Menu.Open, new Vector2(pointerAt.x, Screen.height - pointerAt.y), controllers.rTrigger, controllers.ry);
             Hider.Apply();
             var cfg = new InputConfig
             {
@@ -280,6 +322,7 @@ namespace Parallax
                 pointerActive = PointerActive ? 1 : 0,
                 pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
                 pointerY = Mathf.RoundToInt(pointerUv.y * Screen.height),
+                pointerClick = Menu.Open || uiTaken ? 0 : 1,
                 mouseSpeed = Settings.MouseSpeed.Value,
                 binds = binds,
                 twice = twice,
@@ -338,6 +381,7 @@ namespace Parallax
             }
             HideGameCamera();
             HideOtherCameras();
+            canvases.Apply(c => c == GameCam || (others.TryGetValue(c.GetInstanceID(), out var o) && !c.orthographic && (o.mask & ~UiLayers) != 0));
             // Pipeline settings rarely change; a refresh every second catches in-game graphics option changes. The
             // eyes copy them as the game set them, so the head camera's post-processing is back on for the copy.
             bool refreshExtras = extrasCamera != cam || Time.frameCount % 60 == 0;
@@ -358,7 +402,19 @@ namespace Parallax
             {
                 var eye = Eyes[e];
                 eye.CopyFrom(cam);
-                eye.cullingMask = savedMask | extraMask;
+                // A view matrix the game set by hand (portals, mirrors, camera effects) would pin both eyes to its view.
+                if (!viewMatrixReset) viewMatrixReset = resetView.Run(() => { eye.ResetWorldToCameraMatrix(); eye.ResetCullingMatrix(); });
+                else
+                {
+                    eye.ResetWorldToCameraMatrix();
+                    eye.ResetCullingMatrix();
+                }
+                eye.cullingMask = savedMask | (builtIn ? 0 : extraMask);
+                if (extraMask != 0 && !builtIn)
+                {
+                    eye.nearClipPlane = Mathf.Min(eye.nearClipPlane, extraNear);
+                    eye.farClipPlane = Mathf.Max(eye.farClipPlane, extraFar);
+                }
                 eye.clearFlags = savedClear;
                 eye.backgroundColor = savedBackground;
                 eye.targetTexture = eyeTargets[e];
@@ -369,15 +425,65 @@ namespace Parallax
                     yaw * unYaw * Xr.Rotation(Views[e]));
                 eye.projectionMatrix = Xr.Projection(Fovs[e], eye.nearClipPlane, eye.farClipPlane);
                 eye.enabled = true;
+                StackPasses(e, eye, refreshExtras);
             }
-            if (refreshExtras) headPost = CameraPost.Off(cam, true);
-            if (headLayer == null && !headLayerOff)
-            {
-                headLayer = CameraPost.Off(cam, false);
-                headLayerOff = true;
-            }
+            if (refreshExtras) headPost = CameraPost.Off(cam);
             eyesRendered = true;
         }
+
+        // One pass per stacked camera, turned like the head pass. The first pass to draw clears colour even when its
+        // camera only cleared depth on the screen (it drew over the previous frame there).
+        void StackPasses(int e, Camera head, bool refreshExtras)
+        {
+            var passes = stackEyes[e];
+            var offset = head.transform.position - GameCam.transform.position;
+            float first = head.depth;
+            int n = builtIn ? stack.Count : 0;
+            for (int k = 0; k < n; k++) first = Mathf.Min(first, others[stack[k]].cam.depth);
+            for (int k = 0; k < n; k++)
+            {
+                var o = others[stack[k]];
+                if (k == passes.Count)
+                {
+                    var go = new GameObject("Parallax Eye " + e + "." + k);
+                    DontDestroyOnLoad(go);
+                    var c = go.AddComponent<Camera>();
+                    eyeIds.Add(c.GetInstanceID());
+                    passes.Add(c);
+                }
+                var pass = passes[k];
+                pass.CopyFrom(o.cam);
+                if (viewMatrixReset)
+                {
+                    pass.ResetWorldToCameraMatrix();
+                    pass.ResetCullingMatrix();
+                }
+                pass.cullingMask = o.mask & ~UiLayers;
+                pass.clearFlags = o.clear;
+                pass.backgroundColor = o.background;
+                pass.targetTexture = head.targetTexture;
+                pass.rect = new Rect(0, 0, 1, 1);
+                // Where the game put that camera, moved as the head pass is moved from the head camera (a 3D-skybox
+                // camera sits elsewhere and turns along).
+                pass.transform.SetPositionAndRotation(o.cam.transform.position + offset, head.transform.rotation);
+                pass.projectionMatrix = Xr.Projection(Fovs[e], pass.nearClipPlane, pass.farClipPlane);
+                if (refreshExtras)
+                {
+                    o.post?.Invoke();
+                    CameraExtras.Copy(o.cam, pass);
+                    o.post = CameraPost.Off(o.cam);
+                    others[stack[k]] = o;
+                }
+                pass.enabled = true;
+            }
+            for (int k = n; k < passes.Count; k++) passes[k].enabled = false;
+            // The first pass to draw (lowest depth) starts the image.
+            foreach (var c in passes)
+                if (c.enabled && c.depth == first && Overlays(c.clearFlags)) c.clearFlags = CameraClearFlags.SolidColor;
+            if (head.depth == first && Overlays(head.clearFlags)) head.clearFlags = CameraClearFlags.SolidColor;
+        }
+
+        static bool Overlays(CameraClearFlags clear) => clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
 
         IEnumerator EndOfFrameLoop()
         {
@@ -454,6 +560,14 @@ namespace Parallax
             f.watchRadius = WatchRadius;
             f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;
             f.scene = sceneHandle;
+            if (Menu.Open)
+            {
+                var r = Menu.ScreenRect;
+                f.keepX0 = r.xMin / Screen.width;
+                f.keepY0 = r.yMin / Screen.height;
+                f.keepX1 = r.xMax / Screen.width;
+                f.keepY1 = r.yMax / Screen.height;
+            }
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
             slot = (slot + 1) & 3;
@@ -686,14 +800,22 @@ namespace Parallax
             int bestScore = int.MinValue;
             foreach (var cam in Camera.allCameras)
             {
-                if (IsEye(cam) || !Candidate(cam)) continue;
+                // Orthographic cameras draw UI or 2D layers: as a head they flatten everything into a card in front of
+                // both eyes. With none else the game shows on the theater screen.
+                if (IsEye(cam) || cam.orthographic || !Candidate(cam)) continue;
                 if (wanted.Length > 0 && cam.name == wanted) return cam;
                 // tag, not CompareTag: the Unity 6 IL2CPP bindings route CompareTag through a span method that is missing there.
                 // Masks we changed are scored as the game set them. The tag counts only on a camera that draws a world
                 // (pixel-art games tag the camera that merely shows the world's texture on a plane).
-                int mask = cam == GameCam ? savedMask : others.TryGetValue(cam.GetInstanceID(), out var o) ? o.mask : cam.cullingMask;
+                // A camera that clears only depth (or nothing) draws over another one: usually a weapon, hands or an
+                // overlay, so it loses to a camera that clears, unless the MainCamera tag says it is the world camera
+                // (drawn over a sky camera).
+                bool known = others.TryGetValue(cam.GetInstanceID(), out var o);
+                int mask = cam == GameCam ? savedMask : known ? o.mask : cam.cullingMask;
+                var clear = cam == GameCam ? savedClear : known ? o.clear : cam.clearFlags;
+                bool overlay = clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
                 int layers = BitCount(mask);
-                int score = layers - (cam.orthographic ? 50 : 0) + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0);
+                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0) - (overlay ? 50 : 0);
                 if (score > bestScore || (score == bestScore && cam == GameCam))  // ties keep the current head
                 {
                     best = cam;
@@ -723,6 +845,8 @@ namespace Parallax
             orbitSamples = 0;
             orbitNum = orbitDen = 0;
             orbitLastFwd = Vector3.zero;
+            probeIgnored = 0;
+            probeFailedAt = -1;
         }
 
         // Re-read before hiding: a value that is not ours means the game changed it since last frame.
@@ -746,11 +870,14 @@ namespace Parallax
         void HideOtherCameras()
         {
             extraMask = 0;
+            extraNear = float.MaxValue;
+            extraFar = 0;
+            stack.Clear();
             foreach (var cam in Camera.allCameras)
             {
                 if (cam == GameCam || IsEye(cam) || cam.targetTexture != null || cam.rect.width < 0.99f || cam.rect.height < 0.99f) continue;
                 bool known = others.TryGetValue(cam.GetInstanceID(), out var o);
-                if (!known) o = new Other { cam = cam, mask = cam.cullingMask, clear = cam.clearFlags, background = cam.backgroundColor, post = (Action)CameraPost.Off(cam, true) + CameraPost.Off(cam, false) };
+                if (!known) o = new Other { cam = cam, mask = cam.cullingMask, clear = cam.clearFlags, background = cam.backgroundColor, post = CameraPost.Off(cam) };
                 int world = cam.orthographic ? 0 : o.mask & ~UiLayers;
                 // A mask that is not ours means the game changed it since last frame.
                 if (known && cam.cullingMask != (world != 0 ? o.mask & UiLayers : o.mask))
@@ -761,6 +888,9 @@ namespace Parallax
                 if (world != 0)
                 {
                     extraMask |= world;
+                    stack.Add(cam.GetInstanceID());
+                    extraNear = Mathf.Min(extraNear, Mathf.Max(0.01f, cam.nearClipPlane));
+                    extraFar = Mathf.Max(extraFar, cam.farClipPlane);
                     cam.cullingMask = o.mask & UiLayers;
                     if (cam.clearFlags != CameraClearFlags.Depth && cam.clearFlags != CameraClearFlags.Nothing)
                     {
@@ -779,6 +909,7 @@ namespace Parallax
 
         void RestoreCamera()
         {
+            canvases.Restore();
             if (camHidden && GameCam != null)
             {
                 GameCam.cullingMask = savedMask;
@@ -786,9 +917,7 @@ namespace Parallax
                 GameCam.backgroundColor = savedBackground;
             }
             headPost?.Invoke();
-            headLayer?.Invoke();
-            headPost = headLayer = null;
-            headLayerOff = false;
+            headPost = null;
             extrasCamera = null;
             foreach (var o in others.Values)
             {
@@ -807,9 +936,12 @@ namespace Parallax
         {
             foreach (var eye in Eyes)
                 if (eye != null) eye.enabled = on;
+            if (!on)
+                foreach (var passes in stackEyes)
+                    foreach (var pass in passes) pass.enabled = false;
         }
 
-        internal bool IsEye(Camera cam) => cam == Eyes[0] || cam == Eyes[1];
+        internal bool IsEye(Camera cam) => eyeIds.Contains(cam.GetInstanceID());
 
         // The menu's preview of the head camera, which is blanked while the eyes render in its place.
         internal void RestoreForPreview(Camera preview)
@@ -927,8 +1059,9 @@ namespace Parallax
             bool primed = orbitLastFwd != Vector3.zero;
             orbitLastPos = p;
             orbitLastFwd = f;
-            // A turn of at least 0.3 degrees; a jump over a metre is a teleport or a cut.
-            if (!primed || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 1f) return;
+            // A turn of at least 0.3 degrees; a jump over half a metre is a teleport, a cut or a dash, which says nothing
+            // about the pivot.
+            if (!primed || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 0.25f) return;
             orbitNum = orbitNum * 0.99f - Vector3.Dot(dc, df);
             orbitDen = orbitDen * 0.99f + df.sqrMagnitude;
             orbitSamples++;
@@ -938,8 +1071,9 @@ namespace Parallax
         internal bool Aiming => aiming;
         internal float BodyYaw => bodyYaw;
 
-        // On is unconditional outside the VR menu. Auto needs the game's cursor hidden (play, not its menus) and 40
-        // turning frames of evidence, then holds with hysteresis (on below 0.3 m, off above 0.6 m).
+        // On is unconditional outside the VR menu. Auto needs the game's cursor hidden (play, not its menus); after 40
+        // turning frames the camera gets a verdict (first person below 0.45 m), which only strong evidence flips (third
+        // person above 1 m, first person again below 0.2 m), so camera shake and dashes do not toggle it.
         bool HeadAimWanted()
         {
             var mode = Settings.HeadAim.Value;
@@ -947,8 +1081,22 @@ namespace Parallax
                 || Menu.Open || Hider.Active || State != XrState.Running)
                 return false;
             if (mode == AimMode.On) return true;
-            bool gameplay = !Cursor.visible || Cursor.lockState == CursorLockMode.Locked;
-            return gameplay && orbitSamples >= 40 && OrbitRadius < (aiming ? 0.6f : 0.3f);
+            if (Cursor.visible && Cursor.lockState != CursorLockMode.Locked) return false;
+            string key = AimKey;
+            bool known = firstPerson.TryGetValue(key, out bool fp);
+            if (orbitSamples >= 40)
+            {
+                float r = OrbitRadius;
+                if (!known) fp = r < 0.45f;
+                else if (fp && r > 1f) fp = false;
+                else if (!fp && r < 0.2f) fp = true;
+                if (!known || firstPerson[key] != fp) Plugin.Log.LogInfo($"Head aim (auto): {key} turns about {r:0.00} m from itself, {(fp ? "first" : "third")} person");
+                firstPerson[key] = fp;
+                return fp;
+            }
+            if (known) return fp;
+            if (probeFailedAt >= 0 && orbitSamples > probeFailedAt) probeFailedAt = -1;
+            return probeFailedAt < 0;
         }
 
         // Steers the game camera to where the head looks, closed loop on its angles: mouse pixels from a learned
@@ -988,6 +1136,15 @@ namespace Parallax
             }
             aimLastYaw = yaw;
             aimLastPitch = pitch;
+            // Probing (no verdict yet): pushes the camera ignores for 1.5 s end it.
+            if (firstPerson.ContainsKey(AimKey) || Settings.HeadAim.Value != AimMode.Auto) return;
+            if (Mathf.Abs(errX) > 5f && Mathf.Abs(movedX) < 0.05f) probeIgnored += Time.unscaledDeltaTime;
+            else if (Mathf.Abs(movedX) > 0.2f) probeIgnored = 0;
+            if (probeIgnored > 1.5f)
+            {
+                probeFailedAt = orbitSamples;
+                probeIgnored = 0;
+            }
         }
 
         // Watch check: the left controller close to the face with the back of the hand (its outer, -X side) turned
@@ -1012,18 +1169,10 @@ namespace Parallax
 
         bool MenuKeyPressed()
         {
-            bool down = (Native.GetAsyncKeyState(Settings.MenuKey.Value) & 0x8000) != 0 && OwnsForeground();
+            bool down = Native.prx_key_down(Settings.MenuKey.Value) != 0;
             bool pressed = down && !menuKeyDown;
             menuKeyDown = down;
             return pressed;
-        }
-
-        static readonly int ProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
-
-        static bool OwnsForeground()
-        {
-            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out int pid);
-            return pid == ProcessId;
         }
 
         static void DrainLog()

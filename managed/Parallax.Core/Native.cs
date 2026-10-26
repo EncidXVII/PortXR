@@ -36,6 +36,7 @@ namespace Parallax
         public int watch, watchLit;
         public float watchX, watchY, watchZ, watchRadius;
         public int uiKey, scene;
+        public float keepX0, keepY0, keepX1, keepY1;
     }
 
     [Flags]
@@ -73,6 +74,7 @@ namespace Parallax
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)] public int[] combo;
         public int aim;
         public float turnY;
+        public int pointerClick;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -109,6 +111,8 @@ namespace Parallax
         [DllImport(Dll)] public static extern int prx_install_hooks();
         [DllImport(Dll)] public static extern uint prx_input_update(ref InputConfig cfg, [In] Controllers[] test, out Controllers result);
         [DllImport(Dll)] public static extern int prx_pad_state(out Pad pad);
+        [DllImport(Dll)] public static extern int prx_key_down(int vk);
+        [DllImport(Dll)] public static extern int prx_game_in_front();
         [DllImport(Dll)] public static extern void prx_haptic_pulse(int hand, float amplitude, float seconds);
         [DllImport(Dll)] static extern int prx_poll_log(byte[] buffer, int capacity);
 
@@ -121,8 +125,5 @@ namespace Parallax
             return Encoding.UTF8.GetString(logBuffer, 0, n < 0 ? logBuffer.Length : n);
         }
 
-        [DllImport("user32")] public static extern short GetAsyncKeyState(int vKey);
-        [DllImport("user32")] public static extern IntPtr GetForegroundWindow();
-        [DllImport("user32")] public static extern int GetWindowThreadProcessId(IntPtr hwnd, out int pid);
     }
 }

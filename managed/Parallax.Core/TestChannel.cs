@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Parallax
 {
@@ -167,10 +168,17 @@ namespace Parallax
                         $"playing {Get(o, "isPlaying")} prepared {Get(o, "isPrepared")} frame {Get(o, "frame")} enabled {((Behaviour)o).isActiveAndEnabled}").ToArray());
 #endif
                 case "cams":
-                    return string.Join("\n", Camera.allCameras.Select(c =>
-                        $"{c.name} depth {c.depth} mask {c.cullingMask:X} clear {c.clearFlags} bg {c.backgroundColor} ortho {c.orthographic} " +
+                    // Disabled cameras too (scene objects only): some games render theirs by hand.
+                    return string.Join("\n", Resources.FindObjectsOfTypeAll<Camera>().Where(c => c.gameObject.scene.IsValid()).Select(c =>
+                        $"{c.name} on {c.isActiveAndEnabled} depth {c.depth} mask {c.cullingMask:X} clear {c.clearFlags} bg {c.backgroundColor} ortho {c.orthographic} " +
                         $"rect {c.rect} rt {(c.targetTexture != null ? $"{c.targetTexture.width}x{c.targetTexture.height} {c.targetTexture.format}" : "-")} " +
                         $"pos {V(c.transform.position)} rot {V(c.transform.eulerAngles)} parent {(c.transform.parent != null ? c.transform.parent.name : "-")}").ToArray());
+                case "scenes":
+                    return string.Join("\n", Enumerable.Range(0, SceneManager.sceneCountInBuildSettings)
+                        .Select(i => i + " " + SceneUtility.GetScenePathByBuildIndex(i)).ToArray()) + "\nactive " + SceneManager.GetActiveScene().name;
+                case "load":
+                    SceneManager.LoadScene(int.Parse(a[1]));
+                    return "ok";
                 case "quit":
                     Application.Quit();
                     return "ok";

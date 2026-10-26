@@ -41,6 +41,9 @@ struct PrxFrame {
     // UI panel black: 0 auto (made see-through once the panel is found fully opaque, e.g. a full-screen effect on a
     // UI camera wrote alpha 1; until `scene` changes), 1 always see-through, 2 never.
     int32_t uiKey, scene;
+    // Part of the panel never keyed (the VR menu, whose dark background must stay solid): UV from the top-left,
+    // x0 y0 x1 y1; an empty rect keys everything.
+    float keepRect[4];
 };
 
 enum PrxButton : uint32_t {
@@ -75,6 +78,9 @@ struct PrxInputConfig {
     // right-stick Y). The managed side steers the game camera toward where the head looks.
     int32_t aim;
     float turnY;
+    // 0 keeps the laser pointer's trigger off the OS mouse button: the VR menu or the game's UI (reached through its
+    // EventSystem) takes the click. The OS cursor follows the pointer only while the game window is in front.
+    int32_t pointerClick;
 };
 
 enum PrxBind { BindA, BindB, BindX, BindY, BindLGrip, BindRGrip, BindLStick, BindRStick, BindLTrigger, BindRTrigger,

@@ -8,11 +8,11 @@ using Il2CppInterop.Runtime;
 namespace Parallax
 {
     // Pipeline post-processing writes alpha 1 over the whole screen, so a hidden camera that still runs it turns the
-    // see-through UI panel opaque. Off() switches it off on one camera (URP post and AA, the PPv2 layer) and returns
-    // the undo, or null when nothing was on. Members are reached by name: the plugin never links pipeline assemblies.
-    // `urp` picks which: URP's switches are plain fields, cheap to flip back for the eyes' settings copy; the PPv2
-    // layer rebuilds its resources on every enable, so it stays off until the camera is given back.
-    // On IL2CPP the game's types are interop proxies, built around the component's pointer.
+    // see-through UI panel opaque. Off() switches it off on one camera (URP post and AA, the PPv2 layer's volumes and
+    // AA) and returns the undo, or null when nothing was on. All are plain fields, cheap to flip back for the eyes'
+    // settings copy. The PPv2 layer itself stays enabled: disabling it drops its effect bundles, which games query
+    // through Camera.main (Risk of Rain 2's loading stopped at 99% on that). Members are reached by name: the plugin
+    // never links pipeline assemblies. On IL2CPP the game's types are interop proxies, built around the component's pointer.
     internal static class CameraPost
     {
         static readonly string[] TypeNames =
@@ -21,11 +21,11 @@ namespace Parallax
             "UnityEngine.Rendering.PostProcessing.PostProcessLayer",
             "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData",
         };
-        static readonly string[] LayerMembers = { "enabled" }, UrpMembers = { "renderPostProcessing", "antialiasing" };
+        static readonly string[] LayerMembers = { "volumeLayer", "antialiasingMode" }, UrpMembers = { "renderPostProcessing", "antialiasing" };
         static Type[] types;
         static bool off;
 
-        public static Action Off(Camera cam, bool urp)
+        public static Action Off(Camera cam)
         {
             if (off) return null;
             Action undo = null;
@@ -36,7 +36,6 @@ namespace Parallax
                 foreach (var type in types)
                 {
                     bool layer = type.Name == "PostProcessLayer";
-                    if (layer == urp) continue;
 #if IL2CPP
                     var c = cam.GetComponent(Il2CppType.From(type));
                     object target = c == null ? null : Activator.CreateInstance(type, c.Pointer);
@@ -45,7 +44,7 @@ namespace Parallax
                     if ((Component)target == null) target = null;
 #endif
                     if (target == null) continue;
-                    // The PPv2 layer is switched off whole; URP keeps its camera data and loses post and AA. HDRP draws
+                    // The PPv2 layer draws no volumes and no AA; URP keeps its camera data and loses post and AA. HDRP draws
                     // its sky whatever the culling mask, so its camera clears to transparent colour instead (Color = 1).
                     if (type.Name == "HDAdditionalCameraData")
                     {
@@ -54,7 +53,7 @@ namespace Parallax
                         continue;
                     }
                     foreach (var name in layer ? LayerMembers : UrpMembers)
-                        undo += Set(cam, type, target, name, t => t == typeof(bool) ? false : Enum.ToObject(t, 0));
+                        undo += Set(cam, type, target, name, t => t == typeof(bool) ? false : t == typeof(LayerMask) ? (object)(LayerMask)0 : Enum.ToObject(t, 0));
                 }
             }
             catch (Exception ex)

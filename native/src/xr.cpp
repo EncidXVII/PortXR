@@ -375,6 +375,7 @@ void do_submit(int slot) {
         PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
         Overlay panel;
         panel.key = ui_key(f) ? 1.f : 0.f;
+        for (int i = 0; i < 4; ++i) panel.keep[i] = f.keepRect[i];
         // Measured unkeyed, about twice a second, until it latches.
         panel.probe = f.quadAlpha && f.uiKey == 0 && !g_uiKeyed && (g_panelFrames++ % 45) == 0;
         if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"), panel)) {

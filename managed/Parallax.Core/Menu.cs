@@ -34,6 +34,12 @@ namespace Parallax
         int picking = -1;  // binding being changed in the Controls tab
         int gesture;       // which gesture's bindings the Controls tab shows
         float hovered, lastHovered;
+        // The laser pointer, read from the controller rather than the OS mouse, so the menu has it first whatever window
+        // is in front: screen pixels from the top-left, and a trigger pull not yet handled by a repaint. The GUI matrix's
+        // offset and scale map it into the menu's coordinates.
+        Vector2 pointer, origin;
+        float scale = 1;
+        bool pointing, triggerDown, press;
 
         // Game tab: one hidden camera renders a preview of one candidate per frame.
         readonly Optional previews = new Optional("Camera previews");
@@ -54,12 +60,16 @@ namespace Parallax
         int camPage;
         GUIStyle cell, cellOn, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn;
 
+        // Where the menu was last drawn, in screen pixels from the top-left.
+        internal Rect ScreenRect;
+
         public Menu(Rig rig) { this.rig = rig; }
 
         public void Toggle()
         {
             Open = !Open;
             picking = -1;
+            press = false;
             if (Open)
             {
                 savedLock = Cursor.lockState;
@@ -73,6 +83,25 @@ namespace Parallax
             }
             Native.prx_haptic_pulse(0, 0.4f, 0.03f);
         }
+
+        internal void Point(bool active, Vector2 at, float trigger)
+        {
+            pointing = active;
+            pointer = at;
+            bool held = triggerDown ? trigger > 0.4f : trigger > 0.6f;
+            if (active && held && !triggerDown && Open) press = true;
+            triggerDown = held;
+        }
+
+        void Matrix(Vector2 at, float k)
+        {
+            GUI.matrix = Matrix4x4.TRS(at, Quaternion.identity, new Vector3(k, k, 1));
+            origin = at;
+            scale = k;
+        }
+
+        // Where the pointer is in the current GUI coordinates; the OS mouse when no controller points at the panel.
+        Vector2 Mouse => pointing ? (pointer - origin) / scale : Event.current.mousePosition;
 
         // -1 is the first-run card (recenter, check the scale, learn the controls).
         public void Show(int page)
@@ -127,23 +156,25 @@ namespace Parallax
 
         public void Draw()
         {
-            // Only the events the menu acts on: drawing and the pointer's click.
+            // Only the events the menu acts on: drawing (which also takes the laser pointer's clicks) and a desktop
+            // mouse click.
             var type = Event.current.type;
-            if (!Open || (type != EventType.Repaint && type != EventType.MouseDown)) return;
+            if (!Open || (type != EventType.Repaint && (type != EventType.MouseDown || pointing))) return;
             EnsureStyles();
             float k = Screen.height / RefHeight;
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(k, k, 1));
+            Matrix(Vector2.zero, k);
             var area = new Rect((Screen.width / k - Width) / 2, (RefHeight - Height) / 2, Width, Height);
+            ScreenRect = new Rect(area.x * k, area.y * k, area.width * k, area.height * k);
             Fill(area, Bg);
             Outline(area, Line);
             // The content's origin moved by the matrix, so the layout starts at (0, 0).
-            GUI.matrix = Matrix4x4.TRS(new Vector3((area.x + Pad) * k, (area.y + 32) * k, 0), Quaternion.identity, new Vector3(k, k, 1));
+            Matrix(new Vector2((area.x + Pad) * k, (area.y + 32) * k), k);
             ui.Run(Width - 2 * Pad, () =>
             {
                 if (welcome) DrawWelcome();
                 else DrawTabs();
             });
-            GUI.matrix = Matrix4x4.identity;
+            Matrix(Vector2.zero, 1);
             if (contents.Count > 512) contents.Clear();  // changing numbers (diagnostics) make new strings every frame
 
             // A light tick when the pointer moves onto another control.
@@ -152,6 +183,7 @@ namespace Parallax
                 if (hovered != 0 && hovered != lastHovered) Native.prx_haptic_pulse(1, 0.15f, 0.01f);
                 lastHovered = hovered;
                 hovered = 0;
+                press = false;
             }
         }
 
@@ -580,7 +612,7 @@ namespace Parallax
             var r = ui.Take(width > 0 ? width : Natural(shown, style) + 48, Row);
             if (Repainting)
             {
-                bool over = r.Contains(Event.current.mousePosition);
+                bool over = r.Contains(Mouse);
                 GUI.backgroundColor = on ? Lime : Surface;
                 style.Draw(r, Content(shown), over, false, false, false);
                 GUI.backgroundColor = Color.white;
@@ -597,7 +629,7 @@ namespace Parallax
 
         void Hover(Rect r)
         {
-            if (r.Contains(Event.current.mousePosition)) hovered = r.x * 7919f + r.y + 1;
+            if (r.Contains(Mouse)) hovered = r.x * 7919f + r.y + 1;
         }
 
         void Eyebrow(string number, string word)
@@ -614,7 +646,7 @@ namespace Parallax
 
         void Text(Rect r, string text, GUIStyle style, bool hover = false)
         {
-            if (Repainting) style.Draw(r, Content(text), hover && r.Contains(Event.current.mousePosition), false, false, false);
+            if (Repainting) style.Draw(r, Content(text), hover && r.Contains(Mouse), false, false, false);
         }
 
         // Camera previews through an image-only style: GUI.DrawTexture is stripped in some IL2CPP games.
@@ -634,7 +666,7 @@ namespace Parallax
 
         bool Repainting => !ui.Measuring && Event.current.type == EventType.Repaint;
 
-        bool Clicked(Rect r) => !ui.Measuring && Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition);
+        bool Clicked(Rect r) => !ui.Measuring && r.Contains(Mouse) && (pointing ? press && Event.current.type == EventType.Repaint : Event.current.type == EventType.MouseDown);
 
         static GUIStyle fillStyle;
 

@@ -12,6 +12,7 @@ cbuffer Params : register(b0) {
     float flip; float decode; float encode; float vignette; float2 scale; float2 offset;
     float4 beam; float beamWidth; float aspect; float dstLinear; float key;
     float4 watch;
+    float4 keep;
 };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
@@ -45,8 +46,12 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float3 lime = float3(0.776, 1, 0.102);
         c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, edge * lerp(0.25, 0.9, t));
     }
-    // UI panel keying: near-black becomes see-through.
-    if (key > 0) c.a *= saturate(max(shown.r, max(shown.g, shown.b)) * 40);
+    // UI panel keying, for a panel the game filled opaque (an effect on its hidden camera drew black under the UI):
+    // the colour is read as UI drawn over black, so its brightness stands in for the lost alpha. Black goes, bright UI
+    // stays solid, and dim washes (damage flashes, tinted overlays, shadows) become translucent. The colour is already
+    // premultiplied that way, which is how the runtime blends the layer.
+    bool kept = at.x >= keep.x && at.x <= keep.z && at.y >= keep.y && at.y <= keep.w;
+    if (key > 0 && !kept) c.a = min(c.a, saturate(max(shown.r, max(shown.g, shown.b)) * 2.5));
     // Watch face: dark disc, lime rim, and a menu glyph (three bars) that turns lime while glanced at.
     if (watch.z > 0) {
         float2 k = float2(aspect, 1), q = (at - watch.xy) * k / watch.z;
@@ -105,6 +110,7 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     p.beamWidth = o.beamWidth;
     for (int i = 0; i < 4; ++i) p.watch[i] = o.watch[i];
     p.key = o.key;
+    for (int i = 0; i < 4; ++i) p.keep[i] = o.keep[i];
     p.aspect = aspect;
 }
 

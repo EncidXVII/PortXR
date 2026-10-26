@@ -167,6 +167,8 @@ HWND game_window() {
     return g_window;
 }
 
+bool game_in_front(HWND hwnd) { return hwnd && GetForegroundWindow() == hwnd && !IsIconic(hwnd); }
+
 // What the emulation currently holds down: scan codes (0x100 | code = extended) and the three mouse buttons.
 std::bitset<0x200> g_keysSent;
 bool g_mouseSent[3];
@@ -228,7 +230,7 @@ void update_keyboard_mouse(const PrxControllers& c, const PrxInputConfig& cfg, b
             SendInput(1, &in, sizeof(in));
         }
     }
-    if (cfg.pointerActive && g_pointerDown) mouse[0] = true;
+    if (cfg.pointerActive && cfg.pointerClick && g_pointerDown && game_in_front(hwnd)) mouse[0] = true;
     for (int k = 1; k < 0x200; ++k)
         if (keys[k] != g_keysSent[k]) send_key(k, keys[k]);
     for (int b = 0; b < 3; ++b) send_mouse_button(b, mouse[b]);
@@ -238,7 +240,8 @@ void update_pointer(const PrxControllers& c, const PrxInputConfig& cfg) {
     bool down = cfg.pointerActive && hysteresis(g_pointerDown, c.rTrigger);
     g_pointerDown = down;
     HWND hwnd = game_window();
-    if (!cfg.pointerActive || !hwnd) {
+    // Behind other windows or minimized, the OS cursor would point (and click) at whatever else is there.
+    if (!cfg.pointerActive || !game_in_front(hwnd)) {
         g_lastPointer[0] = -1;
         return;
     }
@@ -512,6 +515,17 @@ PRX_API int32_t prx_pad_state(XINPUT_GAMEPAD* out) {
     *out = g_pad.Gamepad;
     return g_padActive;
 }
+
+// A key held while this process owns the foreground window. In native code because some games' Mono maps user32
+// to a path inside the game (Outer Wilds), so a managed DllImport of it throws.
+PRX_API int32_t prx_key_down(int32_t vk) {
+    if (!(GetAsyncKeyState(vk) & 0x8000)) return 0;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId();
+}
+
+PRX_API int32_t prx_game_in_front() { return game_in_front(game_window()); }
 
 PRX_API void prx_haptic_pulse(int32_t hand, float amplitude, float seconds) {
     haptic(hand & 1, amplitude, (XrDuration)(seconds * 1e9));

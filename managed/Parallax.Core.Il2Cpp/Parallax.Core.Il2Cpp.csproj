@@ -23,6 +23,7 @@
     <Reference Include="$(InteropDir)\UnityEngine.dll" Private="false" />
     <Reference Include="$(InteropDir)\UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="$(InteropDir)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(InteropDir)\UnityEngine.UIModule.dll" Private="false" />
     <Reference Include="$(InteropDir)\UnityEngine.TextRenderingModule.dll" Private="false" />
   </ItemGroup>
 </Project>

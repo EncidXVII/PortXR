@@ -280,6 +280,19 @@ def gate_input(g):
     check("7 input", ok, f"forward {moved:.2f}m, turned {turned:.0f}deg, jumps {f2['jumps']}->{f3['jumps']}, clicks {f3['clicks']}->{f4['clicks']}")
 
 
+def gate_pointer(g):
+    """Laser pointer on the game's button with the game window not in front: the click goes through the game's
+    EventSystem, not the OS mouse, so it lands anyway and never touches the real cursor."""
+    f0 = g.fixture()
+    for line in ("pointer 0.5 0.8333 0", "pointer 0.5 0.8333 1", "pointer 0.5 0.8333 0"):
+        g.cmd(line)
+        time.sleep(0.3)
+    g.cmd("pointer off")
+    time.sleep(0.4)
+    f1 = g.fixture()
+    check("7b pointer (unfocused)", f1["clicks"] > f0["clicks"], f"clicks {f0['clicks']}->{f1['clicks']}")
+
+
 def gate_pad(g):
     """Gamepad mode on an Input System game: our virtual pad moves, turns and jumps the player. No real input is
     touched, so this runs unattended."""
@@ -549,9 +562,9 @@ def main():
                 g.start()
                 # IL2CPP first launch generates interop assemblies before plugins load.
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
-                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_theater, gate_menu, gate_render_scale]
+                gates = [gate_stereo, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_menu, gate_render_scale]
                 if args.input:
-                    gates.insert(4, gate_input)
+                    gates.insert(5, gate_input)
                 else:
                     print("SKIP 7 input: pass --input to run it (takes over mouse and keyboard)", flush=True)
                 if args.fixture in PAD_FIXTURES:
