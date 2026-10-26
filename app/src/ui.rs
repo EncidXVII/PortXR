@@ -237,7 +237,7 @@ impl App {
         }
         ui.add_space(24.0);
         if self.games.is_empty() {
-            self.empty(ui, "NO GAMES FOUND.", "Parallax looks in Steam, Epic Games and GOG. Games from anywhere else: add their folder, or a folder that holds several games.", "Add game +");
+            self.empty(ui, "NO GAMES FOUND.", "Parallax looks in Steam, Epic Games, GOG, itch and the usual game folders. Games from anywhere else: add their folder, or a folder that holds several games.", "Add game +");
             return;
         }
         self.toolbar(ui);

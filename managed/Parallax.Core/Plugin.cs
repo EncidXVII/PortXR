@@ -81,7 +81,7 @@ namespace Parallax
         }
     }
 
-    [BepInPlugin("parallax.core", "Parallax", "0.1.0")]
+    [BepInPlugin("parallax.core", "Parallax", "0.2.0")]
 #if IL2CPP
     public class Plugin : BepInEx.Unity.IL2CPP.BasePlugin
     {
