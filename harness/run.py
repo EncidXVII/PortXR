@@ -209,20 +209,17 @@ def gate_stereo(g):
 
 
 def gate_mirror(g):
-    """The desktop window mirrors the left eye: the world, not only the UI."""
+    """The desktop window mirrors the left eye: mostly the world's sky and ground, not only the UI. Crops differ per
+    path (managed blit, native Present, HDRP's scaling), so colours are compared, not pixels."""
     (left,) = g.capture("mirror", ["left.bmp"])
     hwnd = next(h for h in g.windows() if window_class(h) == "UnityWndClass")
-    window = print_window(hwnd)
-    shot = np.asarray(Image.fromarray(window).convert("L").resize((32, 18)), dtype=float)
+    window = print_window(hwnd).astype(int)
+    Image.fromarray(window.astype(np.uint8)).save(os.path.join(OUT, "mirror", "window.png"))
     eh, ew = left.shape[:2]
-    h, w = window.shape[:2]
-    visible = min(1.0, (ew / eh) / (w / h))  # the mirror shows the eye's middle rows at the window's aspect
-    top = int(eh * (1 - visible) / 2)
-    crop = left[top:eh - top, :, :3].mean(axis=2).astype(np.uint8)
-    eye = np.asarray(Image.fromarray(crop).resize((32, 18)), dtype=float)
-    corr = float(np.corrcoef(shot.ravel(), eye.ravel())[0, 1]) if shot.std() > 1 else 0.0
-    Image.fromarray(window).save(os.path.join(OUT, "mirror", "window.png"))
-    check("1b desktop mirror", corr > 0.6, f"window vs left eye correlation {corr:.2f}")
+    sky, ground = left[eh // 20, ew // 10, :3], left[eh * 19 // 20, ew // 2, :3]
+    near = lambda c: np.all(np.abs(window - c) < 24, axis=2)
+    share = float((near(sky) | near(ground)).mean())
+    check("1b desktop mirror", share > 0.5, f"{share:.0%} of the window is the eye's sky or ground")
 
 
 def window_class(hwnd):
