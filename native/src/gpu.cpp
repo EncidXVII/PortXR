@@ -124,10 +124,18 @@ float gpu_opaque_fraction(const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_
     bool bytes = format == DXGI_FORMAT_R8G8B8A8_TYPELESS || format == DXGI_FORMAT_R8G8B8A8_UNORM ||
                  format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || format == DXGI_FORMAT_B8G8R8A8_TYPELESS ||
                  format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    if (!bytes || !w || !h) return -1;
+    // 10-bit and half-float back buffers too (D3D12 games with HDR or wide-colour output): alpha over a half.
+    bool tenBit = format == DXGI_FORMAT_R10G10B10A2_TYPELESS || format == DXGI_FORMAT_R10G10B10A2_UNORM;
+    bool half = format == DXGI_FORMAT_R16G16B16A16_TYPELESS || format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if ((!bytes && !tenBit && !half) || !w || !h) return -1;
     int opaque = 0, total = 0;
     for (UINT y = h / 64; y < h; y += h / 32 + 1)
-        for (UINT x = w / 128; x < w; x += w / 64 + 1, ++total) opaque += data[y * pitch + x * 4 + 3] > 128;
+        for (UINT x = w / 128; x < w; x += w / 64 + 1, ++total) {
+            const uint8_t* px = data + y * pitch + x * (half ? 8 : 4);
+            if (bytes) opaque += px[3] > 128;
+            else if (tenBit) opaque += (*(const uint32_t*)px >> 30) >= 2;
+            else opaque += (*(const uint16_t*)(px + 6) & 0x7FFF) >= 0x3800;  // half-float alpha >= 0.5
+        }
     return total ? (float)opaque / total : -1;
 }
 
