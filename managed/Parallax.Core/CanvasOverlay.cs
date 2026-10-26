@@ -9,7 +9,18 @@ namespace Parallax
     // and get their camera back afterwards. Checked twice a second, as games bind canvases on scene loads.
     internal sealed class CanvasOverlay
     {
-        readonly Dictionary<int, KeyValuePair<Canvas, Camera>> changed = new Dictionary<int, KeyValuePair<Canvas, Camera>>();
+        readonly Dictionary<int, Changed> changed = new Dictionary<int, Changed>();
+
+        struct Changed
+        {
+            public Canvas Canvas;
+            public Camera Camera;
+            public int Order;
+        }
+
+        // A camera's canvas drew with that camera, under every overlay canvas; as an overlay it would tie with them on
+        // sorting order and could cover a menu (Outer Wilds' title backdrop over its menu items).
+        const int Below = 10000;
         readonly Optional access = new Optional("Canvas overlay switch");
         float nextScan;
 
@@ -24,8 +35,9 @@ namespace Parallax
                     if (!canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceCamera) continue;
                     var cam = canvas.worldCamera;
                     if (cam == null || !hidden(cam)) continue;
-                    changed[canvas.GetInstanceID()] = new KeyValuePair<Canvas, Camera>(canvas, cam);
+                    changed[canvas.GetInstanceID()] = new Changed { Canvas = canvas, Camera = cam, Order = canvas.sortingOrder };
                     canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                    canvas.sortingOrder = Mathf.Max(short.MinValue, canvas.sortingOrder - Below);
                 }
             });
         }
@@ -35,11 +47,12 @@ namespace Parallax
             if (changed.Count == 0) return;
             access.Run(() =>
             {
-                foreach (var pair in changed.Values)
+                foreach (var c in changed.Values)
                 {
-                    if (pair.Key == null || pair.Key.renderMode != RenderMode.ScreenSpaceOverlay) continue;
-                    pair.Key.renderMode = RenderMode.ScreenSpaceCamera;
-                    pair.Key.worldCamera = pair.Value;
+                    if (c.Canvas == null || c.Canvas.renderMode != RenderMode.ScreenSpaceOverlay) continue;
+                    c.Canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                    c.Canvas.worldCamera = c.Camera;
+                    c.Canvas.sortingOrder = c.Order;
                 }
             });
             changed.Clear();

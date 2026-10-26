@@ -74,6 +74,7 @@ namespace Parallax
         // gravity (Outer Wilds' small planets), carried along without twist so headings stay continuous.
         Quaternion upFrame = Quaternion.identity;
         Rigidbody playerBody;
+        bool noWorldGravity, carried;  // the head camera rides on a player body (Rigidbody or CharacterController above it): first person
         Camera playerBodyOf;
         Quaternion Body => upFrame * Quaternion.Euler(0, bodyYaw, 0);
         // Head aim loop: last game camera angles, last push, learned degrees per pixel (signed: games may invert Y),
@@ -96,7 +97,7 @@ namespace Parallax
         // The probe gets one go per camera and scene: 4 s, or 1.5 s of ignored pushes. While it runs the right stick turns
         // the body, so it must end (a third-person camera seen only while running, Lunistice). After it, turns made
         // standing still still give the verdict.
-        float probeIgnored, probeTime;
+        float probeIgnored, probeTime, aimSuspendedUntil;
         bool probeEnded;
         string probeKey;
         const float SmoothTurnDegPerSec = 120f;
@@ -844,7 +845,9 @@ namespace Parallax
                 var clear = cam == GameCam ? savedClear : known ? o.clear : cam.clearFlags;
                 bool overlay = clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
                 int layers = BitCount(mask);
-                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0) - (overlay ? 50 : 0);
+                // A camera under another candidate camera is its helper (Hollow Knight's blur and darkness cameras).
+                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0) - (overlay ? 50 : 0)
+                            - (UnderCamera(cam) ? 60 : 0);
                 if (score > bestScore || (score == bestScore && cam == GameCam))  // ties keep the current head
                 {
                     best = cam;
@@ -857,6 +860,16 @@ namespace Parallax
         // Cameras drawing to the screen, and ones drawing the world into a screen-shaped texture that the game then
         // shows on a quad (low-resolution pixel art, CRT looks): the world camera is the head there. Our own preview
         // camera and small or odd-shaped textures (mirrors, minimaps, portraits) are not candidates.
+        bool UnderCamera(Camera cam)
+        {
+            for (var t = cam.transform.parent; t != null; t = t.parent)
+            {
+                var c = t.GetComponent<Camera>();
+                if (c != null && !IsEye(c) && !c.orthographic && Candidate(c)) return true;
+            }
+            return false;
+        }
+
         internal static bool Candidate(Camera cam)
         {
             var rt = cam.targetTexture;
@@ -1084,9 +1097,17 @@ namespace Parallax
                 bodyLookup.Run(() =>
                 {
                     for (var t = GameCam.transform; t != null && playerBody == null; t = t.parent) playerBody = t.GetComponent<Rigidbody>();
+                    noWorldGravity = Physics.gravity.sqrMagnitude < 0.01f;
+                });
+                carried = playerBody != null && playerBody.transform != GameCam.transform;
+                if (!carried) bodyLookup.Run(() =>
+                {
+                    for (var t = GameCam.transform.parent; t != null && !carried; t = t.parent) carried = t.GetComponent<CharacterController>() != null;
                 });
             }
-            return playerBody != null && !playerBody.useGravity ? playerBody.transform.up : Vector3.up;
+            // Only where the game turned world gravity off and pulls the body itself: an FPS body that merely skips
+            // Unity's gravity may still pitch or roll with the view (Neon White drifted sideways).
+            return playerBody != null && !playerBody.useGravity && noWorldGravity ? playerBody.transform.up : Vector3.up;
         }
 
         void TrackBody(Transform camT)
@@ -1129,6 +1150,7 @@ namespace Parallax
             if (mode == AimMode.Off || Settings.InputNow == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
                 || Menu.Open || Hider.Active || State != XrState.Running)
                 return false;
+            if (Time.unscaledTime < aimSuspendedUntil) return false;
             if (mode == AimMode.On) return true;
             if (Cursor.visible && Cursor.lockState != CursorLockMode.Locked) return false;
             string key = AimKey;
@@ -1144,6 +1166,8 @@ namespace Parallax
                 return fp;
             }
             if (known) return fp;
+            // A camera carried by the player's body is first person until its turns say otherwise.
+            if (carried) return true;
             if (probeKey != key)
             {
                 probeKey = key;
@@ -1189,12 +1213,21 @@ namespace Parallax
             }
             aimLastYaw = yaw;
             aimLastPitch = pitch;
-            // Probing (no verdict yet): pushes the camera ignores for 1.5 s end it.
-            if (firstPerson.ContainsKey(AimKey) || Settings.HeadAim.Value != AimMode.Auto) return;
+            // Pushes the camera ignores for 1.5 s (a camera the game does not steer, input it drops) pause head aim for
+            // 3 s in any mode, so it never spins the view endlessly; then it tries again.
             if (Mathf.Abs(errX) > 5f && Mathf.Abs(movedX) < 0.05f) probeIgnored += Time.unscaledDeltaTime;
             else if (Mathf.Abs(movedX) > 0.2f) probeIgnored = 0;
+            if (probeIgnored > 1.5f)
+            {
+                probeIgnored = 0;
+                aimSuspendedUntil = Time.unscaledTime + 3f;
+                Plugin.Log.LogInfo($"Head aim: {AimKey} ignores the pushes; paused for 3 s");
+                return;
+            }
+            // Probing (Auto, no verdict, not carried by a body) lasts 4 s.
+            if (firstPerson.ContainsKey(AimKey) || carried || Settings.HeadAim.Value != AimMode.Auto) return;
             probeTime += Time.unscaledDeltaTime;
-            if (probeIgnored > 1.5f || probeTime > 4f)
+            if (probeTime > 4f)
             {
                 probeEnded = true;
                 Plugin.Log.LogInfo($"Head aim (auto): no verdict for {AimKey} yet; off until the camera turns while you stand still");

@@ -1,4 +1,4 @@
-# Builds native core, plugins and app, then assembles dist\: Parallax.exe plus the payloads it copies into games
+﻿# Builds native core, plugins and app, then assembles dist\: Parallax.exe plus the payloads it copies into games
 # (payload\ = BepInEx 5 for Mono games, payload-il2cpp\ = BepInEx 6 for IL2CPP games).
 param([string]$Config = "Release")
 $root = $PSScriptRoot
@@ -48,7 +48,12 @@ $mono = Payload "payload" "bepinex5" "$build\managed\Parallax.Core.dll"
 # The loader's own GameObject stays hidden so games that scan the scene do not trip over it.
 New-Item -ItemType Directory -Force "$mono\BepInEx\config" | Out-Null
 Set-Content "$mono\BepInEx\config\BepInEx.cfg" "[Chainloader]`r`nHideManagerGameObject = true`r`n" -Encoding ascii
-if ($il2cpp) { Payload "payload-il2cpp" "bepinex6" "$build\managed-il2cpp\Parallax.Core.dll" | Out-Null }
+if ($il2cpp) {
+    $il = Payload "payload-il2cpp" "bepinex6" "$build\managed-il2cpp\Parallax.Core.dll"
+    # BepInEx 6 opens a console window by default; it can take focus from the game, which then gets no keys or clicks.
+    New-Item -ItemType Directory -Force "$il\BepInEx\config" | Out-Null
+    Set-Content "$il\BepInEx\config\BepInEx.cfg" "[Logging.Console]`r`nEnabled = false`r`n" -Encoding ascii
+}
 Copy-Item "$build\app\release\Parallax.exe" $dist
 Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md" $dist
 Write-Host "dist ready: $dist"

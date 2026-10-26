@@ -173,6 +173,10 @@ namespace Parallax
                         $"{c.name} on {c.isActiveAndEnabled} depth {c.depth} mask {c.cullingMask:X} clear {c.clearFlags} bg {c.backgroundColor} ortho {c.orthographic} " +
                         $"rect {c.rect} rt {(c.targetTexture != null ? $"{c.targetTexture.width}x{c.targetTexture.height} {c.targetTexture.format}" : "-")} " +
                         $"pos {V(c.transform.position)} rot {V(c.transform.eulerAngles)} parent {(c.transform.parent != null ? c.transform.parent.name : "-")}").ToArray());
+                case "canvases":
+                    return string.Join("\n", UnityEngine.Object.FindObjectsOfType<Canvas>().Where(c => c.isRootCanvas).Select(c =>
+                        $"{Path(c.transform)} mode {c.renderMode} cam {(c.worldCamera != null ? c.worldCamera.name : "-")} layer {c.gameObject.layer} " +
+                        $"on {c.isActiveAndEnabled} order {c.sortingOrder} plane {c.planeDistance} pos {V(c.transform.position)} scale {V(c.transform.lossyScale)}").ToArray());
                 case "near":
                     // Renderers within a metre of the head camera: the player's own body, hats, screen quads.
                     {
