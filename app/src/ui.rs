@@ -164,6 +164,11 @@ impl App {
             update,
         };
         app.rescan();
+        // A new build updates the plugin in every installed game, so starting one from Steam runs it too. A running
+        // game locks its files; Play retries.
+        for g in app.games.iter().filter(|g| g.installed()) {
+            let _ = installer::update(&g.dir);
+        }
         if let Some(dir) = open {
             app.open_dir(&dir);
         }
@@ -1032,6 +1037,8 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     if !g.installed() {
         install(g, defaults)?;
+    } else {
+        installer::update(&g.dir).map_err(|e| format!("Couldn't update the plugin (is the game still running?): {e}"))?;
     }
     g.launch()?;
     games::mark_played(&g.dir);

@@ -104,6 +104,38 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Brings an installed game's plugin files up to this build, in place: the loader, its caches (IL2CPP interop takes
+/// minutes to regenerate) and the settings stay. Returns whether anything changed.
+pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
+    let path = receipt_path(game_dir);
+    let mut receipt: Receipt = serde_json::from_slice(&fs::read(&path)?)?;
+    let game = games::detect(game_dir).ok_or("No Unity game found in this folder.")?;
+    let payload = payload(game.il2cpp)?;
+    let mut sources = Vec::new();
+    walk(&payload, &payload, &mut sources)?;
+    let mut changed = false;
+    for rel in sources.into_iter().filter(|rel| rel.to_lowercase().starts_with(&PLUGIN_DIR.to_lowercase())) {
+        let data = fs::read(payload.join(&rel))?;
+        let target = game_dir.join(&rel);
+        if fs::read(&target).is_ok_and(|current| current == data) {
+            continue;
+        }
+        fs::create_dir_all(target.parent().unwrap())?;
+        fs::write(&target, &data)?;
+        let sha256: String = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
+        match receipt.files.iter_mut().find(|f| f.path.eq_ignore_ascii_case(&rel)) {
+            Some(f) => f.sha256 = sha256,
+            None => receipt.files.push(ReceiptFile { path: rel, sha256, backed_up: false }),
+        }
+        changed = true;
+    }
+    if changed {
+        receipt.version = env!("CARGO_PKG_VERSION").into();
+        fs::write(&path, serde_json::to_vec(&receipt)?)?;
+    }
+    Ok(changed)
+}
+
 pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     let receipt: Receipt = serde_json::from_slice(&fs::read(receipt_path(game_dir))?)?;
     for dir in &receipt.created_dirs {

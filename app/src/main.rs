@@ -33,6 +33,7 @@ fn cli(cmd: &str, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         "install" => installer::install(dir),
         "uninstall" => installer::uninstall(dir),
+        "update" => installer::update(dir).map(|changed| println!("{}", if changed { "updated" } else { "up to date" })),
         "detect" => {
             let g = games::detect(dir).ok_or("not a Unity game")?;
             println!("{}: {}, Unity {}, {}, loader {}", g.name, g.badge(), g.unity, g.backend(), g.other_loader.unwrap_or("none"));
