@@ -16,7 +16,7 @@ fn main() -> ExitCode {
     if args.len() == 1 && args[0] == "owned" {
         unsafe { windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS) };
         for o in games::steam_unity_library() {
-            println!("{}	{}	{}", o.app_id, o.blocker.unwrap_or("ok"), o.name);
+            println!("{}	{}	{}	{}", o.app_id, o.blocker.unwrap_or("ok"), o.last_played, o.name);
         }
         return ExitCode::SUCCESS;
     }

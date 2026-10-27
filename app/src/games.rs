@@ -335,6 +335,29 @@ pub struct Owned {
     pub cover: Option<PathBuf>,
     /// Why Parallax will not run it, known before it is installed: "Multiplayer only" or "32-bit".
     pub blocker: Option<&'static str>,
+    /// Unix seconds, from Steam's per-account play records (kept after an uninstall); 0 if never played.
+    pub last_played: u64,
+}
+
+/// App ID to the last time any Steam account on this PC played it: localconfig.vdf lists `"<appid>" { "LastPlayed" "<t>" }`.
+fn steam_last_played(steam: &Path) -> std::collections::HashMap<u32, u64> {
+    let mut out = std::collections::HashMap::new();
+    for user in fs::read_dir(steam.join("userdata")).into_iter().flatten().flatten() {
+        let text = fs::read_to_string(user.path().join("config").join("localconfig.vdf")).unwrap_or_default();
+        let mut app: Option<u32> = None;
+        for line in text.lines().map(str::trim) {
+            if let Some(t) = line.strip_prefix("\"LastPlayed\"") {
+                if let (Some(id), Ok(t)) = (app, t.trim().trim_matches('"').parse::<u64>()) {
+                    let e = out.entry(id).or_insert(0);
+                    *e = (*e).max(t);
+                }
+            } else if let Some(id) = line.strip_prefix('"').and_then(|l| l.strip_suffix('"')).and_then(|n| n.parse().ok()) {
+                // A bare quoted number opens an app's block.
+                app = Some(id);
+            }
+        }
+    }
+    out
 }
 
 /// What Steam's app cache says about some apps: (has single-player, Windows build is 32-bit only).
@@ -487,12 +510,14 @@ pub fn steam_unity_library() -> Vec<Owned> {
         .into_iter()
         .filter_map(|id| {
             let name = unity.get(&id)?.clone();
-            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), blocker: None })
+            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), blocker: None, last_played: 0 })
         })
         .collect();
     let ids: Vec<u32> = owned.iter().map(|o| o.app_id).collect();
     let facts = steam_facts(&steam, &ids);
+    let played = steam_last_played(&steam);
     for o in &mut owned {
+        o.last_played = played.get(&o.app_id).copied().unwrap_or(0);
         o.blocker = match facts.get(&o.app_id) {
             Some((false, _)) => Some("Multiplayer only"),
             Some((_, true)) => Some("32-bit"),

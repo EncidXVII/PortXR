@@ -345,7 +345,11 @@ impl App {
     // Owned Unity games that are not installed: a click asks Steam to install one; it joins the library when done.
     fn shelf(&mut self, ui: &mut Ui) {
         let query = self.query.to_lowercase();
-        let shown: Vec<games::Owned> = self.not_installed().into_iter().filter(|o| o.name.to_lowercase().contains(&query)).collect();
+        let mut shown: Vec<games::Owned> = self.not_installed().into_iter().filter(|o| o.name.to_lowercase().contains(&query)).collect();
+        // They arrive sorted by name; a stable sort keeps that order among games never played.
+        if self.sort == Sort::Recent {
+            shown.sort_by_key(|o| std::cmp::Reverse(o.last_played));
+        }
         const GAP: f32 = 16.0;
         let avail = ui.available_width();
         let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
