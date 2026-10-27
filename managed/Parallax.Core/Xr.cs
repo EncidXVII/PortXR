@@ -39,6 +39,7 @@ namespace Parallax
         public static float Tan(float a) => (float)System.Math.Tan(a);
         public static float Asin(float v) => (float)System.Math.Asin(v);
         public static float Atan2(float y, float x) => (float)System.Math.Atan2(y, x);
+        public static float Atan(float v) => (float)System.Math.Atan(v);
         public static float Sqrt(float v) => (float)System.Math.Sqrt(v);
     }
 }

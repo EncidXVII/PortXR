@@ -35,7 +35,7 @@ active objects are found. A path that matches nothing raises an error.
 | Call | Does |
 |---|---|
 | `log(text)` | writes to the game's log |
-| `get(key)`, `set(key, value)` | reads or changes a Parallax setting by its key in `parallax.core.cfg`: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Theater`, `Mode`… |
+| `get(key)`, `set(key, value)` | reads or changes a Parallax setting by its key in `parallax.core.cfg`: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Display` (`Stereo`, `Parallax`, `Theater`), `Depth`, `Mode`… |
 | `scene()` | the active scene's name |
 | `camera()` | the head camera's name, or nil |
 | `time()` | seconds since the game started |
@@ -74,14 +74,14 @@ Eyes 10 cm higher and a little forward, out of the character's head:
 parallax.eye_offset(0, 0.10, 0.05)
 ```
 
-F1 toggles theater mode:
+F1 switches between Stereo and Parallax:
 
 ```lua
 local was = false
 function on_frame(dt)
   local down = parallax.key(0x70)
   if down and not was then
-    parallax.set("Theater", parallax.get("Theater") == "true" and "false" or "true")
+    parallax.set("Display", parallax.get("Display") == "Parallax" and "Stereo" or "Parallax")
   end
   was = down
 end

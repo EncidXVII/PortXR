@@ -7,6 +7,8 @@ using UnityEngine.Rendering;
 
 namespace Parallax
 {
+    public enum DisplayMode { Stereo, Parallax, Theater }
+
     public enum InputMode { Gamepad, KeyboardMouse, Off, Auto }
     public enum PointerMode { Auto, MenuOnly }
     public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
@@ -36,8 +38,9 @@ namespace Parallax
         }
 
         public static ConfigFile File;
-        public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth;
-        public static ConfigEntry<bool> Theater, AutoRenderScale, WristMenu, FirstRun;
+        public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth, Depth;
+        public static ConfigEntry<bool> AutoRenderScale, WristMenu, FirstRun;
+        public static ConfigEntry<DisplayMode> Display;
         public static ConfigEntry<InputMode> Input;
         public static ConfigEntry<PointerMode> Pointer;
         public static ConfigEntry<TurnMode> Turning;
@@ -54,7 +57,13 @@ namespace Parallax
             Height = cfg.Bind("View", "Height", 0f, "Metres added to the game camera height.");
             RenderScale = cfg.Bind("View", "RenderScale", 1f, "Eye resolution relative to the headset's recommendation.");
             AutoRenderScale = cfg.Bind("View", "AutoRenderScale", true, "Lower the eye resolution (down to half of RenderScale) while the headset misses frames.");
-            Theater = cfg.Bind("View", "Theater", false, "Show the flat game on a large screen instead of stereo.");
+            Display = cfg.Bind("View", "Display", DisplayMode.Stereo,
+                "Stereo: you stand in the game. Parallax: the game in 3D inside a big screen, played as on a monitor. Theater: the flat game on a big screen.");
+            // Before Display, a Theater switch: carried over once, then dropped from the file.
+            var theater = cfg.Bind("View", "Theater", false, "");
+            if (theater.Value) Display.Value = DisplayMode.Theater;
+            cfg.Remove(theater.Definition);
+            Depth = cfg.Bind("View", "Depth", 1f, "Parallax mode: strength of the 3D, 0 (flat) to 3.");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");
             UiBlack = cfg.Bind("View", "UiBlack", UiBackground.Auto,

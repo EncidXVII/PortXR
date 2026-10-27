@@ -30,7 +30,7 @@ bool g_cylinder;  // runtime supports curved layers (theater screen)
 Gpu* g_gpu;
 std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-Swapchain g_eyes[2], g_quad;
+Swapchain g_eyes[2], g_quad, g_window[2];
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -347,7 +347,9 @@ void do_submit(int slot) {
     XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerCylinderKHR cylinder{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
-    const XrCompositionLayerBaseHeader* layers[2];
+    XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
+    const XrCompositionLayerBaseHeader* layers[4];
+    const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
@@ -357,6 +359,18 @@ void do_submit(int slot) {
             // About 4 mm wide at arm's length on a typical 100 degree view.
             if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
             if (f.watch) watch_uv(f, e, over[e].watch);
+        }
+        if (f.window && f.windowLayer[0].texture && f.windowLayer[1].texture &&
+            copy_layer(g_window[0], f.windowLayer[0], path(L"windowL.bmp")) &&
+            copy_layer(g_window[1], f.windowLayer[1], path(L"windowR.bmp"))) {
+            for (int e = 0; e < 2; ++e) {
+                window[e].space = g_xr.local;
+                window[e].eyeVisibility = e == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
+                window[e].subImage = {g_window[e].handle, {{0, 0}, {g_window[e].width, g_window[e].height}}, 0};
+                window[e].pose = to_xr(f.quadPose);
+                window[e].size = {f.quadWidth, f.quadHeight};
+                layers[count++] = (XrCompositionLayerBaseHeader*)&window[e];
+            }
         }
         if (f.stereo && f.eye[0].texture && f.eye[1].texture &&
             copy_layer(g_eyes[0], f.eye[0], path(L"left.bmp"), over[0]) &&
@@ -370,7 +384,7 @@ void do_submit(int slot) {
             proj.space = g_xr.local;
             proj.viewCount = 2;
             proj.views = views;
-            layers[count++] = (XrCompositionLayerBaseHeader*)&proj;
+            projLayer = (XrCompositionLayerBaseHeader*)&proj;
             stereo = true;
         }
         PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
@@ -392,7 +406,7 @@ void do_submit(int slot) {
                 cylinder.radius = f.quadRadius;
                 cylinder.centralAngle = f.quadWidth / f.quadRadius;
                 cylinder.aspectRatio = f.quadWidth / f.quadHeight;
-                layers[count++] = (XrCompositionLayerBaseHeader*)&cylinder;
+                uiLayer = (XrCompositionLayerBaseHeader*)&cylinder;
                 curved = true;
             } else {
                 quad.layerFlags = flags;
@@ -401,20 +415,22 @@ void do_submit(int slot) {
                 quad.subImage = image;
                 quad.pose = pose;
                 quad.size = {f.quadWidth, f.quadHeight};
-                layers[count++] = (XrCompositionLayerBaseHeader*)&quad;
+                uiLayer = (XrCompositionLayerBaseHeader*)&quad;
             }
             hasQuad = true;
         }
     }
-    // Theater with the hand menu or the beam showing: the eyes are transparent but for those, so they go over the screen.
-    if (stereo && hasQuad && !f.quadAlpha) {
-        proj.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-        std::swap(layers[0], layers[1]);
-    }
-    g_gpu->set_mirror(stereo && f.mirror ? f.eye[0].texture : nullptr);
+    // Theater and Parallax: the eyes are transparent but for the beam and the watch, so they go over the screen.
+    bool overlayEyes = f.window || !f.quadAlpha;
+    if (overlayEyes) proj.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    const XrCompositionLayerBaseHeader* order[2] = {projLayer, uiLayer};
+    if (overlayEyes) std::swap(order[0], order[1]);
+    for (auto* l : order)
+        if (l) layers[count++] = l;
+    g_gpu->set_mirror(!f.mirror ? nullptr : f.window ? f.windowLayer[0].texture : stereo ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
-    g_stereoSubmitted += stereo && f.quadAlpha;
+    g_stereoSubmitted += stereo && f.quadAlpha && !f.window;
     g_quadSubmitted += hasQuad;
     g_curvedSubmitted += curved;
 }
@@ -430,6 +446,8 @@ void do_shutdown() {
         destroy_swapchain(g_eyes[0]);
         destroy_swapchain(g_eyes[1]);
         destroy_swapchain(g_quad);
+        destroy_swapchain(g_window[0]);
+        destroy_swapchain(g_window[1]);
     }
     input_shutdown();
     if (g_xr.local) xrDestroySpace(g_xr.local);

@@ -48,7 +48,8 @@ namespace Parallax
         readonly System.Collections.Generic.HashSet<int> eyeIds = new System.Collections.Generic.HashSet<int>();
         const int UiLayers = 1 << 5;
         bool eyesRendered;
-        bool theaterShown;  // the last frame showed the theater screen, not the UI panel
+        bool theaterShown;  // the last frame showed the theater screen (or the Parallax window), not the UI panel
+        bool CurvedShown => theaterShown && curvedTheater && !windowShown;
         bool curvedTheater;  // the runtime draws curved layers (SteamVR does not)
         Camera extrasCamera;
         bool beforeRenderHooked;
@@ -354,7 +355,7 @@ namespace Parallax
             }
             // Snap turns are for a camera that turns about itself. A third-person camera (Lunistice), or one not seen
             // turning yet, gets the right stick as is, so it orbits the player as on a flat screen.
-            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.InputNow != InputMode.Off && GameCam != null && !Menu.Open
+            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.InputNow != InputMode.Off && GameCam != null && !Menu.Open && !windowShown
                      && (snapping || (orbitSamples >= 10 && OrbitRadius < 0.45f)))
             {
                 cfg.snap = 1;
@@ -389,7 +390,8 @@ namespace Parallax
                 Test?.ApplyHead(Views);
                 if (recenterPending) Recenter();
             }
-            var cam = located && !Settings.Theater.Value && !forcedTheater && !VideoWatch.Playing() ? EnsureCamera() : null;
+            var cam = located && Settings.Display.Value != DisplayMode.Theater && !forcedTheater && !VideoWatch.Playing() ? EnsureCamera() : null;
+            windowShown = cam != null && Settings.Display.Value == DisplayMode.Parallax;
             if (cam == null)
             {
                 SetEyes(false);
@@ -418,6 +420,7 @@ namespace Parallax
             UpdateFlatScale(cam);
             float scale = Scale;
             var lift = Vector3.up * Settings.Height.Value;
+            if (windowShown) WindowEyes(cam);
             for (int e = 0; e < 2; e++)
             {
                 var eye = Eyes[e];
@@ -437,14 +440,18 @@ namespace Parallax
                 }
                 eye.clearFlags = savedClear;
                 eye.backgroundColor = savedBackground;
-                eye.targetTexture = eyeTargets[e];
+                eye.targetTexture = windowShown ? windowTargets[e] : eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
-                var rel = unYaw * (Xr.Position(Views[e]) - originPos);
-                var nudge = scripts != null ? scripts.EyeOffset : Vector3.zero;
-                eye.transform.SetPositionAndRotation(basePos + yaw * ((rel + nudge) * scale) + lift,
-                    yaw * unYaw * Xr.Rotation(Views[e]));
-                SetProjection(eye, Fovs[e]);
+                if (windowShown) eye.transform.SetPositionAndRotation(camT.position + camT.rotation * windowEye[e], camT.rotation);
+                else
+                {
+                    var rel = unYaw * (Xr.Position(Views[e]) - originPos);
+                    var nudge = scripts != null ? scripts.EyeOffset : Vector3.zero;
+                    eye.transform.SetPositionAndRotation(basePos + yaw * ((rel + nudge) * scale) + lift,
+                        yaw * unYaw * Xr.Rotation(Views[e]));
+                }
+                SetProjection(eye, EyeFov(e));
                 eye.enabled = true;
                 StackPasses(e, eye, refreshExtras);
             }
@@ -487,7 +494,7 @@ namespace Parallax
                 // Where the game put that camera, moved as the head pass is moved from the head camera (a 3D-skybox
                 // camera sits elsewhere and turns along).
                 pass.transform.SetPositionAndRotation(o.cam.transform.position + offset, head.transform.rotation);
-                SetProjection(pass, Fovs[e]);
+                SetProjection(pass, EyeFov(e));
                 if (refreshExtras)
                 {
                     o.post?.Invoke();
@@ -502,6 +509,94 @@ namespace Parallax
             foreach (var c in passes)
                 if (c.enabled && c.depth == first && Overlays(c.clearFlags)) c.clearFlags = CameraClearFlags.SolidColor;
             if (head.depth == first && Overlays(head.clearFlags)) head.clearFlags = CameraClearFlags.SolidColor;
+        }
+
+        // Parallax mode: the game in 3D inside the theater screen. The screen is a window onto the game: each eye sees
+        // through it from where that eye is, so the eyes differ (stereo) and leaning shows a little around the edges.
+        // The game's camera stays the game's (no head aim, no turning): from the spot the player stood at recenter the
+        // window shows exactly the flat view. The window's plane sits at the focus distance in the game, so what is
+        // there appears on the screen, nearer things in front of it and farther ones behind.
+        RenderTexture[] windowTargets = new RenderTexture[2];
+        readonly IntPtr[] windowPtrs = new IntPtr[2];
+        readonly Vector3[] windowEye = new Vector3[2];
+        readonly Fov[] windowFov = new Fov[2];
+        bool windowShown;
+        float focus = 5f;
+        readonly Optional focusRay = new Optional("Parallax focus");
+
+        internal bool WindowShown => windowShown;
+        internal float Focus => focus;
+
+        Fov EyeFov(int e) => windowShown ? windowFov[e] : Fovs[e];
+
+        void WindowEyes(Camera cam)
+        {
+            EnsureWindowTargets();
+            Placement(false, out _, out var rot, out float w, out float h);
+            var inv = Quaternion.Inverse(rot);
+            // The head (between the eyes) relative to where it was at recenter, in the screen's frame, clamped: past
+            // that the view would show what the game never drew.
+            Vector3 l = inv * (Xr.Position(Views[0]) - originPos), r = inv * (Xr.Position(Views[1]) - originPos), mid = (l + r) / 2;
+            var held = new Vector3(Mathf.Clamp(mid.x, -0.3f, 0.3f), Mathf.Clamp(mid.y, -0.2f, 0.2f), Mathf.Clamp(mid.z, -0.6f, 1.5f));
+            UpdateFocus(cam);
+            // The window in the game: at the focus distance, as large as the flat view there. Game units per metre of
+            // screen, times the depth setting, scale the eyes' offsets.
+            float gh = 2 * focus * Xr.Tan(cam.fieldOfView * Mathf.Deg2Rad / 2), gw = gh * w / h;
+            float k = gh / h * Mathf.Clamp(Settings.Depth.Value, 0f, 3f);
+            for (int e = 0; e < 2; e++)
+            {
+                var g = (held + (e == 0 ? l : r) - mid) * k;
+                windowEye[e] = g;
+                float d = Mathf.Max(focus * 0.05f, focus - g.z);
+                windowFov[e] = new Fov
+                {
+                    left = Xr.Atan((-gw / 2 - g.x) / d),
+                    right = Xr.Atan((gw / 2 - g.x) / d),
+                    down = Xr.Atan((-gh / 2 - g.y) / d),
+                    up = Xr.Atan((gh / 2 - g.y) / d),
+                };
+            }
+        }
+
+        // What sits at the middle of the view, eased over a quarter second: the play plane of a 2D game, else the
+        // median of five rays around the centre (the character of a third-person game, the wall ahead in first person).
+        void UpdateFocus(Camera cam)
+        {
+            float target = focus;
+            if (flatScale > 1f) target = flatScale * FlatPlaneDistance;
+            else focusRay.Run(() =>
+            {
+                var hits = new System.Collections.Generic.List<float>();
+                for (int i = 0; i < 5; i++)
+                {
+                    var at = new Vector3(0.5f + (i == 1 ? -0.1f : i == 2 ? 0.1f : 0), 0.5f + (i == 3 ? -0.1f : i == 4 ? 0.1f : 0), 0);
+                    if (Physics.Raycast(cam.ViewportPointToRay(at), out var hit, cam.farClipPlane, savedMask, QueryTriggerInteraction.Ignore)) hits.Add(hit.distance);
+                }
+                if (hits.Count == 0) return;
+                hits.Sort();
+                target = hits[hits.Count / 2];
+            });
+            target = Mathf.Clamp(target, Mathf.Max(cam.nearClipPlane * 4, 0.5f), 200f);
+            focus = Mathf.Lerp(focus, target, 1 - (float)System.Math.Exp(-Time.unscaledDeltaTime * 4));
+        }
+
+        // Screen-shaped, a little under the eye height in pixels: the window covers less of the view than the eyes do.
+        void EnsureWindowTargets()
+        {
+            var eye = eyeTargets[0];
+            int h = Mathf.RoundToInt(eye.height * 0.8f), w = Mathf.RoundToInt(h * (float)Screen.width / Mathf.Max(1, Screen.height));
+            if (windowTargets[0] != null && windowTargets[0].width == w && windowTargets[0].height == h && windowTargets[0].format == eye.format) return;
+            for (int e = 0; e < 2; e++)
+            {
+                if (windowTargets[e] != null)
+                {
+                    if (Eyes[e] != null && Eyes[e].targetTexture == windowTargets[e]) Eyes[e].targetTexture = null;
+                    Destroy(windowTargets[e]);
+                }
+                windowTargets[e] = new RenderTexture(w, h, 32, eye.format, RenderTextureReadWrite.Default) { name = "Parallax Window " + e, antiAliasing = eye.antiAliasing };
+                windowTargets[e].Create();
+                windowPtrs[e] = windowTargets[e].GetNativeTexturePtr();
+            }
         }
 
         void SetProjection(Camera c, Fov fov)
@@ -548,14 +643,23 @@ namespace Parallax
                 captureIntoTexture(uiTarget);
             });
             if (native && !D3D12) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
-            bool stereo = eyesRendered;
-            // The theater screen still needs eye images for the hand menu and the beam: transparent ones, drawn over it.
-            bool layered = stereo || ((watchShown || beamOn) && !VideoWatch.Playing());
-            var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
+            bool window = eyesRendered && windowShown, stereo = eyesRendered && !window;
+            // The theater screen and the Parallax window still need eye images for the hand menu and the beam:
+            // transparent ones, drawn over the screen.
+            bool layered = stereo || window || ((watchShown || beamOn) && !VideoWatch.Playing());
+            var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo || window ? 1 : 0 };
+            if (window)
+            {
+                foreach (var rt in windowTargets)
+                    if (rt.antiAliasing > 1) resolve.Run(rt.ResolveAntiAliasedSurface);
+                f.window = 1;
+                f.windowL = new Layer { texture = windowPtrs[0], flipY = EyeFlip };
+                f.windowR = new Layer { texture = windowPtrs[1], flipY = EyeFlip };
+            }
             if (layered)
             {
                 // A managed blit would land in the D3D12 UI grab; there, and where Graphics.Blit is stripped, Present draws it.
-                f.mirror = stereo && (D3D12 || !mirror.Run(Mirror)) ? 1 : 0;
+                f.mirror = (stereo || window) && (D3D12 || !mirror.Run(Mirror)) ? 1 : 0;
                 for (int e = 0; e < 2; e++)
                 {
                     var rt = eyeTargets[e];
@@ -585,8 +689,9 @@ namespace Parallax
             Placement(stereo, out var center, out var rot, out f.quadWidth, out f.quadHeight);
             f.quadLayer = new Layer { texture = uiPtr, flipY = CaptureFlip };
             // Where the runtime can, the theater screen curves around the player: its layer pose is the cylinder's centre.
+            // The Parallax window takes the theater screen's place, flat: its view is computed for a plane.
             theaterShown = !stereo;
-            bool curved = theaterShown && curvedTheater;
+            bool curved = CurvedShown;
             f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
             f.quadRadius = curved ? TheaterDistance : 0;
             f.vignette = stereo ? VignetteNow : 0;
@@ -617,7 +722,7 @@ namespace Parallax
         // capture opaque (black under their HUD), which hid the world on the screen.
         void Mirror()
         {
-            var eye = eyeTargets[0];
+            var eye = windowShown ? windowTargets[0] : eyeTargets[0];
             float visible = Mathf.Min(1f, (float)eye.width / eye.height / ((float)Screen.width / Screen.height));
             Graphics.Blit(eye, (RenderTexture)null, new Vector2(1, visible), new Vector2(0, (1 - visible) / 2));
         }
@@ -672,7 +777,7 @@ namespace Parallax
                 var inv = Quaternion.Inverse(r);
                 var p = Xr.Position(controllers.aimR);
                 var d = inv * (Xr.Rotation(controllers.aimR) * Vector3.forward);
-                var uv = theaterShown && curvedTheater ? HitCylinder(inv * (p - originPos), d, w, h) : HitPlane(inv * (p - c), d, w, h);
+                var uv = CurvedShown ? HitCylinder(inv * (p - originPos), d, w, h) : HitPlane(inv * (p - c), d, w, h);
                 onQuad = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
                 // Hand tremor would shake the game's cursor (and the real mouse with it): small moves are eased, large
                 // ones followed at once, and a trigger being pulled (which tips the controller down) holds it steadier.
@@ -728,7 +833,7 @@ namespace Parallax
         // Panel UV back to tracking space: on the flat panel, or on the curved theater screen around the origin.
         Vector3 PanelPoint(Vector2 uv, Vector3 center, Quaternion rot, float w, float h)
         {
-            if (!(theaterShown && curvedTheater)) return center + rot * new Vector3((uv.x - 0.5f) * w, (0.5f - uv.y) * h, 0);
+            if (!CurvedShown) return center + rot * new Vector3((uv.x - 0.5f) * w, (0.5f - uv.y) * h, 0);
             float a = (uv.x - 0.5f) * w / TheaterDistance;
             return originPos + rot * new Vector3(Xr.Sin(a) * TheaterDistance, (0.5f - uv.y) * h, Xr.Cos(a) * TheaterDistance);
         }
@@ -1237,7 +1342,7 @@ namespace Parallax
         {
             var mode = Settings.HeadAim.Value;
             if (mode == AimMode.Off || Settings.InputNow == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
-                || Menu.Open || Hider.Active || State != XrState.Running)
+                || Menu.Open || Hider.Active || State != XrState.Running || windowShown)
                 return false;
             if (Time.unscaledTime < aimSuspendedUntil) return false;
             // A free cursor is a menu: mouse pushes would drag it sideways (stick pushes leave it be when forced on).

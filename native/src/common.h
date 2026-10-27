@@ -44,6 +44,10 @@ struct PrxFrame {
     // Part of the panel never keyed (the VR menu, whose dark background must stay solid): UV from the top-left,
     // x0 y0 x1 y1; an empty rect keys everything.
     float keepRect[4];
+    // Parallax mode: each eye's view of the game through the screen, shown on that eye's own quad at quadPose
+    // (quadWidth x quadHeight). The eye layers then carry only the beam and the watch, over the screen.
+    int32_t window;
+    PrxLayer windowLayer[2];
 };
 
 enum PrxButton : uint32_t {

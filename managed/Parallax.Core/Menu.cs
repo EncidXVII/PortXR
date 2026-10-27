@@ -304,7 +304,7 @@ namespace Parallax
         void ResetTab()
         {
             ConfigEntryBase[] entries;
-            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Theater, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim };
+            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim };
             else if (tab == ViewTab)
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu, Settings.UiBlack };
             else if (tab == ControlsTab) entries = Bindings.Entries.SelectMany(g => g).Where(e => e != null).ToArray();
@@ -321,9 +321,9 @@ namespace Parallax
 
         void DrawQuick()
         {
-            bool theater = Settings.Theater.Value;
-            Choice("View", "Stereo", "Theater", ref theater);
-            Settings.Theater.Value = theater;
+            Options("Display", Settings.Display, new[] { DisplayMode.Stereo, DisplayMode.Parallax, DisplayMode.Theater },
+                new[] { "Stereo", "Parallax", "Theater" }, null);
+            if (Settings.Display.Value == DisplayMode.Parallax) Stepper("3D depth", Settings.Depth, 0.25f, 0f, 3f, "{0:0.00}×");
 
             ui.BeginRow();
             Label("Position", label, 360);
@@ -509,7 +509,7 @@ namespace Parallax
                     Settings.RenderScale.Value = Mathf.Max(0.5f, Settings.RenderScale.Value - 0.1f);
                     rig.ApplyRenderScale();
                 });
-            if (rig.GameCam == null && !Settings.Theater.Value)
+            if (rig.GameCam == null && Settings.Display.Value != DisplayMode.Theater)
                 Warning("No game camera found, so the game shows on the theater screen.", "Pick camera", () => Select(GameTab));
             if (Bindings.Conflict() is string conflict)
                 Warning(conflict, "Fix bindings", () => Select(ControlsTab));

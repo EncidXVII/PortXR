@@ -1,6 +1,6 @@
 ﻿# Parallax
 
-Play flat Unity games in VR. Pick a game, press **Play in VR**, and play it with your VR controllers: full stereo 6DOF view, the game's UI on a panel, and a big-screen theater mode for anything that does not work in stereo.
+Play flat Unity games in VR. Pick a game, press **Play in VR**, and play it with your VR controllers: full stereo 6DOF view, the game's UI on a panel, a Parallax mode that shows the game in 3D inside a big screen, and a flat theater mode for anything that does not work in 3D.
 
 Working name, not final.
 
@@ -8,7 +8,7 @@ Working name, not final.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Ready** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. **Install** sets a game up without starting it. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: theater mode, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Stereo, Parallax, Theater), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Controls
 
@@ -47,6 +47,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Something in the way of your view, like a helmet or the player's own body? VR menu, Game tab, Hide objects: point at it and pull the trigger. Parallax remembers it for that game; Show hidden brings it back.
 - 2D games drawn by a perspective camera (Hollow Knight) are scaled so their play plane sits 2.5 m away: the game's own foreground and background layers show their depth. Orthographic 2D games play on the theater screen.
 - Per-game Lua scripts fix what one game needs (camera choice, hidden objects, eye offset, game component fields): see [SCRIPTING.md](SCRIPTING.md).
+- Parallax mode shows the game in 3D inside the theater screen, played as on a monitor (no head aim or turning): each eye gets its own view through the screen, so the game has depth and leaning in shows a little around the edges. The screen's plane sits at what is in the middle of the view (the character, the wall ahead, a 2D game's play plane); **3D depth** sets the strength.
 - Theater mode shows the flat game on a big screen 3 m away; the laser pointer and the wrist menu work there too. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
@@ -67,7 +68,7 @@ Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+, R
 
 ## Test
 
-The harness runs a fixture game against SteamVR's null driver (no headset needed), drives it through a UDP test channel, and asserts eye order, orientation, scale, tracking, timing, UI, input, theater, menu, stability and a byte-identical uninstall. SteamVR must be closed; its settings are restored afterwards.
+The harness runs a fixture game against SteamVR's null driver (no headset needed), drives it through a UDP test channel, and asserts eye order, orientation, scale, tracking, timing, UI, input, theater, Parallax window, menu, stability and a byte-identical uninstall. SteamVR must be closed; its settings are restored afterwards.
 
 ```
 pip install pillow numpy

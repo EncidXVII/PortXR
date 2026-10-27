@@ -444,6 +444,30 @@ def gate_theater(g):
           f"stereo frozen {stereo_stopped}, {'curved' if b['curvedSupported'] else 'flat'} screen ok {curved}, game frame covers {opaque:.0%} of the screen")
 
 
+def gate_window(g):
+    """Parallax mode: the game in 3D inside the screen. Each eye gets its own window image; the two differ by the
+    stereo offset, the VR stereo layer stops, and leaning sideways shifts the view. Stereo resumes after."""
+    g.cmd("set Display Parallax")
+    try:
+        a = g.wait(lambda s: s["window"] == 1, 5, "window mode")
+        time.sleep(1.0)
+        b = g.stats()
+        left, right = g.capture("window", ["windowL.bmp", "windowR.bmp"])
+        g.cmd("head -0.25 1.6 0 0")
+        time.sleep(0.5)
+        (leaned,) = g.capture("window-leaned", ["windowL.bmp"])
+        g.cmd("head off")
+    finally:
+        g.cmd("set Display Stereo")
+    c = g.wait(lambda s: s["stereo"] > b["stereo"] and s["window"] == 0, 5, "stereo after window")
+    filled = min((img[..., :3].max(axis=2) > 10).mean() for img in (left, right))
+    differ = np.abs(left[..., :3].astype(int) - right[..., :3].astype(int)).mean()
+    lean = np.abs(left[..., :3].astype(int) - leaned[..., :3].astype(int)).mean()
+    vr_stopped = b["stereo"] == a["stereo"] or b["stereo"] - a["stereo"] <= 2
+    check("18 parallax window", filled > 0.9 and 0.2 < differ and lean > differ and vr_stopped and b["focus"] > 0,
+          f"filled {filled:.0%}, eyes differ {differ:.2f}, lean differs {lean:.2f}, VR layer stopped {vr_stopped}, focus {b['focus']}")
+
+
 def gate_render_scale(g):
     """A stalled main thread misses frames: auto render scale tries one lower resolution, sees no gain (CPU-bound)
     and puts it back."""
@@ -610,7 +634,7 @@ def main():
                 g.start()
                 # IL2CPP first launch generates interop assemblies before plugins load.
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
-                gates = [gate_stereo, gate_mirror, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_menu, gate_render_scale]
+                gates = [gate_stereo, gate_mirror, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_window, gate_menu, gate_render_scale]
                 if args.input:
                     gates.insert(5, gate_input)
                 else:

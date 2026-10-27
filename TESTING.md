@@ -19,7 +19,7 @@ what we need.
    in your Steam library that are not on this PC: click one and Steam installs it.
    A game with a problem only it has may be fixable with a script: see `SCRIPTING.md`, and send us any script that helped.
 3. Pick a game and press **Play in VR**. If Steam asks which version to start (DX11 or DX12), either works.
-4. In VR, **double-tap the left menu button** (or press F11) for the VR menu: recenter, theater screen, world scale,
+4. In VR, **double-tap the left menu button** (or press F11) for the VR menu: display (Stereo, Parallax, Theater), recenter, world scale,
    controls, head aim.
 
 **Uninstall** on a game's page puts its folder back exactly as it was.
@@ -34,6 +34,9 @@ Play each game for 10 to 15 minutes: the main menu, the first level, a cutscene 
 - In first-person games: does aiming with your head feel right? In third-person games: does the right stick turn
   the camera?
 - Anything that flickers, shows in one eye only, or looks wrong compared to the flat game.
+
+Also try **Display → Parallax** in the VR menu: the game in 3D inside a big screen, played with its own camera
+controls. Does it feel deep without straining your eyes? Is the **3D depth** default right?
 
 If the 3D view is broken, **Theater** in the VR menu shows the flat game on a big screen. Say whether that worked.
 

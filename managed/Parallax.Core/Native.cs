@@ -37,6 +37,8 @@ namespace Parallax
         public float watchX, watchY, watchZ, watchRadius;
         public int uiKey, scene;
         public float keepX0, keepY0, keepX1, keepY1;
+        public int window;
+        public Layer windowL, windowR;
     }
 
     [Flags]
