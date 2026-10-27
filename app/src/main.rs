@@ -12,6 +12,14 @@ use std::process::ExitCode;
 // app on that game's page (shortcuts); no arguments opens the library.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // The Steam library's Unity games and what is known about them before install, for checking the library scan.
+    if args.len() == 1 && args[0] == "owned" {
+        unsafe { windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS) };
+        for o in games::steam_unity_library() {
+            println!("{}	{}	{}", o.app_id, o.blocker.unwrap_or("ok"), o.name);
+        }
+        return ExitCode::SUCCESS;
+    }
     if let [cmd, dir] = args.as_slice() {
         // A GUI-subsystem exe has no console of its own; borrow the caller's so messages show up there.
         unsafe { windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS) };

@@ -112,6 +112,7 @@ namespace Parallax
         float vignetteLastYaw;
         internal bool PointerActive;
         internal readonly Hider Hider = new Hider();
+        Scripts scripts;  // made on the first Update: IL2CPP's injected classes cannot pass `this` in a field initialiser
         readonly CanvasOverlay canvases = new CanvasOverlay();
         readonly ScreenQuads screenQuads = new ScreenQuads();
         internal int AimValid => beamOn ? 1 : 0;
@@ -318,6 +319,8 @@ namespace Parallax
                 slowChecks = 0;
             }
 
+            scripts = scripts ?? new Scripts(this);
+            scripts.Update();
             AutoRenderScale();
             if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
@@ -438,7 +441,8 @@ namespace Parallax
                 eye.rect = new Rect(0, 0, 1, 1);
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
                 var rel = unYaw * (Xr.Position(Views[e]) - originPos);
-                eye.transform.SetPositionAndRotation(basePos + yaw * (rel * scale) + lift,
+                var nudge = scripts != null ? scripts.EyeOffset : Vector3.zero;
+                eye.transform.SetPositionAndRotation(basePos + yaw * ((rel + nudge) * scale) + lift,
                     yaw * unYaw * Xr.Rotation(Views[e]));
                 SetProjection(eye, Fovs[e]);
                 eye.enabled = true;

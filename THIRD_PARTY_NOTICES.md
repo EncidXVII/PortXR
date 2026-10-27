@@ -10,6 +10,10 @@ Bundled with it: HarmonyX (MIT), MonoMod (MIT), Mono.Cecil (MIT), Unity Doorstop
 `openxr_loader.dll` and headers. Apache-2.0. Copyright (c) 2017-2025 The Khronos Group Inc.
 https://github.com/KhronosGroup/OpenXR-SDK-Source
 
+## MoonSharp 2.0.0
+`MoonSharp.Interpreter.dll`, the Lua interpreter for per-game scripts, copied into the game folder on install. MIT.
+Copyright (c) 2014-2016, Marco Mastropaolo. https://github.com/moonsharp-devs/moonsharp
+
 ## MinHook 1.3.4
 Statically linked into `parallax_xr.dll`. BSD-2-Clause.
 

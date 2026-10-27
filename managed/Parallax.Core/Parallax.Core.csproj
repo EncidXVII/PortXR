@@ -4,6 +4,7 @@
          (.NET 4.x) Mono runtimes. Newer engine APIs are reached by reflection. -->
     <TargetFramework>net35</TargetFramework>
     <LangVersion>latest</LangVersion>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
@@ -13,5 +14,6 @@
     <Reference Include="BepInEx" HintPath="$(BepInExCore)\BepInEx.dll" Private="false" />
     <!-- Unity 2018.4 engine reference assemblies from the BepInEx feed (NuGet.Config): no Unity install needed. -->
     <PackageReference Include="UnityEngine.Modules" Version="2018.4.36" IncludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="MoonSharp" Version="2.0.0" />
   </ItemGroup>
 </Project>

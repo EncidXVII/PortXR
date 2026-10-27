@@ -301,12 +301,134 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
     find("library_600x900.jpg").or_else(|| find("header.jpg"))
 }
 
+/// The game's Lua scripts folder, where the plugin looks: `%APPDATA%\Parallax\scripts\<exe name>` (it keys by process
+/// name). Outside the game folder, so scripts survive an uninstall.
+pub fn scripts_dir(g: &Game) -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
+}
+
+pub fn scripts(g: &Game) -> Vec<PathBuf> {
+    let mut list: Vec<PathBuf> = fs::read_dir(scripts_dir(g))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")))
+        .collect();
+    list.sort();
+    list
+}
+
+pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
+    let dir = scripts_dir(g);
+    fs::create_dir_all(&dir)?;
+    let to = dir.join(file.file_name().unwrap_or_default());
+    fs::copy(file, &to)?;
+    Ok(to)
+}
+
 /// A Unity game in the Steam library, installed or not.
 #[derive(Clone)]
 pub struct Owned {
     pub app_id: u32,
     pub name: String,
     pub cover: Option<PathBuf>,
+    /// Why Parallax will not run it, known before it is installed: "Multiplayer only" or "32-bit".
+    pub blocker: Option<&'static str>,
+}
+
+/// What Steam's app cache says about some apps: (has single-player, Windows build is 32-bit only).
+fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (bool, bool)> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(b) = fs::read(steam.join("appcache").join("appinfo.vdf")) else { return out };
+    let u32_at = |p: usize| b.get(p..p + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()));
+    let Some(magic) = u32_at(0) else { return out };
+    // 0x28: keys inline; 0x29: keys in a string table at the offset after the header.
+    let (table, mut p) = match magic & 0xFF {
+        0x29 => {
+            let Some(at) = b.get(8..16).map(|s| u64::from_le_bytes(s.try_into().unwrap()) as usize) else { return out };
+            let count = u32_at(at).unwrap_or(0) as usize;
+            let mut strings = Vec::with_capacity(count);
+            let mut q = at + 4;
+            for _ in 0..count {
+                let Some(end) = b[q.min(b.len())..].iter().position(|&c| c == 0) else { break };
+                strings.push(String::from_utf8_lossy(&b[q..q + end]).into_owned());
+                q += end + 1;
+            }
+            (Some(strings), 16)
+        }
+        0x28 => (None, 8),
+        _ => return out,
+    };
+    let cstr = |p: &mut usize| -> String {
+        let end = b[*p..].iter().position(|&c| c == 0).unwrap_or(0);
+        let s = String::from_utf8_lossy(&b[*p..*p + end]).into_owned();
+        *p += end + 1;
+        s
+    };
+    // Walks the binary key-values of one app, collecting common/category/* and common/osarch.
+    fn walk(b: &[u8], p: &mut usize, path: &mut Vec<String>, key: &mut dyn FnMut(&mut usize) -> String, found: &mut (bool, String)) -> Option<()> {
+        loop {
+            let t = *b.get(*p)?;
+            *p += 1;
+            if t == 8 {
+                return Some(());
+            }
+            let k = key(p);
+            match t {
+                0 => {
+                    path.push(k);
+                    walk(b, p, path, key, found)?;
+                    path.pop();
+                }
+                1 => {
+                    let end = b[*p..].iter().position(|&c| c == 0)?;
+                    let v = String::from_utf8_lossy(&b[*p..*p + end]).into_owned();
+                    *p += end + 1;
+                    if path.len() == 2 && path[1] == "common" && k == "osarch" {
+                        found.1 = v;
+                    }
+                    if path.len() == 3 && path[2] == "category" && k == "category_2" {
+                        found.0 = true;
+                    }
+                }
+                2 | 3 => {
+                    if path.len() == 3 && path[2] == "category" && k == "category_2" {
+                        found.0 = true;
+                    }
+                    if path.len() == 2 && path[1] == "common" && k == "osarch" {
+                        found.1 = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?).to_string();
+                    }
+                    *p += 4;
+                }
+                7 => *p += 8,
+                _ => return None,
+            }
+        }
+    }
+    while let (Some(id), Some(size)) = (u32_at(p), u32_at(p + 4)) {
+        if id == 0 {
+            break;
+        }
+        let next = p + 8 + size as usize;
+        if ids.contains(&id) {
+            let mut q = p + 8 + 60;
+            let mut found = (false, String::new());
+            let mut key = |q: &mut usize| match &table {
+                Some(t) => {
+                    let i = u32_at(*q).unwrap_or(0) as usize;
+                    *q += 4;
+                    t.get(i).cloned().unwrap_or_default()
+                }
+                None => cstr(q),
+            };
+            if walk(&b, &mut q, &mut Vec::new(), &mut key, &mut found).is_some() {
+                out.insert(id, (found.0, found.1 == "32"));
+            }
+        }
+        p = next;
+    }
+    out
 }
 
 fn unity_list() -> PathBuf {
@@ -365,9 +487,18 @@ pub fn steam_unity_library() -> Vec<Owned> {
         .into_iter()
         .filter_map(|id| {
             let name = unity.get(&id)?.clone();
-            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())) })
+            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), blocker: None })
         })
         .collect();
+    let ids: Vec<u32> = owned.iter().map(|o| o.app_id).collect();
+    let facts = steam_facts(&steam, &ids);
+    for o in &mut owned {
+        o.blocker = match facts.get(&o.app_id) {
+            Some((false, _)) => Some("Multiplayer only"),
+            Some((_, true)) => Some("32-bit"),
+            _ => None,
+        };
+    }
     owned.sort_by_key(|o| o.name.to_lowercase());
     owned
 }

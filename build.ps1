@@ -41,7 +41,8 @@ function Payload($name, $loader, $pluginDll) {
     Copy-Item "$build\deps\$loader\*" $payload -Recurse
     New-Item -ItemType Directory -Force $plugin | Out-Null
     Remove-Item "$payload\changelog.txt"
-    Copy-Item (@($pluginDll) + $native) $plugin
+    # MoonSharp runs the per-game Lua scripts; each plugin build ships the copy built for its runtime.
+    Copy-Item (@($pluginDll, (Join-Path (Split-Path $pluginDll) "MoonSharp.Interpreter.dll")) + $native) $plugin
     return $payload
 }
 $mono = Payload "payload" "bepinex5" "$build\managed\Parallax.Core.dll"
@@ -55,5 +56,5 @@ if ($il2cpp) {
     Set-Content "$il\BepInEx\config\BepInEx.cfg" "[Logging.Console]`r`nEnabled = false`r`n" -Encoding ascii
 }
 Copy-Item "$build\app\release\Parallax.exe" $dist
-Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md" $dist
+Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
 Write-Host "dist ready: $dist"

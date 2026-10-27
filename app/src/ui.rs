@@ -108,9 +108,13 @@ struct App {
     confirm_uninstall: bool,
     advanced: bool,
     buttons: bool,
+    scripts_open: bool,
     update: Arc<Mutex<Option<Release>>>,
     // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
     steam_unity: Arc<Mutex<Vec<games::Owned>>>,
+    // A scan running in the background (start, window focus, F5) hands its result over here.
+    scanned: Arc<Mutex<Option<Vec<Game>>>>,
+    scanning: bool,
 }
 
 fn display(size: f32) -> FontId {
@@ -170,17 +174,17 @@ impl App {
             confirm_uninstall: false,
             advanced: false,
             buttons: false,
+            scripts_open: false,
             update,
             steam_unity,
+            scanned: Arc::new(Mutex::new(None)),
+            scanning: false,
         };
-        app.rescan();
-        // A new build updates the plugin in every installed game, so starting one from Steam runs it too. A running
-        // game locks its files; Play retries.
-        for g in app.games.iter().filter(|g| g.installed()) {
-            let _ = installer::update(&g.dir);
-        }
         if let Some(dir) = open {
+            app.rescan();
             app.open_dir(&dir);
+        } else {
+            app.scan_in_background(&cc.egui_ctx);
         }
         app
     }
@@ -188,6 +192,25 @@ impl App {
     fn rescan(&mut self) {
         self.games = games::scan();
         self.page = Page::Library;
+    }
+
+    // Scanning every store and drive takes seconds on a big library: the library shows a loader meanwhile. A new
+    // build also updates the plugin in every installed game, so starting one from Steam runs it too (a running game
+    // locks its files; Play retries).
+    fn scan_in_background(&mut self, ctx: &egui::Context) {
+        if self.scanning {
+            return;
+        }
+        self.scanning = true;
+        let (slot, ctx) = (self.scanned.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let found = games::scan();
+            for g in found.iter().filter(|g| g.installed()) {
+                let _ = installer::update(&g.dir);
+            }
+            *slot.lock().unwrap() = Some(found);
+            ctx.request_repaint();
+        });
     }
 
     // A game folder from the command line: remembered if new, then its page opens.
@@ -240,6 +263,9 @@ impl App {
     fn library(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("YOUR GAMES.").font(display(TITLE)).color(INK));
+            if self.scanning && !self.games.is_empty() {
+                ui.add(egui::Spinner::new().size(18.0).color(LIME)).on_hover_text("Looking for changes");
+            }
             if !self.games.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
@@ -251,6 +277,15 @@ impl App {
             status_line(ui, &self.status.0, self.status.1);
         }
         ui.add_space(24.0);
+        if self.games.is_empty() && self.scanning {
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(24.0).color(LIME));
+                ui.add_space(12.0);
+                ui.label(RichText::new("Looking for Unity games in Steam, Epic, GOG, itch and your game folders…").color(INK2));
+            });
+            return;
+        }
         if self.games.is_empty() {
             self.empty(ui, "NO GAMES FOUND.", "Parallax looks in Steam, Epic Games, GOG, itch and the usual game folders. Games from anywhere else: add their folder, or a folder that holds several games.", "Add game +");
             return;
@@ -319,10 +354,15 @@ impl App {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = GAP;
                 for o in row {
-                    if owned_card(ui, o, w).on_hover_text("Install with Steam").clicked() {
-                        self.status = match games::steam_install(o.app_id) {
-                            Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
-                            Err(e) => (e.to_string(), Tone::Bad),
+                    let hint = if o.blocker.is_some() { "Parallax cannot run this game" } else { "Install with Steam" };
+                    if owned_card(ui, o, w).on_hover_text(hint).clicked() {
+                        self.status = match o.blocker {
+                            Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
+                            Some(_) => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
+                            None => match games::steam_install(o.app_id) {
+                                Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
+                                Err(e) => (e.to_string(), Tone::Bad),
+                            },
                         };
                     }
                 }
@@ -452,6 +492,7 @@ impl App {
         self.settings(ui, settings::QUICK, true);
         self.advanced_section(ui, true);
         self.buttons_section(ui, true);
+        self.scripts_section(ui, &g);
         let file = g.file(installer::CONFIG);
         if self.advanced && file.exists() {
             ui.add_space(8.0);
@@ -603,6 +644,50 @@ impl App {
                 }
             }
         }
+    }
+
+    // Lua scripts for this game (see SCRIPTING.md): for cases the automatic handling gets wrong. They load on the next
+    // start, and reload while the game runs when a file changes.
+    fn scripts_section(&mut self, ui: &mut Ui, g: &Game) {
+        let list = games::scripts(g);
+        if !fold(ui, "04", "Scripts", list.len(), &mut self.scripts_open) {
+            return;
+        }
+        ui.add(egui::Label::new(RichText::new("Lua scripts fix what this game needs: pick a camera, hide an object, move the eyes. Sandboxed: they cannot touch your files. They reload while the game runs.").color(INK2)).wrap());
+        ui.add_space(12.0);
+        let mut remove = None;
+        for path in &list {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).font(mono(BODY)).color(INK));
+                ui.spacing_mut().item_spacing.x = 24.0;
+                if tertiary(ui, "Edit").clicked() {
+                    let _ = Command::new("notepad").arg(path).spawn();
+                }
+                if tertiary(ui, "Remove").clicked() {
+                    remove = Some(path.clone());
+                }
+            });
+        }
+        if let Some(path) = remove {
+            self.report(fs::remove_file(&path).map(|_| "Script removed. The game drops it within a few seconds.".into()).map_err(Into::into));
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 24.0;
+            if secondary(ui, "Import script").clicked() {
+                if let Some(file) = rfd::FileDialog::new().add_filter("Lua script", &["lua"]).pick_file() {
+                    self.report(games::import_script(g, &file).map(|to| format!("Imported {}.", to.file_name().unwrap_or_default().to_string_lossy())).map_err(Into::into));
+                }
+            }
+            if tertiary(ui, "Open scripts folder").clicked() {
+                let dir = games::scripts_dir(g);
+                let _ = fs::create_dir_all(&dir);
+                let _ = Command::new("explorer").arg(dir).spawn();
+            }
+            if tertiary(ui, "Scripting guide").clicked() {
+                let _ = Command::new("explorer").arg(format!("https://github.com/{REPO}/blob/main/SCRIPTING.md")).spawn();
+            }
+        });
     }
 
     fn report(&mut self, result: Result<String, Box<dyn Error>>) {
@@ -763,7 +848,13 @@ impl eframe::App for App {
         }
         let focused = ui.input(|i| i.viewport().focused.unwrap_or(true));
         if self.page == Page::Library && ((focused && !self.focused) || ui.input(|i| i.key_pressed(egui::Key::F5))) {
-            self.rescan();
+            self.scan_in_background(ui.ctx());
+        }
+        if let Some(found) = self.scanned.lock().unwrap().take() {
+            self.scanning = false;
+            if self.page == Page::Library {
+                self.games = found;
+            }
         }
         self.focused = focused;
         let back = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.pointer.button_pressed(egui::PointerButton::Extra1));
@@ -1019,8 +1110,8 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
-    // Supported is the normal case, so it gets no tag; only the exceptions do.
-    let chip_text = (g.compat() != Compat::Supported).then(|| g.badge());
+    // Ready is the normal case, so it gets no tag; VR added and the exceptions do.
+    let chip_text = (g.compat() != Compat::Supported || g.installed()).then(|| g.badge());
     if let Some(text) = chip_text {
         paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, chip_kind(g));
     }
@@ -1067,7 +1158,11 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
-    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), "Install", ChipKind::Plain);
+    let (text, kind) = match o.blocker {
+        Some(b) => (b, ChipKind::Blocked),
+        None => ("Install", ChipKind::Plain),
+    };
+    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, kind);
     focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

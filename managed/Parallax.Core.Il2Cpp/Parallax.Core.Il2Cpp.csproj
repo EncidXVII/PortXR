@@ -3,6 +3,7 @@
     <!-- IL2CPP build of the same sources: BepInEx 6 hosts .NET 6 and reaches the game through Il2CppInterop. -->
     <TargetFramework>net6.0</TargetFramework>
     <LangVersion>latest</LangVersion>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>$(DefineConstants);IL2CPP</DefineConstants>
     <AssemblyName>Parallax.Core</AssemblyName>
@@ -13,6 +14,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Parallax.Core\*.cs" />
+    <PackageReference Include="MoonSharp" Version="2.0.0" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="$(BepInExCore)\BepInEx.Core.dll" Private="false" />
