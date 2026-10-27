@@ -45,7 +45,7 @@ namespace Parallax
             nextScan = Time.unscaledTime + 0.5f;
             quads.Clear();
             var at = head.transform.position;
-            foreach (var r in Object.FindObjectsOfType<MeshRenderer>())
+            foreach (var r in Find.All<MeshRenderer>())
             {
                 // Distance to the bounds by hand: IL2CPP games often strip Bounds.SqrDistance.
                 var b = r.bounds;

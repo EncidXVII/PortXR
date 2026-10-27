@@ -30,7 +30,7 @@ namespace Parallax
             nextScan = Time.unscaledTime + 0.5f;
             access.Run(() =>
             {
-                foreach (var canvas in Object.FindObjectsOfType<Canvas>())
+                foreach (var canvas in Find.All<Canvas>())
                 {
                     if (!canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceCamera) continue;
                     var cam = canvas.worldCamera;

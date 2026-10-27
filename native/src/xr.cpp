@@ -406,10 +406,15 @@ void do_submit(int slot) {
             hasQuad = true;
         }
     }
+    // Theater with the hand menu or the beam showing: the eyes are transparent but for those, so they go over the screen.
+    if (stereo && hasQuad && !f.quadAlpha) {
+        proj.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        std::swap(layers[0], layers[1]);
+    }
     g_gpu->set_mirror(stereo && f.mirror ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
-    g_stereoSubmitted += stereo;
+    g_stereoSubmitted += stereo && f.quadAlpha;
     g_quadSubmitted += hasQuad;
     g_curvedSubmitted += curved;
 }
@@ -508,6 +513,9 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
 }
 
 PRX_API int32_t prx_state() { return g_xr.state; }
+
+// Whether Auto keying found the UI panel opaque in this scene.
+PRX_API int32_t prx_ui_keyed() { return g_uiKeyed ? 1 : 0; }
 
 PRX_API void* prx_render_event_func() { return (void*)&on_render_event; }
 

@@ -15,7 +15,8 @@ what we need.
 
 1. Unzip anywhere and keep the folder together (`Parallax.exe` needs the `payload` folders next to it).
 2. Start your headset runtime, then run `Parallax.exe`. It lists the Unity games it finds (Steam, Epic, GOG, itch and
-   the usual game folders). Missing one? **Add game +** and pick its folder.
+   the usual game folders). Missing one? **Add game +** and pick its folder. **Not installed** lists the Unity games
+   in your Steam library that are not on this PC: click one and Steam installs it.
 3. Pick a game and press **Play in VR**. If Steam asks which version to start (DX11 or DX12), either works.
 4. In VR, **double-tap the left menu button** (or press F11) for the VR menu: recenter, theater screen, world scale,
    controls, head aim.

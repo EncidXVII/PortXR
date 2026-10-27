@@ -44,7 +44,9 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float t = saturate(dot(q - a, b - a) / max(dot(b - a, b - a), 1e-8));
         float edge = 1 - smoothstep(beamWidth * 0.5, beamWidth, length(q - lerp(a, b, t)));
         float3 lime = float3(0.776, 1, 0.102);
-        c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, edge * lerp(0.25, 0.9, t));
+        float k2 = edge * lerp(0.25, 0.9, t);
+        c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, k2);
+        c.a = max(c.a, k2);
     }
     // UI panel keying, for a panel the game filled opaque (an effect on its hidden camera drew black under the UI):
     // the colour is read as UI drawn over black, so its brightness stands in for the lost alpha. Black goes, bright UI
@@ -65,6 +67,7 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
             float3 col = lerp(black, watch.w > 0.5 ? lime : ink, saturate(rim + bars * step(abs(q.y), 0.4)));
             if (dstLinear > 0.5) col = toLinear(col);
             c.rgb = lerp(c.rgb, col, face * 0.92);
+            c.a = max(c.a, face * 0.92);
         }
     }
     return c;

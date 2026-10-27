@@ -64,6 +64,30 @@ namespace Parallax
             return undo;
         }
 
+        // A URP camera that draws overlay cameras in its stack (their output lands in its target, not on the screen).
+        public static bool HasStack(Camera cam)
+        {
+            try
+            {
+                var type = types?.FirstOrDefault(t => t.Name == "UniversalAdditionalCameraData");
+                if (type == null) return false;
+#if IL2CPP
+                var c = cam.GetComponent(Il2CppType.From(type));
+                object target = c == null ? null : Activator.CreateInstance(type, c.Pointer);
+#else
+                object target = cam.GetComponent(type);
+                if ((Component)target == null) target = null;
+#endif
+                var stack = target == null ? null : type.GetProperty("cameraStack")?.GetValue(target, null);
+                var count = stack?.GetType().GetProperty("Count")?.GetValue(stack, null);
+                return count is int n && n > 0;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         // Sets a property or field to `value(its type)`; returns the undo, or null when it already held that value.
         static Action Set(Camera cam, Type type, object target, string name, Func<Type, object> value)
         {

@@ -89,17 +89,15 @@ namespace Parallax
         int orbitSamples;
         // Auto head aim's verdict per scene and camera name (true: first person), kept when the game switches cameras
         // or reloads the scene. Per scene, as a menu's slowly orbiting camera may share the player camera's name.
-        // Without one, head aim probes: its own pushes turn the camera, which is the evidence. A camera that ignores
-        // them (a menu scene, input the game drops) ends the probe until it turns some other way.
+        // Without one, head aim stays off (its own pushes would swing a third-person camera, Megabonk), except for a
+        // camera carried at the player body's centre, which is first person until its turns say otherwise.
         readonly System.Collections.Generic.Dictionary<string, bool> firstPerson = new System.Collections.Generic.Dictionary<string, bool>();
         string sceneName = "";
         string AimKey => sceneName + "/" + GameCam.name;
-        // The probe gets one go per camera and scene: 4 s, or 1.5 s of ignored pushes. While it runs the right stick turns
-        // the body, so it must end (a third-person camera seen only while running, Lunistice). After it, turns made
-        // standing still still give the verdict.
-        float probeIgnored, probeTime, aimSuspendedUntil;
-        bool probeEnded;
-        string probeKey;
+        // Pushes a camera ignores pause head aim; a carried camera without a verdict that ignores them twice is not
+        // steered by the mouse or stick at all (Lunistice's Cinemachine rig under the player) and loses head aim.
+        float probeIgnored, aimSuspendedUntil;
+        int ignoredTimes;
         const float SmoothTurnDegPerSec = 120f;
         // Step smoothing: a game camera moved in FixedUpdate steps at the physics rate (often 50 Hz) while the headset
         // shows 90, so the world judders as you move. Seen as frames where a moving camera stood still; then the eyes
@@ -396,6 +394,7 @@ namespace Parallax
                 return;
             }
             HideGameCamera();
+            Sink();
             HideOtherCameras();
             canvases.Apply(c => c == GameCam || (others.TryGetValue(c.GetInstanceID(), out var o) && !c.orthographic && (o.mask & ~UiLayers) != 0));
             // Pipeline settings rarely change; a refresh every second catches in-game graphics option changes. The
@@ -413,7 +412,8 @@ namespace Parallax
             var yaw = Body;
             var basePos = Smoothed(camT.position);
             var unYaw = Quaternion.Inverse(originYaw);
-            float scale = Settings.WorldScale.Value;
+            UpdateFlatScale(cam);
+            float scale = Scale;
             var lift = Vector3.up * Settings.Height.Value;
             for (int e = 0; e < 2; e++)
             {
@@ -545,11 +545,13 @@ namespace Parallax
             });
             if (native && !D3D12) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
             bool stereo = eyesRendered;
-            var f = new Frame { stereo = stereo ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
-            if (stereo)
+            // The theater screen still needs eye images for the hand menu and the beam: transparent ones, drawn over it.
+            bool layered = stereo || ((watchShown || beamOn) && !VideoWatch.Playing());
+            var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo ? 1 : 0 };
+            if (layered)
             {
                 // A managed blit would land in the D3D12 UI grab; there, and where Graphics.Blit is stripped, Present draws it.
-                f.mirror = D3D12 || !mirror.Run(Mirror) ? 1 : 0;
+                f.mirror = stereo && (D3D12 || !mirror.Run(Mirror)) ? 1 : 0;
                 for (int e = 0; e < 2; e++)
                 {
                     var rt = eyeTargets[e];
@@ -559,8 +561,15 @@ namespace Parallax
                         rt.Create();
                         eyePtrs[e] = rt.GetNativeTexturePtr();
                     });
+                    if (!stereo)
+                    {
+                        var was = RenderTexture.active;
+                        RenderTexture.active = rt;
+                        GL.Clear(true, true, Color.clear);
+                        RenderTexture.active = was;
+                    }
                     // Unity resolves a camera's MSAA target itself; the explicit resolve is a safety net.
-                    if (rt.antiAliasing > 1) resolve.Run(rt.ResolveAntiAliasedSurface);
+                    else if (rt.antiAliasing > 1) resolve.Run(rt.ResolveAntiAliasedSurface);
                 }
                 f.eyeL = new Layer { texture = eyePtrs[0], flipY = EyeFlip };
                 f.eyeR = new Layer { texture = eyePtrs[1], flipY = EyeFlip };
@@ -577,11 +586,11 @@ namespace Parallax
             f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
             f.quadRadius = curved ? TheaterDistance : 0;
             f.vignette = stereo ? VignetteNow : 0;
-            f.beam = stereo && beamOn ? 1 : 0;
+            f.beam = layered && beamOn ? 1 : 0;
             // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
             f.fromX = beamFrom.x; f.fromY = beamFrom.y; f.fromZ = -beamFrom.z;
             f.toX = beamTo.x; f.toY = beamTo.y; f.toZ = -beamTo.z;
-            f.watch = stereo && watchShown ? 1 : 0;
+            f.watch = layered && watchShown ? 1 : 0;
             f.watchLit = glancing ? 1 : 0;
             f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
             f.watchRadius = WatchRadius;
@@ -644,7 +653,7 @@ namespace Parallax
                     // Game world back to tracking space: the inverse of how the eyes are placed.
                     var cam = GameCam.transform;
                     var rel = target.transform.position - cam.position - Vector3.up * Settings.Height.Value;
-                    to = originPos + originYaw * (Quaternion.Inverse(Body) * rel / Settings.WorldScale.Value);
+                    to = originPos + originYaw * (Quaternion.Inverse(Body) * rel / Scale);
                 }
                 controllers.aimR = Xr.ToPose(from, Quaternion.LookRotation(to - from));
                 controllers.aimValidR = 1;
@@ -700,7 +709,7 @@ namespace Parallax
                 if (Menu.Open) Hider.Stop();
                 return;
             }
-            float scale = Settings.WorldScale.Value;
+            float scale = Scale;
             var yaw = Body;
             var toWorld = yaw * Quaternion.Inverse(originYaw);
             var lift = Vector3.up * Settings.Height.Value;
@@ -846,7 +855,7 @@ namespace Parallax
                 bool overlay = clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
                 int layers = BitCount(mask);
                 // A camera under another candidate camera is its helper (Hollow Knight's blur and darkness cameras).
-                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null ? 10 : 0) - (overlay ? 50 : 0)
+                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null && cam.targetTexture != sink ? 10 : 0) - (overlay ? 50 : 0)
                             - (UnderCamera(cam) ? 60 : 0);
                 if (score > bestScore || (score == bestScore && cam == GameCam))  // ties keep the current head
                 {
@@ -887,11 +896,78 @@ namespace Parallax
             orbitSamples = 0;
             orbitNum = orbitDen = 0;
             orbitLastFwd = Vector3.zero;
-            probeIgnored = probeTime = 0;
-            probeEnded = false;
+            probeIgnored = 0;
+            ignoredTimes = 0;
         }
 
         // Re-read before hiding: a value that is not ours means the game changed it since last frame.
+        // 2D games drawn by a perspective camera (Hollow Knight): the sprites lie in a plane tens of units ahead, so at
+        // human scale the game is a small card far away and its menus fill the view. The player is scaled up until that
+        // plane sits 2.5 m off; the game's layers in front of and behind it then show their depth. The plane is where
+        // its 2D physics bodies are, for a camera looking straight along +Z. Checked per head camera and every 5 s.
+        const float FlatPlaneDistance = 2.5f;
+        float flatScale = 1f;
+        Camera flatScaleOf;
+        readonly Optional flatLookup = new Optional("2D scene scale");
+        float Scale => Settings.WorldScale.Value * flatScale;
+
+        void UpdateFlatScale(Camera cam)
+        {
+            if (flatScaleOf == cam && Time.frameCount % 300 != 0) return;
+            flatScaleOf = cam;
+            float was = flatScale;
+            flatScale = 1f;
+            flatLookup.Run(() =>
+            {
+                var t = cam.transform;
+                if (Vector3.Angle(t.forward, Vector3.forward) > 5f) return;
+                var depths = new System.Collections.Generic.List<float>();
+                foreach (var body in Find.All<Rigidbody2D>())
+                {
+                    float d = body.transform.position.z - t.position.z;
+                    if (d > 1f) depths.Add(d);
+                }
+                if (depths.Count == 0) return;
+                depths.Sort();
+                flatScale = Mathf.Max(1f, depths[depths.Count / 2] / FlatPlaneDistance);
+            });
+            if (Mathf.Abs(flatScale - was) > 0.5f) Plugin.Log.LogInfo($"2D scene seen by {cam.name}: player scaled {flatScale:0.0}x so its plane sits {FlatPlaneDistance} m away");
+        }
+
+        // The UI panel came out opaque: an effect on the hidden head camera still painted the whole screen (image
+        // effects, HDRP post, Outer Wilds, Shadows of Doubt; a pipeline pass drawing the sun, Neon White), which keying
+        // black only half removes. From then on the head camera draws into a screen-sized texture of its own, off
+        // screen, and the screen is cleared to transparent for the UI. Not for a URP camera stack: its overlay
+        // cameras (often the HUD) would land in that texture too.
+        RenderTexture sink;
+        bool sinkWanted;
+        readonly Optional clearScreen = new Optional("Screen clear");
+
+        void Sink()
+        {
+            if (!sinkWanted)
+            {
+                if (Time.frameCount % 30 != 0 || Native.prx_ui_keyed() == 0 || CameraPost.HasStack(GameCam)) return;
+                sinkWanted = true;
+                Plugin.Log.LogInfo($"{GameCam.name}'s effects drew over the UI; it now renders off screen");
+            }
+            if (sink == null || sink.width != Screen.width || sink.height != Screen.height)
+            {
+                if (GameCam.targetTexture == sink) GameCam.targetTexture = null;
+                if (sink != null) Destroy(sink);
+                sink = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32) { name = "Parallax Sink" };
+            }
+            if (GameCam.targetTexture == null) GameCam.targetTexture = sink;
+            if (GameCam.targetTexture != sink) return;
+            clearScreen.Run(() =>
+            {
+                var was = RenderTexture.active;
+                RenderTexture.active = null;
+                GL.Clear(true, true, Color.clear);
+                RenderTexture.active = was;
+            });
+        }
+
         void HideGameCamera()
         {
             if (GameCam.cullingMask != 0) savedMask = GameCam.cullingMask;
@@ -958,6 +1034,7 @@ namespace Parallax
                 GameCam.cullingMask = savedMask;
                 GameCam.clearFlags = savedClear;
                 GameCam.backgroundColor = savedBackground;
+                if (sink != null && GameCam.targetTexture == sink) GameCam.targetTexture = null;
             }
             headPost?.Invoke();
             headPost = null;
@@ -1099,11 +1176,19 @@ namespace Parallax
                     for (var t = GameCam.transform; t != null && playerBody == null; t = t.parent) playerBody = t.GetComponent<Rigidbody>();
                     noWorldGravity = Physics.gravity.sqrMagnitude < 0.01f;
                 });
-                carried = playerBody != null && playerBody.transform != GameCam.transform;
-                if (!carried) bodyLookup.Run(() =>
+                Transform carrier = playerBody != null && playerBody.transform != GameCam.transform ? playerBody.transform : null;
+                if (carrier == null) bodyLookup.Run(() =>
                 {
-                    for (var t = GameCam.transform.parent; t != null && !carried; t = t.parent) carried = t.GetComponent<CharacterController>() != null;
+                    for (var t = GameCam.transform.parent; t != null && carrier == null; t = t.parent)
+                        if (t.GetComponent<CharacterController>() != null) carrier = t;
                 });
+                // Over the body's centre, as a head is; a third-person rig parented to the player sits metres behind.
+                carried = false;
+                if (carrier != null)
+                {
+                    var off = GameCam.transform.position - carrier.position;
+                    carried = (off - Vector3.Project(off, carrier.up)).magnitude < 0.6f;
+                }
             }
             // Only where the game turned world gravity off and pulls the body itself: an FPS body that merely skips
             // Unity's gravity may still pitch or roll with the view (Neon White drifted sideways).
@@ -1151,8 +1236,9 @@ namespace Parallax
                 || Menu.Open || Hider.Active || State != XrState.Running)
                 return false;
             if (Time.unscaledTime < aimSuspendedUntil) return false;
+            // A free cursor is a menu: mouse pushes would drag it sideways (stick pushes leave it be when forced on).
+            if (Cursor.visible && Cursor.lockState != CursorLockMode.Locked && (mode != AimMode.On || Settings.InputNow != InputMode.Gamepad)) return false;
             if (mode == AimMode.On) return true;
-            if (Cursor.visible && Cursor.lockState != CursorLockMode.Locked) return false;
             string key = AimKey;
             bool known = firstPerson.TryGetValue(key, out bool fp);
             if (orbitSamples >= 40)
@@ -1166,15 +1252,7 @@ namespace Parallax
                 return fp;
             }
             if (known) return fp;
-            // A camera carried by the player's body is first person until its turns say otherwise.
-            if (carried) return true;
-            if (probeKey != key)
-            {
-                probeKey = key;
-                probeIgnored = probeTime = 0;
-                probeEnded = false;
-            }
-            return !probeEnded;
+            return carried && ignoredTimes < 2;
         }
 
         // Steers the game camera to where the head looks, closed loop on its angles: mouse pixels from a learned
@@ -1221,16 +1299,8 @@ namespace Parallax
             {
                 probeIgnored = 0;
                 aimSuspendedUntil = Time.unscaledTime + 3f;
+                ignoredTimes++;
                 Plugin.Log.LogInfo($"Head aim: {AimKey} ignores the pushes; paused for 3 s");
-                return;
-            }
-            // Probing (Auto, no verdict, not carried by a body) lasts 4 s.
-            if (firstPerson.ContainsKey(AimKey) || carried || Settings.HeadAim.Value != AimMode.Auto) return;
-            probeTime += Time.unscaledDeltaTime;
-            if (probeTime > 4f)
-            {
-                probeEnded = true;
-                Plugin.Log.LogInfo($"Head aim (auto): no verdict for {AimKey} yet; off until the camera turns while you stand still");
             }
         }
 
@@ -1244,7 +1314,15 @@ namespace Parallax
             var hand = Xr.Rotation(controllers.aimL);
             watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
             var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
-            return toHead.magnitude < 0.6f && Vector3.Angle(hand * Vector3.left, toHead) < 35f;
+            if (toHead.magnitude > 0.7f) return false;
+            if (Vector3.Angle(hand * Vector3.left, toHead) < 45f) return true;
+            // Or the right hand points at it: its ray passes within 6 cm of the face.
+            if (controllers.aimValidR == 0) return false;
+            var from = Xr.Position(controllers.aimR);
+            var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
+            var to = watchAt - from;
+            float along = Vector3.Dot(to, dir);
+            return along > 0 && along < 0.6f && (to - dir * along).magnitude < 0.06f;
         }
 
         static int BitCount(int v)

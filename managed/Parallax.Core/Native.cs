@@ -102,6 +102,7 @@ namespace Parallax
 
         [DllImport(Dll)] public static extern int prx_init([MarshalAs(UnmanagedType.LPStr)] string appName, int api, out int width, out int height);
         [DllImport(Dll)] public static extern int prx_state();
+        [DllImport(Dll)] public static extern int prx_ui_keyed();
         [DllImport(Dll)] public static extern IntPtr prx_render_event_func();
         [DllImport(Dll)] public static extern void prx_set_init_texture(IntPtr texture);
         [DllImport(Dll)] public static extern void prx_set_frame(int slot, ref Frame frame);

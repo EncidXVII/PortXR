@@ -301,6 +301,82 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
     find("library_600x900.jpg").or_else(|| find("header.jpg"))
 }
 
+/// A Unity game in the Steam library, installed or not.
+#[derive(Clone)]
+pub struct Owned {
+    pub app_id: u32,
+    pub name: String,
+    pub cover: Option<PathBuf>,
+}
+
+fn unity_list() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("unity-steam.json")
+}
+
+/// Steam app ID to name for every Unity game Wikidata knows (engine Unity, with a Steam ID). The whole list is
+/// downloaded, so nothing about the player's library leaves the machine; it is cached for a week.
+fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
+    let path = unity_list();
+    let fresh = fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 7 * 86400);
+    if !fresh {
+        // QLever answers in under a second; the Wikidata Query Service is the fallback (it rate-limits during outages).
+        let query = "PREFIX wdt: <http://www.wikidata.org/prop/direct/> PREFIX wd: <http://www.wikidata.org/entity/>                      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> SELECT ?steam ?gLabel WHERE { ?g wdt:P408 wd:Q63966;                      wdt:P1733 ?steam. ?g rdfs:label ?gLabel FILTER(LANG(?gLabel) = \"en\") }";
+        let fetched = ["https://qlever.dev/api/wikidata", "https://query.wikidata.org/sparql"].iter().find_map(|url| {
+            ureq::get(*url)
+                .query("query", query)
+                .header("User-Agent", "Parallax (Unity VR injector; Unity game list)")
+                .header("Accept", "application/sparql-results+json")
+                .call()
+                .ok()
+                .and_then(|mut r| r.body_mut().with_config().limit(64 << 20).read_json::<serde_json::Value>().ok())
+        });
+        if let Some(json) = fetched {
+            let mut map = serde_json::Map::new();
+            for row in json["results"]["bindings"].as_array().into_iter().flatten() {
+                if let (Some(id), Some(name)) = (row["steam"]["value"].as_str(), row["gLabel"]["value"].as_str()) {
+                    map.insert(id.into(), name.into());
+                }
+            }
+            if !map.is_empty() {
+                let _ = fs::create_dir_all(path.parent().unwrap());
+                let _ = fs::write(&path, serde_json::to_vec(&map).unwrap_or_default());
+            }
+        }
+    }
+    let map: std::collections::HashMap<String, String> = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+    Some(map.into_iter().filter_map(|(id, name)| Some((id.parse().ok()?, name))).collect())
+}
+
+/// Unity games the Steam account has: Steam keeps library art for every app in the library, one folder (or file
+/// prefix, on older clients) per app ID. Network: the first call of the week downloads the Unity list.
+pub fn steam_unity_library() -> Vec<Owned> {
+    let Some(steam) = steam_root() else { return Vec::new() };
+    let Some(unity) = unity_games() else { return Vec::new() };
+    let cache = steam.join("appcache").join("librarycache");
+    let mut ids: Vec<u32> = fs::read_dir(&cache)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_string_lossy().split(['_', '.']).next()?.parse().ok())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    let mut owned: Vec<Owned> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let name = unity.get(&id)?.clone();
+            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())) })
+        })
+        .collect();
+    owned.sort_by_key(|o| o.name.to_lowercase());
+    owned
+}
+
+/// Asks Steam to install a game (its own install dialog opens).
+pub fn steam_install(app_id: u32) -> io::Result<()> {
+    Command::new("explorer").arg(format!("steam://install/{app_id}")).spawn().map(|_| ())
+}
+
 pub fn scan() -> Vec<Game> {
     let mut found: Vec<(PathBuf, u32, Option<String>, &'static str, u64)> = Vec::new();
     let steam = steam_root();

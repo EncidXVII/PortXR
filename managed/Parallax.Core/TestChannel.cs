@@ -187,6 +187,16 @@ namespace Parallax
                             $"{Path(r.transform)} layer {r.gameObject.layer} shadows {r.shadowCastingMode} dist {Mathf.Sqrt(r.bounds.SqrDistance(at)):0.00} size {V(r.bounds.size)} " +
                             $"inMask {(head.cullingMask & (1 << r.gameObject.layer)) != 0} savedMask {(rig.SavedMask & (1 << r.gameObject.layer)) != 0}").ToArray());
                     }
+                case "under":
+                    // Renderers that move with the head camera (under its root): camera-locked backdrops and quads.
+                    {
+                        var head = rig.GameCam;
+                        if (head == null) return "no camera";
+                        var at = head.transform.position;
+                        return string.Join("\n", head.transform.root.GetComponentsInChildren<Renderer>(false).Where(r => r.enabled).Take(25).Select(r =>
+                            $"{Path(r.transform)} layer {r.gameObject.layer} dist {Mathf.Sqrt(r.bounds.SqrDistance(at)):0.00} " +
+                            $"center {V(r.bounds.center - at)} size {V(r.bounds.size)} mat {(r.sharedMaterial != null ? r.sharedMaterial.name : "-")}").ToArray());
+                    }
                 case "scenes":
                     return string.Join("\n", Enumerable.Range(0, SceneManager.sceneCountInBuildSettings)
                         .Select(i => i + " " + SceneUtility.GetScenePathByBuildIndex(i)).ToArray()) + "\nactive " + SceneManager.GetActiveScene().name;

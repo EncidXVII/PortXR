@@ -64,6 +64,7 @@ enum Filter {
     Ready,
     Installed,
     Unsupported,
+    NotInstalled,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -108,6 +109,8 @@ struct App {
     advanced: bool,
     buttons: bool,
     update: Arc<Mutex<Option<Release>>>,
+    // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
+    steam_unity: Arc<Mutex<Vec<games::Owned>>>,
 }
 
 fn display(size: f32) -> FontId {
@@ -142,6 +145,12 @@ impl App {
                 ctx.request_repaint();
             }
         });
+        let steam_unity = Arc::new(Mutex::new(Vec::new()));
+        let (slot, ctx) = (steam_unity.clone(), cc.egui_ctx.clone());
+        std::thread::spawn(move || {
+            *slot.lock().unwrap() = games::steam_unity_library();
+            ctx.request_repaint();
+        });
         let defaults = fs::read_to_string(defaults_path()).unwrap_or_default();
         let mut app = App {
             games: Vec::new(),
@@ -162,6 +171,7 @@ impl App {
             advanced: false,
             buttons: false,
             update,
+            steam_unity,
         };
         app.rescan();
         // A new build updates the plugin in every installed game, so starting one from Steam runs it too. A running
@@ -215,6 +225,11 @@ impl App {
         }
     }
 
+    // Steam library Unity games with no installed copy found.
+    fn not_installed(&self) -> Vec<games::Owned> {
+        self.steam_unity.lock().unwrap().iter().filter(|o| !self.games.iter().any(|g| g.app_id == o.app_id)).cloned().collect()
+    }
+
     fn open(&mut self, i: usize) {
         self.page = Page::Game(i);
         self.status = (String::new(), Tone::Info);
@@ -242,6 +257,10 @@ impl App {
         }
         self.toolbar(ui);
         ui.add_space(32.0);
+        if self.filter == Filter::NotInstalled {
+            self.shelf(ui);
+            return;
+        }
 
         let query = self.query.to_lowercase();
         let mut shown: Vec<usize> = (0..self.games.len())
@@ -288,20 +307,50 @@ impl App {
         }
     }
 
+    // Owned Unity games that are not installed: a click asks Steam to install one; it joins the library when done.
+    fn shelf(&mut self, ui: &mut Ui) {
+        let query = self.query.to_lowercase();
+        let shown: Vec<games::Owned> = self.not_installed().into_iter().filter(|o| o.name.to_lowercase().contains(&query)).collect();
+        const GAP: f32 = 16.0;
+        let avail = ui.available_width();
+        let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
+        let w = ((avail - GAP * (cols - 1) as f32) / cols as f32).floor();
+        for row in shown.chunks(cols) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = GAP;
+                for o in row {
+                    if owned_card(ui, o, w).on_hover_text("Install with Steam").clicked() {
+                        self.status = match games::steam_install(o.app_id) {
+                            Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
+                            Err(e) => (e.to_string(), Tone::Bad),
+                        };
+                    }
+                }
+            });
+            ui.add_space(24.0);
+        }
+    }
+
     // Status (with counts) on the left; store and order on the right. A filter with one possible value is left out.
     fn toolbar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 12.0);
             let count = |f: Filter| self.games.iter().filter(|g| f == Filter::All || filter_of(g) == f).count();
-            let labels = [Filter::All, Filter::Ready, Filter::Installed, Filter::Unsupported].map(|f| {
-                let name = match f {
-                    Filter::All => "All",
-                    Filter::Ready => "Ready",
-                    Filter::Installed => "VR added",
-                    Filter::Unsupported => "Unsupported",
-                };
-                (f, format!("{name}  {}", count(f)))
-            });
+            let missing = self.not_installed().len();
+            let mut labels: Vec<(Filter, String)> = [Filter::All, Filter::Ready, Filter::Installed, Filter::Unsupported]
+                .map(|f| {
+                    let name = match f {
+                        Filter::All => "All",
+                        Filter::Ready => "Ready",
+                        Filter::Installed => "VR added",
+                        _ => "Unsupported",
+                    };
+                    (f, format!("{name}  {}", count(f)))
+                })
+                .into();
+            if missing > 0 {
+                labels.push((Filter::NotInstalled, format!("Not installed  {missing}")));
+            }
             let options: Vec<(Filter, &str)> = labels.iter().map(|(f, l)| (*f, l.as_str())).collect();
             if let Some(f) = segmented(ui, &options, self.filter, None) {
                 self.filter = f;
@@ -1002,8 +1051,33 @@ fn glow(p: &Painter, corner: egui::Pos2, strength: f32) {
     p.add(egui::Shape::mesh(mesh));
 }
 
+fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
+    let h = w * 1.5;
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, h + 68.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &o.name));
+    let image = Rect::from_min_size(rect.min, vec2(w, h));
+    cover_image(ui, &o.cover, &o.name, image);
+    // Dimmed: not on this PC yet.
+    ui.painter_at(image).rect_filled(image, RADIUS, Color32::from_black_alpha(110));
+    if resp.hovered() {
+        glow(&ui.painter_at(image), image.right_bottom(), 0.6);
+        ui.painter().rect_stroke(image, RADIUS, Stroke::new(1.0, LIME), egui::StrokeKind::Outside);
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(o.name.clone(), body(BODY), INK);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(w);
+    let name = ui.painter().layout_job(job);
+    ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
+    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), "Install", ChipKind::Plain);
+    focus_ring(ui, &resp);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
-    match &g.cover {
+    cover_image(ui, &g.cover, &g.name, rect);
+}
+
+fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
+    match cover {
         // A wide header (no 2:3 cover cached) is shown whole, centred on the surface, never stretched.
         Some(path) if path.ends_with("header.jpg") => {
             ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
@@ -1017,7 +1091,7 @@ fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
             p.rect_filled(rect, RADIUS, SURFACE);
             p.rect_stroke(rect, RADIUS, Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
             glow(&p, rect.right_bottom(), 1.0);
-            let initial = g.name.chars().next().unwrap_or('?').to_uppercase().to_string();
+            let initial = name.chars().next().unwrap_or('?').to_uppercase().to_string();
             p.text(rect.left_top() + vec2(16.0, 12.0), Align2::LEFT_TOP, initial, display(rect.width() * 0.4), LINE);
         }
     }
