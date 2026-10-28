@@ -61,10 +61,16 @@ struct Release {
 #[derive(Clone, Copy, PartialEq)]
 enum Filter {
     All,
-    Ready,
+    VrAdded,
     Installed,
-    Unsupported,
     NotInstalled,
+    Unsupported,
+}
+
+// A library card: a game on this PC (by index), or a Unity game in the Steam library that is not installed.
+enum Entry {
+    Here(usize),
+    Steam(games::Owned),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -111,7 +117,7 @@ struct App {
     scripts_open: bool,
     update: Arc<Mutex<Option<Release>>>,
     // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
-    steam_unity: Arc<Mutex<Vec<games::Owned>>>,
+    steam_unity: Arc<Mutex<Option<Vec<games::Owned>>>>,
     // A scan running in the background (start, window focus, F5) hands its result over here.
     scanned: Arc<Mutex<Option<Vec<Game>>>>,
     scanning: bool,
@@ -131,10 +137,14 @@ fn body(size: f32) -> FontId {
 
 fn filter_of(g: &Game) -> Filter {
     match (g.compat(), g.installed()) {
-        (Compat::Supported, true) => Filter::Installed,
-        (Compat::Supported, false) => Filter::Ready,
+        (Compat::Supported, true) => Filter::VrAdded,
+        (Compat::Supported, false) => Filter::Installed,
         _ => Filter::Unsupported,
     }
+}
+
+fn owned_filter(o: &games::Owned) -> Filter {
+    if o.blocker.is_some() { Filter::Unsupported } else { Filter::NotInstalled }
 }
 
 impl App {
@@ -149,15 +159,16 @@ impl App {
                 ctx.request_repaint();
             }
         });
-        let steam_unity = Arc::new(Mutex::new(Vec::new()));
+        let steam_unity = Arc::new(Mutex::new(None));
         let (slot, ctx) = (steam_unity.clone(), cc.egui_ctx.clone());
         std::thread::spawn(move || {
-            *slot.lock().unwrap() = games::steam_unity_library();
+            *slot.lock().unwrap() = Some(games::steam_unity_library());
             ctx.request_repaint();
         });
         let defaults = fs::read_to_string(defaults_path()).unwrap_or_default();
         let mut app = App {
-            games: Vec::new(),
+            // Last time's library, at once; the scan below refreshes it.
+            games: games::cached(),
             page: Page::Library,
             shown_page: None,
             back_to: None,
@@ -248,9 +259,17 @@ impl App {
         }
     }
 
-    // Steam library Unity games with no installed copy found.
-    fn not_installed(&self) -> Vec<games::Owned> {
-        self.steam_unity.lock().unwrap().iter().filter(|o| !self.games.iter().any(|g| g.app_id == o.app_id)).cloned().collect()
+    // Unity games in the Steam library with no copy on this PC; None while the list is still loading.
+    fn missing(&self) -> Option<Vec<games::Owned>> {
+        let owned = self.steam_unity.lock().unwrap();
+        owned.as_ref().map(|list| list.iter().filter(|o| !self.games.iter().any(|g| g.app_id == o.app_id)).cloned().collect())
+    }
+
+    // Every card the library can show, with the status tab it belongs to; each card is in exactly one tab.
+    fn entries(&self) -> Vec<(Filter, Entry)> {
+        let here = (0..self.games.len()).map(|i| (filter_of(&self.games[i]), Entry::Here(i)));
+        let steam = self.missing().unwrap_or_default().into_iter().map(|o| (owned_filter(&o), Entry::Steam(o)));
+        here.chain(steam).collect()
     }
 
     fn open(&mut self, i: usize) {
@@ -263,9 +282,6 @@ impl App {
     fn library(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("YOUR GAMES.").font(display(TITLE)).color(INK));
-            if self.scanning && !self.games.is_empty() {
-                ui.add(egui::Spinner::new().size(18.0).color(LIME)).on_hover_text("Looking for changes");
-            }
             if !self.games.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
@@ -273,17 +289,19 @@ impl App {
                 });
             }
         });
+        // A scan refreshing the games already shown: a thin line sweeps under the title, and nothing else moves.
+        let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
+        if self.scanning && !self.games.is_empty() {
+            sweep(ui, line);
+        }
         if !self.status.0.is_empty() {
             status_line(ui, &self.status.0, self.status.1);
         }
-        ui.add_space(24.0);
+        ui.add_space(22.0);
         if self.games.is_empty() && self.scanning {
-            ui.add_space(24.0);
-            ui.horizontal(|ui| {
-                ui.add(egui::Spinner::new().size(24.0).color(LIME));
-                ui.add_space(12.0);
-                ui.label(RichText::new("Looking for Unity games in Steam, Epic, GOG, itch and your game folders…").color(INK2));
-            });
+            ui.label(RichText::new("Looking for Unity games in Steam, Epic, GOG, itch and your game folders…").color(INK2));
+            ui.add_space(32.0);
+            skeleton_grid(ui, 12);
             return;
         }
         if self.games.is_empty() {
@@ -292,23 +310,37 @@ impl App {
         }
         self.toolbar(ui);
         ui.add_space(32.0);
-        if self.filter == Filter::NotInstalled {
-            self.shelf(ui);
+        if self.filter == Filter::NotInstalled && self.missing().is_none() {
+            skeleton_grid(ui, 6);
             return;
         }
 
         let query = self.query.to_lowercase();
-        let mut shown: Vec<usize> = (0..self.games.len())
-            .filter(|&i| {
-                let g = &self.games[i];
-                (self.filter == Filter::All || filter_of(g) == self.filter)
-                    && self.store.is_none_or(|s| g.store == s)
-                    && g.name.to_lowercase().contains(&query)
+        let name = |e: &Entry| match e {
+            Entry::Here(i) => self.games[*i].name.to_lowercase(),
+            Entry::Steam(o) => o.name.to_lowercase(),
+        };
+        let mut shown: Vec<Entry> = self
+            .entries()
+            .into_iter()
+            .filter(|(f, e)| {
+                let store = match e {
+                    Entry::Here(i) => self.games[*i].store,
+                    Entry::Steam(_) => "Steam",
+                };
+                (self.filter == Filter::All || *f == self.filter) && self.store.is_none_or(|s| store == s) && name(e).contains(&query)
             })
+            .map(|(_, e)| e)
             .collect();
-        // Games arrive sorted by name; a stable sort keeps that order among games never played.
+        shown.sort_by_key(|e| name(e));
+        // A stable sort keeps name order among games never played.
         if self.sort == Sort::Recent {
-            shown.sort_by_key(|&i| std::cmp::Reverse(self.games[i].last_played));
+            shown.sort_by_key(|e| {
+                std::cmp::Reverse(match e {
+                    Entry::Here(i) => self.games[*i].last_played,
+                    Entry::Steam(o) => o.last_played,
+                })
+            });
         }
         if shown.is_empty() {
             ui.label(RichText::new("Nothing matches this search and these filters.").color(INK2));
@@ -320,18 +352,25 @@ impl App {
             }
             return;
         }
-        // Columns fill the row exactly, so the grid shares its edges with the toolbar's row.
-        const GAP: f32 = 16.0;
-        let avail = ui.available_width();
-        let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
-        let w = ((avail - GAP * (cols - 1) as f32) / cols as f32).floor();
+        let (cols, w) = columns(ui.available_width());
         let mut open = None;
+        let mut install = None;
         for row in shown.chunks(cols) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = GAP;
-                for &i in row {
-                    if card(ui, &self.games[i], w).clicked() {
-                        open = Some(i);
+                for e in row {
+                    match e {
+                        Entry::Here(i) => {
+                            if card(ui, &self.games[*i], w).clicked() {
+                                open = Some(*i);
+                            }
+                        }
+                        Entry::Steam(o) => {
+                            let hint = if o.blocker.is_some() { "Parallax cannot run this game" } else { "Install with Steam" };
+                            if owned_card(ui, o, w).on_hover_text(hint).clicked() {
+                                install = Some(o.clone());
+                            }
+                        }
                     }
                 }
             });
@@ -340,61 +379,45 @@ impl App {
         if let Some(i) = open {
             self.open(i);
         }
+        if let Some(o) = install {
+            self.install_owned(&o);
+        }
     }
 
-    // Owned Unity games that are not installed: a click asks Steam to install one; it joins the library when done.
-    fn shelf(&mut self, ui: &mut Ui) {
-        let query = self.query.to_lowercase();
-        let mut shown: Vec<games::Owned> = self.not_installed().into_iter().filter(|o| o.name.to_lowercase().contains(&query)).collect();
-        // They arrive sorted by name; a stable sort keeps that order among games never played.
-        if self.sort == Sort::Recent {
-            shown.sort_by_key(|o| std::cmp::Reverse(o.last_played));
-        }
-        const GAP: f32 = 16.0;
-        let avail = ui.available_width();
-        let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
-        let w = ((avail - GAP * (cols - 1) as f32) / cols as f32).floor();
-        for row in shown.chunks(cols) {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = GAP;
-                for o in row {
-                    let hint = if o.blocker.is_some() { "Parallax cannot run this game" } else { "Install with Steam" };
-                    if owned_card(ui, o, w).on_hover_text(hint).clicked() {
-                        self.status = match o.blocker {
-                            Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
-                            Some(_) => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
-                            None => match games::steam_install(o.app_id) {
-                                Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
-                                Err(e) => (e.to_string(), Tone::Bad),
-                            },
-                        };
-                    }
-                }
-            });
-            ui.add_space(24.0);
-        }
+    // A click on a game that is not installed asks Steam to install it; it joins the library when done.
+    fn install_owned(&mut self, o: &games::Owned) {
+        self.status = match o.blocker {
+            Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
+            Some("Multiplayer only") => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
+            Some(_) => (format!("{} uses anti-cheat. Injecting into it risks a ban, so Parallax never runs in it.", o.name), Tone::Bad),
+            None => match games::steam_install(o.app_id) {
+                Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
+                Err(e) => (e.to_string(), Tone::Bad),
+            },
+        };
     }
 
     // Status (with counts) on the left; store and order on the right. A filter with one possible value is left out.
     fn toolbar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 12.0);
-            let count = |f: Filter| self.games.iter().filter(|g| f == Filter::All || filter_of(g) == f).count();
-            let missing = self.not_installed().len();
-            let mut labels: Vec<(Filter, String)> = [Filter::All, Filter::Ready, Filter::Installed, Filter::Unsupported]
+            // The tabs split the library: each card is in one, and the counts add up to All.
+            let entries = self.entries();
+            let count = |f: Filter| entries.iter().filter(|(e, _)| f == Filter::All || *e == f).count();
+            let labels: Vec<(Filter, String)> = [Filter::All, Filter::VrAdded, Filter::Installed, Filter::NotInstalled, Filter::Unsupported]
+                .into_iter()
+                .filter(|&f| f == Filter::All || count(f) > 0 || f == self.filter)
                 .map(|f| {
                     let name = match f {
                         Filter::All => "All",
-                        Filter::Ready => "Ready",
-                        Filter::Installed => "VR added",
-                        _ => "Unsupported",
+                        Filter::VrAdded => "VR added",
+                        Filter::Installed => "Installed",
+                        Filter::NotInstalled => "Not installed",
+                        Filter::Unsupported => "Unsupported",
                     };
                     (f, format!("{name}  {}", count(f)))
                 })
-                .into();
-            if missing > 0 {
-                labels.push((Filter::NotInstalled, format!("Not installed  {missing}")));
-            }
+                .collect();
             let options: Vec<(Filter, &str)> = labels.iter().map(|(f, l)| (*f, l.as_str())).collect();
             if let Some(f) = segmented(ui, &options, self.filter, None) {
                 self.filter = f;
@@ -785,7 +808,8 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
 
 fn warning(g: &Game) -> (String, Tone) {
     match (g.compat(), g.other_loader) {
-        (Compat::AntiCheat, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
+        (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
+        (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
@@ -1052,17 +1076,18 @@ fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T
 #[derive(Clone, Copy)]
 enum ChipKind {
     Plain,
-    Ready,
+    VrAdded,
     Installed,
+    NotInstalled,
     Blocked,
     Unsupported,
 }
 
 fn chip_kind(g: &Game) -> ChipKind {
     match (g.compat(), g.installed()) {
-        (Compat::Supported, true) => ChipKind::Installed,
-        (Compat::Supported, false) => ChipKind::Ready,
-        (Compat::AntiCheat, _) => ChipKind::Blocked,
+        (Compat::Supported, true) => ChipKind::VrAdded,
+        (Compat::Supported, false) => ChipKind::Installed,
+        (Compat::Blocked, _) => ChipKind::Blocked,
         _ => ChipKind::Unsupported,
     }
 }
@@ -1071,8 +1096,10 @@ fn chip_kind(g: &Game) -> ChipKind {
 fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
     let (dot, ink, fill) = match kind {
         ChipKind::Plain => (None, INK2, None),
-        ChipKind::Ready => (Some(LIME), INK2, None),
-        ChipKind::Installed => (None, ON_LIME, Some(LIME)),
+        // Strongest to weakest: VR added (filled), installed (lime dot), not on this PC (grey, no dot).
+        ChipKind::VrAdded => (None, ON_LIME, Some(LIME)),
+        ChipKind::Installed => (Some(LIME), INK2, None),
+        ChipKind::NotInstalled => (None, INK3, None),
         ChipKind::Blocked => (Some(DANGER), INK2, None),
         ChipKind::Unsupported => (Some(INK3), INK3, None),
     };
@@ -1095,9 +1122,58 @@ fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
 }
 
 fn chip(ui: &mut Ui, text: &str, kind: ChipKind) {
-    let width = ui.painter().layout_no_wrap(text.to_uppercase(), mono(LABEL), INK).size().x + if matches!(kind, ChipKind::Plain | ChipKind::Installed) { 20.0 } else { 32.0 };
+    let width = ui.painter().layout_no_wrap(text.to_uppercase(), mono(LABEL), INK).size().x + if matches!(kind, ChipKind::Plain | ChipKind::VrAdded | ChipKind::NotInstalled) { 20.0 } else { 32.0 };
     let (rect, _) = ui.allocate_exact_size(vec2(width, 24.0), Sense::hover());
     paint_chip(ui.painter(), rect.min, text, kind);
+}
+
+const GAP: f32 = 16.0;
+
+// Columns of at least 160 px that fill the row exactly, so the grid shares its edges with the toolbar's row.
+fn columns(avail: f32) -> (usize, f32) {
+    let cols = ((avail + GAP) / (160.0 + GAP)).floor().max(1.0) as usize;
+    (cols, ((avail - GAP * (cols - 1) as f32) / cols as f32).floor())
+}
+
+// Placeholder cards in the grid's exact shape while games are found, so nothing jumps when they land. A soft pulse
+// runs across them, a little later on each card.
+fn skeleton_grid(ui: &mut Ui, n: usize) {
+    let (cols, w) = columns(ui.available_width());
+    let t = ui.input(|i| i.time) as f32;
+    let shade = |k: usize| {
+        let a = ((t * 2.4 - k as f32 * 0.35).sin() * 0.5 + 0.5) * 0.7;
+        Color32::from_rgb(lerp(SURFACE.r(), RAISED.r(), a), lerp(SURFACE.g(), RAISED.g(), a), lerp(SURFACE.b(), RAISED.b(), a))
+    };
+    for (r, row) in (0..n).collect::<Vec<_>>().chunks(cols).enumerate() {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = GAP;
+            for &k in row {
+                let (rect, _) = ui.allocate_exact_size(vec2(w, w * 1.5 + 68.0), Sense::hover());
+                let p = ui.painter();
+                let image = Rect::from_min_size(rect.min, vec2(w, w * 1.5));
+                p.rect_filled(image, RADIUS, shade(k + r));
+                p.rect_filled(Rect::from_min_size(image.left_bottom() + vec2(0.0, 14.0), vec2(w * 0.7, 12.0)), RADIUS, shade(k + r));
+                p.rect_filled(Rect::from_min_size(image.left_bottom() + vec2(0.0, 38.0), vec2(w * 0.45, 24.0)), RADIUS, shade(k + r));
+            }
+        });
+        ui.add_space(24.0);
+    }
+    ui.ctx().request_repaint();
+}
+
+fn lerp(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t).round() as u8
+}
+
+// A lime segment sweeping along `rect`, for work that refreshes what is already on screen.
+fn sweep(ui: &mut Ui, rect: Rect) {
+    let t = (ui.input(|i| i.time) as f32 / 1.4).fract();
+    let w = rect.width() * 0.25;
+    let x = rect.left() - w + (rect.width() + w) * t;
+    let seg = Rect::from_x_y_ranges(x.max(rect.left())..=(x + w).min(rect.right()), rect.y_range());
+    ui.painter().rect_filled(rect, 0.0, LINE);
+    ui.painter().rect_filled(seg, 0.0, LIME);
+    ui.ctx().request_repaint();
 }
 
 fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
@@ -1114,11 +1190,8 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
-    // Ready is the normal case, so it gets no tag; VR added and the exceptions do.
-    let chip_text = (g.compat() != Compat::Supported || g.installed()).then(|| g.badge());
-    if let Some(text) = chip_text {
-        paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, chip_kind(g));
-    }
+    // Every card names its state, in the same words as the tabs.
+    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), g.badge(), chip_kind(g));
     focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -1164,7 +1237,7 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
     let (text, kind) = match o.blocker {
         Some(b) => (b, ChipKind::Blocked),
-        None => ("Install", ChipKind::Plain),
+        None => ("Not installed", ChipKind::NotInstalled),
     };
     paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, kind);
     focus_ring(ui, &resp);
@@ -1182,9 +1255,13 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
             ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
             let h = rect.width() * 215.0 / 460.0;
             let inner = Rect::from_center_size(rect.center(), vec2(rect.width(), h));
-            egui::Image::new(format!("file:///{}", path.display())).paint_at(ui, inner);
+            egui::Image::new(format!("file:///{}", path.display())).show_loading_spinner(false).paint_at(ui, inner);
         }
-        Some(path) => egui::Image::new(format!("file:///{}", path.display())).corner_radius(RADIUS).paint_at(ui, rect),
+        // The surface shows while the image loads, the shape of the card already in place.
+        Some(path) => {
+            ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
+            egui::Image::new(format!("file:///{}", path.display())).corner_radius(RADIUS).show_loading_spinner(false).paint_at(ui, rect);
+        }
         None => {
             let p = ui.painter_at(rect);
             p.rect_filled(rect, RADIUS, SURFACE);
@@ -1208,6 +1285,9 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
+    if games::steam_update_pending(&g.dir) {
+        return Err("Steam has an update waiting for this game. Let Steam finish it, then press Play again: Parallax checks every update for anti-cheat first.".into());
+    }
     if !g.installed() {
         install(g, defaults)?;
     } else {

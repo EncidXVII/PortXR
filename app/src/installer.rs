@@ -54,10 +54,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
 // Uninstall must leave the game folder byte-identical: every overwritten file is backed up, and a loader folder we
 // created is removed whole because the loader writes logs, caches and configs into it at runtime.
 pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let game = games::detect(game_dir).ok_or("No Unity game found in this folder.")?;
-    if let Some(b) = game.blocker {
-        return Err(format!("{b} detected: injecting would risk a ban, so this game is refused.").into());
-    }
+    let game = checked(game_dir)?;
     if game.stripped {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
     }
@@ -109,7 +106,7 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
 pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
     let path = receipt_path(game_dir);
     let mut receipt: Receipt = serde_json::from_slice(&fs::read(&path)?)?;
-    let game = games::detect(game_dir).ok_or("No Unity game found in this folder.")?;
+    let game = checked(game_dir)?;
     let payload = payload(game.il2cpp)?;
     let mut sources = Vec::new();
     walk(&payload, &payload, &mut sources)?;
@@ -134,6 +131,16 @@ pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
         fs::write(&path, serde_json::to_vec(&receipt)?)?;
     }
     Ok(changed)
+}
+
+/// The game, unless it has anti-cheat or is online-only: then Parallax is taken out of it (a game update may have
+/// added anti-cheat since the install) and it is refused. Install, every update and every Play pass through here.
+fn checked(game_dir: &Path) -> Result<games::Game, Box<dyn Error>> {
+    let game = games::inspect(game_dir).ok_or("No Unity game found in this folder.")?;
+    let Some(b) = game.blocker else { return Ok(game) };
+    let removed = receipt_path(game_dir).exists() && uninstall(game_dir).is_ok();
+    let why = if b == "Multiplayer only" { "No single-player mode: online play risks a ban".to_string() } else { format!("{b} found: injecting risks a ban") };
+    Err(format!("{why}, so this game is refused{}.", if removed { " and Parallax was removed from it" } else { "" }).into())
 }
 
 pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {

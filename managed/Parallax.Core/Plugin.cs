@@ -117,6 +117,20 @@ namespace Parallax
 
         static bool Start(ConfigFile config)
         {
+            // The app refuses anti-cheat games, but an update may have added it since: then nothing runs, and the
+            // loader is switched off so later starts load nothing at all.
+            string antiCheat = AntiCheat();
+            if (antiCheat != null)
+            {
+                Log.LogError($"{antiCheat} found: Parallax stays off and disables its loader. Remove it with the Parallax app.");
+                try
+                {
+                    string ini = Path.Combine(Paths.GameRootPath, "doorstop_config.ini");
+                    File.WriteAllText(ini, System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(ini), @"(?m)^enabled\s*=\s*true", "enabled = false"));
+                }
+                catch (System.Exception e) { Log.LogError($"Could not disable the loader: {e.Message}"); }
+                return false;
+            }
             Settings.Bind(config);
             TestChannel.ApplyRuntimeOverride();
             var api = SystemInfo.graphicsDeviceType;
@@ -131,6 +145,29 @@ namespace Parallax
                 return false;
             }
             return true;
+        }
+
+        // Client anti-cheat by its files beside the game, or its modules in the process (same names as the app checks).
+        static string AntiCheat()
+        {
+            string[] marks = { "easyanticheat", "start_protected_game", "eaanticheat", "battleye", "beclient", "beservice", "gameguard", "npgg",
+                "xigncode", "x3.xem", "anticheatexpert", "ace-base", "sguard", "mhyprot", "hoyokprotect", "equ8", "pbsvc", "neac" };
+            System.Func<string, bool> flagged = name =>
+            {
+                name = name.ToLowerInvariant();
+                foreach (var m in marks)
+                    if (name.StartsWith(m)) return true;
+                return name.EndsWith("_be.exe") || name.Contains("anticheat") || name.Contains("anti-cheat") || name.Contains("anti_cheat");
+            };
+            try
+            {
+                foreach (var entry in Directory.GetFileSystemEntries(Paths.GameRootPath))
+                    if (flagged(Path.GetFileName(entry))) return Path.GetFileName(entry);
+                foreach (System.Diagnostics.ProcessModule module in System.Diagnostics.Process.GetCurrentProcess().Modules)
+                    if (flagged(module.ModuleName)) return module.ModuleName;
+            }
+            catch (System.Exception e) { Log.LogWarning($"Anti-cheat check incomplete: {e.Message}"); }
+            return null;
         }
     }
 }

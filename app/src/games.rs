@@ -3,17 +3,20 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde::{Deserialize, Deserializer, Serialize};
+
 use crate::installer;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Compat {
     Supported,
-    AntiCheat,
+    /// Anti-cheat or online-only: injecting could get the account banned.
+    Blocked,
     X86,
     Stripped,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Game {
     pub name: String,
     pub dir: PathBuf,
@@ -22,13 +25,16 @@ pub struct Game {
     pub il2cpp: bool,
     pub x86: bool,
     pub stripped: bool,
+    #[serde(deserialize_with = "leak_opt")]
     pub blocker: Option<&'static str>,
+    #[serde(deserialize_with = "leak_opt")]
     pub other_loader: Option<&'static str>,
     pub app_id: u32,
     pub cover: Option<PathBuf>,
     /// The folder the user added by hand that found this game, if no store knows it.
     pub added: Option<PathBuf>,
     /// Where it was found ("Steam", "Epic Games", "GOG", "Added by you"), for the library's store filter.
+    #[serde(deserialize_with = "leak")]
     pub store: &'static str,
     /// Unix seconds: Steam's own record, or the last Play in VR from this app, whichever is later.
     pub last_played: u64,
@@ -37,7 +43,7 @@ pub struct Game {
 impl Game {
     pub fn compat(&self) -> Compat {
         if self.blocker.is_some() {
-            Compat::AntiCheat
+            Compat::Blocked
         } else if self.x86 {
             Compat::X86
         } else if self.stripped {
@@ -50,8 +56,8 @@ impl Game {
     pub fn badge(&self) -> &'static str {
         match self.compat() {
             Compat::Supported if self.installed() => "VR added",
-            Compat::Supported => "Ready",
-            Compat::AntiCheat => "Anti-cheat",
+            Compat::Supported => "Installed",
+            Compat::Blocked => self.blocker.unwrap_or("Anti-cheat"),
             Compat::X86 => "32-bit",
             Compat::Stripped => "Trimmed engine",
         }
@@ -79,6 +85,27 @@ impl Game {
     }
 }
 
+// The labels are a handful of short strings, read once per start.
+fn leak<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+    Ok(String::deserialize(d)?.leak())
+}
+
+fn leak_opt<'de, D: Deserializer<'de>>(d: D) -> Result<Option<&'static str>, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.map(|s| &*s.leak()))
+}
+
+fn library_cache() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("library.json")
+}
+
+/// The last scan's games, shown at start while the new scan runs (Play checks the folder again before anything runs).
+pub fn cached() -> Vec<Game> {
+    // The labels make Game deserialize only from 'static data; the file is small and read once.
+    let bytes: &'static [u8] = fs::read(library_cache()).unwrap_or_default().leak();
+    let games: Vec<Game> = serde_json::from_slice(bytes).unwrap_or_default();
+    games.into_iter().filter(|g| g.exe.exists()).collect()
+}
+
 // Unity players keep their data next to the exe in `<name>_Data`, holding one of these depending on the Unity version
 // and build compression.
 const DATA_MARKERS: [&str; 3] = ["globalgamemanagers", "data.unity3d", "mainData"];
@@ -99,6 +126,55 @@ fn find_player(dir: &Path, depth: u32) -> Option<PathBuf> {
     entries.iter().filter(|p| p.is_dir() && !p.ends_with("_Data")).find_map(|p| find_player(p, depth - 1))
 }
 
+/// Client anti-cheat by the files it ships (lowercase names in the game's folders). Anything named anti-cheat counts:
+/// a false alarm only keeps one game flat, a miss can cost an account.
+fn anti_cheat_files(files: &[String]) -> Option<&'static str> {
+    const KNOWN: [(&str, &str); 18] = [
+        ("easyanticheat", "EasyAntiCheat"),
+        ("start_protected_game", "EasyAntiCheat"),
+        ("eaanticheat", "EA Anti-Cheat"),
+        ("battleye", "BattlEye"),
+        ("beclient", "BattlEye"),
+        ("beservice", "BattlEye"),
+        ("gameguard", "GameGuard"),
+        ("npgg", "GameGuard"),
+        ("xigncode", "XIGNCODE3"),
+        ("x3.xem", "XIGNCODE3"),
+        ("anticheatexpert", "ACE"),
+        ("ace-base", "ACE"),
+        ("sguard", "ACE"),
+        ("mhyprot", "HoYoverse anti-cheat"),
+        ("hoyokprotect", "HoYoverse anti-cheat"),
+        ("equ8", "EQU8"),
+        ("pbsvc", "PunkBuster"),
+        ("neac", "NetEase anti-cheat"),
+    ];
+    for f in files {
+        if let Some((_, name)) = KNOWN.iter().find(|(k, _)| f.starts_with(k)) {
+            return Some(name);
+        }
+        if f.ends_with("_be.exe") {
+            return Some("BattlEye");
+        }
+        if ["anticheat", "anti-cheat", "anti_cheat"].iter().any(|k| f.contains(k)) {
+            return Some("Anti-cheat");
+        }
+    }
+    None
+}
+
+/// The Anti-Cheat Toolkit asset in the game's code: it reports injected code to the game, which an online game may
+/// pass on to its servers.
+fn has_cheat_toolkit(g: &Game) -> bool {
+    let data = data_dir(&g.exe);
+    if data.join("Managed").join("ACTk.Runtime.dll").exists() {
+        return true;
+    }
+    let code = if g.il2cpp { data.join("il2cpp_data").join("Metadata").join("global-metadata.dat") } else { data.join("Managed").join("Assembly-CSharp.dll") };
+    let needle = b"CodeStage.AntiCheat";
+    fs::read(code).is_ok_and(|b| b.windows(needle.len()).any(|w| w == needle))
+}
+
 /// A Unity game installed in `root` (a store's install folder or a folder the user picked).
 pub fn detect(root: &Path) -> Option<Game> {
     let exe = find_player(root, 2)?;
@@ -108,13 +184,7 @@ pub fn detect(root: &Path) -> Option<Game> {
     };
     // Anti-cheat may sit beside the exe or at the top of the install, next to a launcher.
     let files: Vec<String> = names(&dir).into_iter().chain(if dir == root { Vec::new() } else { names(root) }).collect();
-    let blocker = if files.iter().any(|f| f == "easyanticheat" || f.starts_with("easyanticheat") || f == "start_protected_game.exe") {
-        Some("EasyAntiCheat")
-    } else if files.iter().any(|f| f == "battleye" || f.ends_with("_be.exe")) {
-        Some("BattlEye")
-    } else {
-        None
-    };
+    let blocker = anti_cheat_files(&files);
     let other_loader = if dir.join("MelonLoader").is_dir() {
         Some("MelonLoader")
     } else if dir.join("BepInEx").is_dir() && !installer::receipt_path(&dir).exists() {
@@ -270,6 +340,13 @@ fn vdf_values<'a>(text: &'a str, key: &str) -> impl Iterator<Item = String> + 'a
     })
 }
 
+/// `dir` is `root` or inside it, however each is spelled (Steam's paths differ in case and slashes).
+fn under(dir: &Path, root: &Path) -> bool {
+    let norm = |p: &Path| p.to_string_lossy().to_lowercase().replace('/', "\\").trim_end_matches('\\').to_string();
+    let (d, r) = (norm(dir), norm(root));
+    d == r || d.starts_with(&(r + "\\"))
+}
+
 fn steam_root() -> Option<PathBuf> {
     let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey(r"Software\Valve\Steam").ok()?;
     key.get_value::<String, _>("SteamPath").ok().map(PathBuf::from)
@@ -361,7 +438,29 @@ fn steam_last_played(steam: &Path) -> std::collections::HashMap<u32, u64> {
 }
 
 /// What Steam's app cache says about some apps: (has single-player, Windows build is 32-bit only).
-fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (bool, bool)> {
+/// What Steam's app cache says about a game, before or after it is installed.
+#[derive(Default)]
+struct Facts {
+    single_player: bool,
+    online: bool,
+    /// VAC, an anti-cheat support page, a protected launcher or a Steam Deck anti-cheat test result.
+    anti_cheat: bool,
+    osarch: String,
+}
+
+impl Facts {
+    fn blocker(&self) -> Option<&'static str> {
+        if self.anti_cheat {
+            Some("Anti-cheat")
+        } else if !self.single_player {
+            Some("Multiplayer only")
+        } else {
+            None
+        }
+    }
+}
+
+fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Facts> {
     let mut out = std::collections::HashMap::new();
     let Ok(b) = fs::read(steam.join("appcache").join("appinfo.vdf")) else { return out };
     let u32_at = |p: usize| b.get(p..p + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()));
@@ -389,8 +488,10 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (boo
         *p += end + 1;
         s
     };
-    // Walks the binary key-values of one app, collecting common/category/* and common/osarch.
-    fn walk(b: &[u8], p: &mut usize, path: &mut Vec<String>, key: &mut dyn FnMut(&mut usize) -> String, found: &mut (bool, String)) -> Option<()> {
+    // Walks the binary key-values of one app: common/category/* (2 single-player; 1, 36, 38, 49 online; 8 VAC),
+    // common/osarch, and anything naming anti-cheat (keys like extended/anti_cheat_support_url, values like launch
+    // executables and Steam Deck test results).
+    fn walk(b: &[u8], p: &mut usize, path: &mut Vec<String>, key: &mut dyn FnMut(&mut usize) -> String, found: &mut Facts) -> Option<()> {
         loop {
             let t = *b.get(*p)?;
             *p += 1;
@@ -398,6 +499,19 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (boo
                 return Some(());
             }
             let k = key(p);
+            let names_ac = |s: &str| {
+                let s = s.to_lowercase();
+                ["anticheat", "anti-cheat", "anti_cheat", "battleye", "start_protected_game"].iter().any(|n| s.contains(n))
+            };
+            found.anti_cheat |= names_ac(&k);
+            if path.len() == 3 && path[2] == "category" {
+                match k.as_str() {
+                    "category_2" => found.single_player = true,
+                    "category_1" | "category_36" | "category_38" | "category_49" => found.online = true,
+                    "category_8" => found.anti_cheat = true,
+                    _ => {}
+                }
+            }
             match t {
                 0 => {
                     path.push(k);
@@ -408,19 +522,14 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (boo
                     let end = b[*p..].iter().position(|&c| c == 0)?;
                     let v = String::from_utf8_lossy(&b[*p..*p + end]).into_owned();
                     *p += end + 1;
+                    found.anti_cheat |= names_ac(&v);
                     if path.len() == 2 && path[1] == "common" && k == "osarch" {
-                        found.1 = v;
-                    }
-                    if path.len() == 3 && path[2] == "category" && k == "category_2" {
-                        found.0 = true;
+                        found.osarch = v;
                     }
                 }
                 2 | 3 => {
-                    if path.len() == 3 && path[2] == "category" && k == "category_2" {
-                        found.0 = true;
-                    }
                     if path.len() == 2 && path[1] == "common" && k == "osarch" {
-                        found.1 = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?).to_string();
+                        found.osarch = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?).to_string();
                     }
                     *p += 4;
                 }
@@ -436,7 +545,7 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (boo
         let next = p + 8 + size as usize;
         if ids.contains(&id) {
             let mut q = p + 8 + 60;
-            let mut found = (false, String::new());
+            let mut found = Facts::default();
             let mut key = |q: &mut usize| match &table {
                 Some(t) => {
                     let i = u32_at(*q).unwrap_or(0) as usize;
@@ -446,7 +555,7 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, (boo
                 None => cstr(q),
             };
             if walk(&b, &mut q, &mut Vec::new(), &mut key, &mut found).is_some() {
-                out.insert(id, (found.0, found.1 == "32"));
+                out.insert(id, found);
             }
         }
         p = next;
@@ -518,11 +627,7 @@ pub fn steam_unity_library() -> Vec<Owned> {
     let played = steam_last_played(&steam);
     for o in &mut owned {
         o.last_played = played.get(&o.app_id).copied().unwrap_or(0);
-        o.blocker = match facts.get(&o.app_id) {
-            Some((false, _)) => Some("Multiplayer only"),
-            Some((_, true)) => Some("32-bit"),
-            _ => None,
-        };
+        o.blocker = facts.get(&o.app_id).and_then(|f| f.blocker().or((f.osarch == "32").then_some("32-bit")));
     }
     owned.sort_by_key(|o| o.name.to_lowercase());
     owned
@@ -533,29 +638,83 @@ pub fn steam_install(app_id: u32) -> io::Result<()> {
     Command::new("explorer").arg(format!("steam://install/{app_id}")).spawn().map(|_| ())
 }
 
-pub fn scan() -> Vec<Game> {
-    let mut found: Vec<(PathBuf, u32, Option<String>, &'static str, u64)> = Vec::new();
-    let steam = steam_root();
-    if let Some(steam) = &steam {
-        let vdf = fs::read_to_string(steam.join("config").join("libraryfolders.vdf")).unwrap_or_default();
-        let mut roots: Vec<PathBuf> = vdf_values(&vdf, "path").map(PathBuf::from).collect();
-        if roots.is_empty() {
-            roots.push(steam.clone());
-        }
-        for apps in roots.iter().map(|r| r.join("steamapps")) {
-            for manifest in fs::read_dir(&apps).into_iter().flatten().flatten().map(|e| e.path()) {
-                let name = manifest.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                if !name.starts_with("appmanifest_") {
-                    continue;
-                }
-                let text = fs::read_to_string(&manifest).unwrap_or_default();
-                let Some(install) = vdf_values(&text, "installdir").next() else { continue };
-                let id = vdf_values(&text, "appid").next().and_then(|v| v.parse().ok()).unwrap_or(0);
-                let last = vdf_values(&text, "LastPlayed").next().and_then(|v| v.parse().ok()).unwrap_or(0);
-                found.push((apps.join("common").join(install), id, vdf_values(&text, "name").next(), "Steam", last));
+type Found = (PathBuf, u32, Option<String>, &'static str, u64);
+
+/// Every Steam install on this PC: its folder and its appmanifest text.
+fn steam_manifests(steam: &Path) -> Vec<(PathBuf, String)> {
+    let vdf = fs::read_to_string(steam.join("config").join("libraryfolders.vdf")).unwrap_or_default();
+    let mut roots: Vec<PathBuf> = vdf_values(&vdf, "path").map(PathBuf::from).collect();
+    if roots.is_empty() {
+        roots.push(steam.to_path_buf());
+    }
+    let mut found = Vec::new();
+    for apps in roots.iter().map(|r| r.join("steamapps")) {
+        for manifest in fs::read_dir(&apps).into_iter().flatten().flatten().map(|e| e.path()) {
+            if !manifest.file_name().unwrap_or_default().to_string_lossy().starts_with("appmanifest_") {
+                continue;
             }
+            let text = fs::read_to_string(&manifest).unwrap_or_default();
+            let Some(install) = vdf_values(&text, "installdir").next() else { continue };
+            found.push((apps.join("common").join(install), text));
         }
     }
+    found
+}
+
+/// Every Steam install on this PC: folder, app ID, name, store, last played.
+fn steam_installs(steam: &Path) -> Vec<Found> {
+    steam_manifests(steam)
+        .into_iter()
+        .map(|(dir, text)| {
+            let id = vdf_values(&text, "appid").next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let last = vdf_values(&text, "LastPlayed").next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            (dir, id, vdf_values(&text, "name").next(), "Steam", last)
+        })
+        .collect()
+}
+
+/// Steam is updating the game, or will on its next start (StateFlags other than 4, fully installed). The update could
+/// add anti-cheat after the check, so Play waits for it.
+pub fn steam_update_pending(dir: &Path) -> bool {
+    let Some(steam) = steam_root() else { return false };
+    steam_manifests(&steam)
+        .into_iter()
+        .find(|(root, _)| under(dir, root))
+        .and_then(|(_, text)| vdf_values(&text, "StateFlags").next())
+        .is_some_and(|flags| flags.trim() != "4")
+}
+
+/// Steam's word on each game, for those it knows: anti-cheat or online-only games are blocked even when no
+/// anti-cheat file is in their folder (server-side checks, VAC, a launcher that fetches it later).
+fn apply_steam(steam: &Path, games: &mut [Game]) {
+    // A game copied out of Steam keeps its app ID in steam_appid.txt.
+    let id_of = |g: &Game| match g.app_id {
+        0 => fs::read_to_string(g.dir.join("steam_appid.txt")).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
+        id => id,
+    };
+    let ids: Vec<u32> = games.iter().map(id_of).filter(|&id| id > 0).collect();
+    let facts = steam_facts(steam, &ids);
+    for g in games.iter_mut().filter(|g| g.blocker.is_none()) {
+        let Some(f) = facts.get(&id_of(g)) else { continue };
+        g.blocker = f.blocker().or((f.online && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
+    }
+}
+
+/// One game folder, checked as the library checks it: its files, and Steam's word if Steam installed it.
+pub fn inspect(dir: &Path) -> Option<Game> {
+    let mut g = detect(dir)?;
+    if let Some(steam) = steam_root() {
+        if let Some((_, id, ..)) = steam_installs(&steam).into_iter().find(|(root, ..)| under(&g.dir, root)) {
+            g.app_id = id;
+        }
+        apply_steam(&steam, std::slice::from_mut(&mut g));
+    }
+    Some(g)
+}
+
+pub fn scan() -> Vec<Game> {
+    let steam = steam_root();
+    let mut found: Vec<Found> = steam.as_deref().map(steam_installs).unwrap_or_default();
     found.extend(other_stores().into_iter().map(|(dir, name, store)| (dir, 0, name, store, 0)));
     let stores = found.len();
     found.extend(manual().into_iter().map(|dir| (dir, 0, None, "Added by you", 0)));
@@ -578,7 +737,13 @@ pub fn scan() -> Vec<Game> {
         g.cover = steam.as_ref().filter(|_| id > 0).and_then(|s| cover_in(&s.join("appcache").join("librarycache").join(id.to_string())));
         games.push(g);
     }
+    if let Some(steam) = &steam {
+        apply_steam(steam, &mut games);
+    }
     games.sort_by_key(|g| g.name.to_lowercase());
+    if let Ok(json) = serde_json::to_vec(&games) {
+        let _ = fs::create_dir_all(library_cache().parent().unwrap()).and_then(|_| fs::write(library_cache(), json));
+    }
     games
 }
 
