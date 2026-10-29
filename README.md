@@ -15,7 +15,7 @@ Working name, not final.
 Parallax runs Windows Unity games through Proton, Steam's Windows layer: unpack the Linux build and run `./Parallax`.
 
 - **Headset:** WiVRn (standalone headsets) or Monado (wired) work best; SteamVR for Linux works too.
-- **Launch options:** Proton only loads Parallax with these in the game's Steam launch options (Properties → General). The game page has a **Copy launch options** button, and Play waits until they are set:
+- **Launch options:** Proton only loads Parallax with these in the game's Steam launch options (Properties → General). The game page shows them with a **Copy launch options** button until Steam has saved them:
   `WINEDLLOVERRIDES="winhttp=n,b" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
 - **Linux versions:** where a game has its own Linux build, Steam installs that one, and the library marks it **Linux build**. Force Proton for it (Properties → Compatibility), let Steam download the Windows version, and it is ready.
 - **Steam only:** games from other stores run outside Steam's Proton; add their folder and start them from their launcher (Heroic, Lutris) with `WINEDLLOVERRIDES="winhttp=n,b"` set.

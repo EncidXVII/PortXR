@@ -407,18 +407,27 @@ fn game_user_dir(g: &Game, roaming: bool) -> Option<PathBuf> {
     if cfg!(windows) {
         return if roaming { dirs::config_dir() } else { Some(dirs::data_local_dir()?.parent()?.join("LocalLow")) };
     }
+    if g.app_id == 0 {
+        return None;
+    }
     let steamapps = g.dir.ancestors().find(|a| a.file_name().is_some_and(|n| n == "steamapps"))?;
     let users = steamapps.join("compatdata").join(g.app_id.to_string()).join("pfx/drive_c/users/steamuser/AppData");
     Some(users.join(if roaming { "Roaming" } else { "LocalLow" }))
 }
 
-/// Linux: Steam's launch options for the game lack the loader override, so Proton would start it without Parallax.
+/// Linux: Steam's saved launch options for the game lack the loader override, so Proton would start it without
+/// Parallax. Asked every frame by the game page, so Steam's file is read at most every two seconds.
 pub fn needs_launch_options(g: &Game) -> bool {
     if cfg!(windows) || g.app_id == 0 {
         return false;
     }
-    let Some(steam) = steam_root() else { return false };
-    !localconfig_values(&steam, "LaunchOptions").iter().any(|(id, v)| *id == g.app_id && v.contains("winhttp=n"))
+    static SAVED: std::sync::Mutex<Option<(std::time::Instant, Vec<(u32, String)>)>> = std::sync::Mutex::new(None);
+    let mut saved = SAVED.lock().unwrap();
+    if saved.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 2) {
+        let options = steam_root().map(|s| localconfig_values(&s, "LaunchOptions")).unwrap_or_default();
+        *saved = Some((std::time::Instant::now(), options));
+    }
+    !saved.as_ref().unwrap().1.iter().any(|(id, v)| *id == g.app_id && v.contains("winhttp=n"))
 }
 
 fn played_list() -> PathBuf {
@@ -450,7 +459,7 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
 /// The game's Lua scripts folder, where the plugin looks: `%APPDATA%\Parallax\scripts\<exe name>` (it keys by process
 /// name). Outside the game folder, so scripts survive an uninstall.
 pub fn scripts_dir(g: &Game) -> PathBuf {
-    game_user_dir(g, true).unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
+    game_user_dir(g, true).or_else(dirs::config_dir).unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
 }
 
 pub fn scripts(g: &Game) -> Vec<PathBuf> {
@@ -831,7 +840,7 @@ pub fn scan() -> Vec<Game> {
 pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let stem: String = g.name.chars().filter(|c| !r#"<>:"/\|?*"#.contains(*c)).collect();
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-    let desktop = dirs::desktop_dir().ok_or("no desktop folder")?;
+    let desktop = dirs::desktop_dir().or_else(dirs::home_dir).ok_or("no desktop folder")?;
     let path = desktop.join(format!("Parallax logs - {stem} - {stamp}.zip"));
     let mut zip = zip::ZipWriter::new(File::create(&path)?);
     let opts = zip::write::SimpleFileOptions::default();

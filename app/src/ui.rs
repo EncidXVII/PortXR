@@ -626,7 +626,7 @@ impl App {
             self.confirm_uninstall = false;
         }
         // Linux: Steam keeps its launch options to itself while running, so the player pastes them in.
-        if playable && games::needs_launch_options(g) && secondary(ui, "Copy launch options").clicked() {
+        if playable && games::needs_launch_options(g) && tertiary(ui, "Copy launch options").clicked() {
             ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
             self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
         }
@@ -817,7 +817,7 @@ fn warning(g: &Game) -> (String, Tone) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
-        _ if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
+        (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
@@ -1293,9 +1293,6 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
-    if games::needs_launch_options(g) {
-        return Err(format!("Proton would start the game without Parallax. Add these to its Steam launch options first: {}", games::LAUNCH_OPTIONS).into());
-    }
     if games::steam_update_pending(&g.dir) {
         return Err("Steam has an update waiting for this game. Let Steam finish it, then press Play again: Parallax checks every update for anti-cheat first.".into());
     }
@@ -1306,6 +1303,10 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     }
     g.launch()?;
     games::mark_played(&g.dir);
+    // Steam may hold freshly pasted launch options in memory until it exits, so this only reminds.
+    if games::needs_launch_options(g) {
+        return Ok(format!("Launching. If the game starts flat, its Steam launch options are missing: {}", games::LAUNCH_OPTIONS));
+    }
     Ok("Launching. Put on your headset; double-tap the left menu button for the VR menu.".into())
 }
 
@@ -1359,7 +1360,7 @@ fn version(s: &str) -> Vec<u32> {
 // ---- style ------------------------------------------------------------------------------------------------------
 
 // Display: Anton (bundled, SIL OFL). Body: Segoe UI. Labels: Cascadia Mono, else Consolas. All but Anton ship with
-// Windows; egui's own fonts stay as the fallback for symbols.
+// Windows; egui's own fonts are the fallback (and the fonts on Linux).
 fn style(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let dir = PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into())).join("Fonts");
@@ -1375,7 +1376,8 @@ fn style(ctx: &egui::Context) {
         fonts.font_data.insert("mono".into(), Arc::new(egui::FontData::from_owned(bytes)));
         mono_family.push("mono".to_string());
     }
-    fonts.families.insert(FontFamily::Name("mono".into()), [mono_family, fallback].concat());
+    let monospace = fonts.families[&FontFamily::Monospace].clone();
+    fonts.families.insert(FontFamily::Name("mono".into()), [mono_family, monospace].concat());
     ctx.set_fonts(fonts);
 
     ctx.all_styles_mut(|s| {
