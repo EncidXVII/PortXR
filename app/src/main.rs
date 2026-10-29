@@ -10,11 +10,18 @@ use std::process::ExitCode;
 
 // CLI: Parallax.exe install|uninstall|detect|export <gameDir> (used by the harness). Parallax.exe <gameDir> opens the
 // app on that game's page (shortcuts); no arguments opens the library.
+fn attach_console() {
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS)
+    };
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // The Steam library's Unity games and what is known about them before install, for checking the library scan.
     if args.len() == 1 && args[0] == "owned" {
-        unsafe { windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS) };
+        attach_console();
         for o in games::steam_unity_library() {
             println!("{}	{}	{}	{}", o.app_id, o.blocker.unwrap_or("ok"), o.last_played, o.name);
         }
@@ -22,7 +29,7 @@ fn main() -> ExitCode {
     }
     if let [cmd, dir] = args.as_slice() {
         // A GUI-subsystem exe has no console of its own; borrow the caller's so messages show up there.
-        unsafe { windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS) };
+        attach_console();
         return match cli(cmd, Path::new(dir)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

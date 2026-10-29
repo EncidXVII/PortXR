@@ -7,8 +7,18 @@ Working name, not final.
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
-2. Pick a game marked **Ready** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. **Install** sets a game up without starting it. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
+2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. **Install** sets a game up without starting it. Parallax installs itself into the game folder; **Uninstall** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Stereo, Parallax, Theater), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+
+## Linux
+
+Parallax runs Windows Unity games through Proton, Steam's Windows layer: unpack the Linux build and run `./Parallax`.
+
+- **Headset:** WiVRn (standalone headsets) or Monado (wired) work best; SteamVR for Linux works too.
+- **Launch options:** Proton only loads Parallax with these in the game's Steam launch options (Properties → General). The game page has a **Copy launch options** button, and Play waits until they are set:
+  `WINEDLLOVERRIDES="winhttp=n,b" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
+- **Linux versions:** where a game has its own Linux build, Steam installs that one, and the library marks it **Linux build**. Force Proton for it (Properties → Compatibility), let Steam download the Windows version, and it is ready.
+- **Steam only:** games from other stores run outside Steam's Proton; add their folder and start them from their launcher (Heroic, Lutris) with `WINEDLLOVERRIDES="winhttp=n,b"` set.
 
 ## Controls
 

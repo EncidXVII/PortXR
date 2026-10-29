@@ -1,8 +1,6 @@
 use std::error::Error;
 use std::fs;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::{self, Align, Align2, Color32, FontFamily, FontId, Layout, Margin, Painter, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
@@ -524,7 +522,7 @@ impl App {
         if self.advanced && file.exists() {
             ui.add_space(8.0);
             if tertiary(ui, "Open settings file").clicked() {
-                let _ = Command::new("notepad").arg(file).spawn();
+                let _ = games::edit(&file);
             }
         }
     }
@@ -627,6 +625,11 @@ impl App {
             self.report(play(g, &self.defaults));
             self.confirm_uninstall = false;
         }
+        // Linux: Steam keeps its launch options to itself while running, so the player pastes them in.
+        if playable && games::needs_launch_options(g) && secondary(ui, "Copy launch options").clicked() {
+            ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
+            self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
+        }
         if playable && !g.installed() && secondary(ui, "Install").clicked() {
             self.report(install(g, &self.defaults));
             self.cfg = load_cfg(g);
@@ -647,16 +650,19 @@ impl App {
             ui.add_space(16.0);
         }
         if tertiary(ui, "Open folder").clicked() {
-            let _ = Command::new("explorer").arg(&g.dir).spawn();
+            let _ = games::open(&g.dir);
         }
         if g.installed() && tertiary(ui, "Export logs").clicked() {
             self.report(games::export_logs(g).map(|zip| {
-                let _ = Command::new("explorer").raw_arg(format!("/select,\"{}\"", zip.display())).spawn();
+                #[cfg(windows)]
+                let _ = std::os::windows::process::CommandExt::raw_arg(&mut std::process::Command::new("explorer"), format!("/select,\"{}\"", zip.display())).spawn();
+                #[cfg(not(windows))]
+                let _ = zip.parent().map(games::open);
                 "Logs saved to your desktop. Attach the zip to your bug report.".into()
             }));
         }
         if g.file(LOG).exists() && tertiary(ui, "Open log").clicked() {
-            let _ = Command::new("notepad").arg(g.file(LOG)).spawn();
+            let _ = games::edit(&g.file(LOG));
         }
         // Only hand-added folders can be forgotten (store games come back on every scan), and not while installed,
         // or the game would vanish from the app with Parallax still in it.
@@ -688,7 +694,7 @@ impl App {
                 ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).font(mono(BODY)).color(INK));
                 ui.spacing_mut().item_spacing.x = 24.0;
                 if tertiary(ui, "Edit").clicked() {
-                    let _ = Command::new("notepad").arg(path).spawn();
+                    let _ = games::edit(&path);
                 }
                 if tertiary(ui, "Remove").clicked() {
                     remove = Some(path.clone());
@@ -709,10 +715,10 @@ impl App {
             if tertiary(ui, "Open scripts folder").clicked() {
                 let dir = games::scripts_dir(g);
                 let _ = fs::create_dir_all(&dir);
-                let _ = Command::new("explorer").arg(dir).spawn();
+                let _ = games::open(dir);
             }
             if tertiary(ui, "Scripting guide").clicked() {
-                let _ = Command::new("explorer").arg(format!("https://github.com/{REPO}/blob/main/SCRIPTING.md")).spawn();
+                let _ = games::open(format!("https://github.com/{REPO}/blob/main/SCRIPTING.md"));
             }
         });
     }
@@ -810,6 +816,8 @@ fn warning(g: &Game) -> (String, Tone) {
     match (g.compat(), g.other_loader) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
+        (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
+        _ if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
@@ -1285,6 +1293,9 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
+    if games::needs_launch_options(g) {
+        return Err(format!("Proton would start the game without Parallax. Add these to its Steam launch options first: {}", games::LAUNCH_OPTIONS).into());
+    }
     if games::steam_update_pending(&g.dir) {
         return Err("Steam has an update waiting for this game. Let Steam finish it, then press Play again: Parallax checks every update for anti-cheat first.".into());
     }

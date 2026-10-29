@@ -23,3 +23,31 @@ jobs:
         with:
           name: parallax
           path: release/*
+
+  # The Linux app installs the same Windows payload: games run it under Proton.
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the app
+        run: cargo build --release --manifest-path app/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parallax-linux-app
+          path: app/target/release/Parallax
+
+  linux-pack:
+    needs: [build, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Swap the Windows app for the Linux one
+        run: |
+          zip=$(ls parallax/*.zip | head -1)
+          mkdir pkg && unzip -q "$zip" -d pkg && rm pkg/Parallax.exe
+          install -m 755 parallax-linux-app/Parallax pkg/Parallax
+          tar -czf "$(basename "$zip" .zip)-linux.tar.gz" -C pkg .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parallax-linux
+          path: "*-linux.tar.gz"

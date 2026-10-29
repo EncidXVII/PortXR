@@ -78,21 +78,21 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     sources.retain(|rel| !loader_preexisting || rel.to_lowercase().starts_with(&PLUGIN_DIR.to_lowercase()));
     let mut created_dirs: Vec<String> = Vec::new();
     for top in sources.iter().filter_map(|rel| rel.split_once('\\').map(|(t, _)| t.to_string())) {
-        if !created_dirs.contains(&top) && !game_dir.join(&top).exists() {
+        if !created_dirs.contains(&top) && !games::native(game_dir, &top).exists() {
             created_dirs.push(top);
         }
     }
     let mut files = Vec::new();
     for rel in sources {
-        let target = game_dir.join(&rel);
+        let target = games::native(game_dir, &rel);
         let backed_up = target.exists();
         if backed_up {
-            let backup = game_dir.join(BACKUP_DIR).join(&rel);
+            let backup = games::native(&game_dir.join(BACKUP_DIR), &rel);
             fs::create_dir_all(backup.parent().unwrap())?;
             fs::copy(&target, backup)?;
         }
         fs::create_dir_all(target.parent().unwrap())?;
-        fs::copy(payload.join(&rel), &target)?;
+        fs::copy(games::native(&payload, &rel), &target)?;
         let sha256 = Sha256::digest(fs::read(&target)?).iter().map(|b| format!("{b:02x}")).collect();
         files.push(ReceiptFile { path: rel, sha256, backed_up });
     }
@@ -112,8 +112,8 @@ pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
     walk(&payload, &payload, &mut sources)?;
     let mut changed = false;
     for rel in sources.into_iter().filter(|rel| rel.to_lowercase().starts_with(&PLUGIN_DIR.to_lowercase())) {
-        let data = fs::read(payload.join(&rel))?;
-        let target = game_dir.join(&rel);
+        let data = fs::read(games::native(&payload, &rel))?;
+        let target = games::native(game_dir, &rel);
         if fs::read(&target).is_ok_and(|current| current == data) {
             continue;
         }
@@ -146,17 +146,17 @@ fn checked(game_dir: &Path) -> Result<games::Game, Box<dyn Error>> {
 pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     let receipt: Receipt = serde_json::from_slice(&fs::read(receipt_path(game_dir))?)?;
     for dir in &receipt.created_dirs {
-        remove_dir(&game_dir.join(dir))?;
+        remove_dir(&games::native(game_dir, dir))?;
     }
     if receipt.loader_preexisting {
-        remove_dir(&game_dir.join(PLUGIN_DIR))?;
-        let _ = fs::remove_file(game_dir.join(CONFIG));
+        remove_dir(&games::native(game_dir, PLUGIN_DIR))?;
+        let _ = fs::remove_file(games::native(game_dir, CONFIG));
     }
     for entry in &receipt.files {
-        let target = game_dir.join(&entry.path);
+        let target = games::native(game_dir, &entry.path);
         if entry.backed_up {
             fs::create_dir_all(target.parent().unwrap())?;
-            fs::copy(game_dir.join(BACKUP_DIR).join(&entry.path), &target)?;
+            fs::copy(games::native(&game_dir.join(BACKUP_DIR), &entry.path), &target)?;
         } else if target.exists() {
             fs::remove_file(&target)?;
         }

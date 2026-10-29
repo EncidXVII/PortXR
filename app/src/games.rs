@@ -12,6 +12,7 @@ pub enum Compat {
     Supported,
     /// Anti-cheat or online-only: injecting could get the account banned.
     Blocked,
+    LinuxBuild,
     X86,
     Stripped,
 }
@@ -25,6 +26,9 @@ pub struct Game {
     pub il2cpp: bool,
     pub x86: bool,
     pub stripped: bool,
+    /// Steam installed the game's own Linux version: Parallax needs the Windows one, run by Proton.
+    #[serde(default)]
+    pub linux_build: bool,
     #[serde(deserialize_with = "leak_opt")]
     pub blocker: Option<&'static str>,
     #[serde(deserialize_with = "leak_opt")]
@@ -44,6 +48,8 @@ impl Game {
     pub fn compat(&self) -> Compat {
         if self.blocker.is_some() {
             Compat::Blocked
+        } else if self.linux_build {
+            Compat::LinuxBuild
         } else if self.x86 {
             Compat::X86
         } else if self.stripped {
@@ -58,6 +64,7 @@ impl Game {
             Compat::Supported if self.installed() => "VR added",
             Compat::Supported => "Installed",
             Compat::Blocked => self.blocker.unwrap_or("Anti-cheat"),
+            Compat::LinuxBuild => "Linux build",
             Compat::X86 => "32-bit",
             Compat::Stripped => "Trimmed engine",
         }
@@ -71,19 +78,40 @@ impl Game {
         installer::receipt_path(&self.dir).exists()
     }
 
+    /// A file in the game folder, by a backslash path as the receipt and the plugin name them.
     pub fn file(&self, rel: &str) -> PathBuf {
-        self.dir.join(rel)
+        native(&self.dir, rel)
     }
 
     pub fn launch(&self) -> io::Result<()> {
         if self.app_id > 0 {
-            Command::new("explorer").arg(format!("steam://rungameid/{}", self.app_id)).spawn()?;
+            open(format!("steam://rungameid/{}", self.app_id))
+        } else if cfg!(windows) {
+            Command::new(&self.exe).current_dir(&self.dir).spawn().map(|_| ())
         } else {
-            Command::new(&self.exe).current_dir(&self.dir).spawn()?;
+            Err(io::Error::other(format!("Outside Steam, start the game from its launcher (Heroic, Lutris) with {WINE_DLL} set.")))
         }
-        Ok(())
     }
 }
+
+/// `base` joined with a backslash-separated relative path, on any OS.
+pub fn native(base: &Path, rel: &str) -> PathBuf {
+    base.join(rel.replace('\\', "/"))
+}
+
+/// Opens a folder, file or URL with the desktop's default handler.
+pub fn open(target: impl AsRef<std::ffi::OsStr>) -> io::Result<()> {
+    Command::new(if cfg!(windows) { "explorer" } else { "xdg-open" }).arg(target).spawn().map(|_| ())
+}
+
+/// Opens a text file in an editor.
+pub fn edit(file: &Path) -> io::Result<()> {
+    if cfg!(windows) { Command::new("notepad").arg(file).spawn().map(|_| ()) } else { open(file) }
+}
+
+/// Proton loads the Windows mod loader only with this override; with it, Monado and WiVRn reach the game too.
+pub const WINE_DLL: &str = "WINEDLLOVERRIDES=\"winhttp=n,b\"";
+pub const LAUNCH_OPTIONS: &str = "WINEDLLOVERRIDES=\"winhttp=n,b\" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
 
 // The labels are a handful of short strings, read once per start.
 fn leak<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
@@ -110,14 +138,16 @@ pub fn cached() -> Vec<Game> {
 // and build compression.
 const DATA_MARKERS: [&str; 3] = ["globalgamemanagers", "data.unity3d", "mainData"];
 
+// Windows players are .exe; a Linux build (Steam's default where one exists) is .x86_64.
 fn is_player(exe: &Path) -> bool {
-    exe.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) && DATA_MARKERS.iter().any(|m| data_dir(exe).join(m).exists())
+    exe.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe") || x == "x86_64") && DATA_MARKERS.iter().any(|m| data_dir(exe).join(m).exists())
 }
 
 /// The Unity player under `dir`: in it, or up to two folders down (many stores put the game in a subfolder).
 fn find_player(dir: &Path, depth: u32) -> Option<PathBuf> {
     let entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
-    if let Some(exe) = entries.iter().find(|p| is_player(p)) {
+    let windows = |p: &&PathBuf| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe"));
+    if let Some(exe) = entries.iter().filter(|p| is_player(p)).max_by_key(|p| windows(p)) {
         return Some(exe.clone());
     }
     if depth == 0 {
@@ -194,12 +224,13 @@ pub fn detect(root: &Path) -> Option<Game> {
     };
     // app.info holds the company and product name; store games get their store name in scan() instead.
     let product = fs::read_to_string(data_dir(&exe).join("app.info")).ok().and_then(|t| t.lines().nth(1).map(|l| l.trim().to_string()));
-    let il2cpp = dir.join("GameAssembly.dll").exists();
+    let il2cpp = dir.join("GameAssembly.dll").exists() || dir.join("GameAssembly.so").exists();
     Some(Game {
         name: product.filter(|p| !p.is_empty()).unwrap_or_else(|| root.file_name().unwrap_or_default().to_string_lossy().into_owned()),
         unity: unity_version(&data_dir(&exe)).unwrap_or_else(|| "unknown".into()),
         il2cpp,
         x86: is_x86(&exe).unwrap_or(false),
+        linux_build: exe.extension().is_some_and(|x| x == "x86_64"),
         stripped: !il2cpp && is_stripped(&dir, &data_dir(&exe).join("Managed")),
         blocker,
         other_loader,
@@ -291,6 +322,13 @@ pub fn remove_folder(dir: &Path) -> io::Result<()> {
 }
 
 /// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
+#[cfg(not(windows))]
+fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
+    // On Linux, Parallax works through Proton: Steam games, and folders added by hand.
+    Vec::new()
+}
+
+#[cfg(windows)]
 fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
     let mut found = Vec::new();
     let manifests = PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into()))
@@ -347,9 +385,40 @@ fn under(dir: &Path, root: &Path) -> bool {
     d == r || d.starts_with(&(r + "\\"))
 }
 
+#[cfg(windows)]
 fn steam_root() -> Option<PathBuf> {
     let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey(r"Software\Valve\Steam").ok()?;
     key.get_value::<String, _>("SteamPath").ok().map(PathBuf::from)
+}
+
+// The native package, the old ~/.steam link, and the Flatpak.
+#[cfg(not(windows))]
+fn steam_root() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    [".local/share/Steam", ".steam/steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam"]
+        .iter()
+        .map(|rel| home.join(rel))
+        .find(|p| p.join("steamapps").is_dir())
+}
+
+/// The game's user folder as the game sees it (`%APPDATA%` with `roaming`, else `LocalLow`): on Linux, inside the
+/// game's Proton prefix next to its Steam library (`steamapps/compatdata/<id>/pfx`).
+fn game_user_dir(g: &Game, roaming: bool) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return if roaming { dirs::config_dir() } else { Some(dirs::data_local_dir()?.parent()?.join("LocalLow")) };
+    }
+    let steamapps = g.dir.ancestors().find(|a| a.file_name().is_some_and(|n| n == "steamapps"))?;
+    let users = steamapps.join("compatdata").join(g.app_id.to_string()).join("pfx/drive_c/users/steamuser/AppData");
+    Some(users.join(if roaming { "Roaming" } else { "LocalLow" }))
+}
+
+/// Linux: Steam's launch options for the game lack the loader override, so Proton would start it without Parallax.
+pub fn needs_launch_options(g: &Game) -> bool {
+    if cfg!(windows) || g.app_id == 0 {
+        return false;
+    }
+    let Some(steam) = steam_root() else { return false };
+    !localconfig_values(&steam, "LaunchOptions").iter().any(|(id, v)| *id == g.app_id && v.contains("winhttp=n"))
 }
 
 fn played_list() -> PathBuf {
@@ -381,7 +450,7 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
 /// The game's Lua scripts folder, where the plugin looks: `%APPDATA%\Parallax\scripts\<exe name>` (it keys by process
 /// name). Outside the game folder, so scripts survive an uninstall.
 pub fn scripts_dir(g: &Game) -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
+    game_user_dir(g, true).unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
 }
 
 pub fn scripts(g: &Game) -> Vec<PathBuf> {
@@ -419,14 +488,26 @@ pub struct Owned {
 /// App ID to the last time any Steam account on this PC played it: localconfig.vdf lists `"<appid>" { "LastPlayed" "<t>" }`.
 fn steam_last_played(steam: &Path) -> std::collections::HashMap<u32, u64> {
     let mut out = std::collections::HashMap::new();
+    for (id, t) in localconfig_values(steam, "LastPlayed") {
+        if let Ok(t) = t.parse::<u64>() {
+            let e = out.entry(id).or_insert(0);
+            *e = (*e).max(t);
+        }
+    }
+    out
+}
+
+/// `(app ID, value)` for `key` in every Steam account's localconfig.vdf, where apps list `"<appid>" { "<key>" "<v>" }`.
+fn localconfig_values(steam: &Path, key: &str) -> Vec<(u32, String)> {
+    let quoted = format!("\"{key}\"");
+    let mut out = Vec::new();
     for user in fs::read_dir(steam.join("userdata")).into_iter().flatten().flatten() {
         let text = fs::read_to_string(user.path().join("config").join("localconfig.vdf")).unwrap_or_default();
         let mut app: Option<u32> = None;
         for line in text.lines().map(str::trim) {
-            if let Some(t) = line.strip_prefix("\"LastPlayed\"") {
-                if let (Some(id), Ok(t)) = (app, t.trim().trim_matches('"').parse::<u64>()) {
-                    let e = out.entry(id).or_insert(0);
-                    *e = (*e).max(t);
+            if let Some(v) = line.strip_prefix(quoted.as_str()) {
+                if let Some(id) = app {
+                    out.push((id, v.trim().trim_matches('"').replace("\\\"", "\"")));
                 }
             } else if let Some(id) = line.strip_prefix('"').and_then(|l| l.strip_suffix('"')).and_then(|n| n.parse().ok()) {
                 // A bare quoted number opens an app's block.
@@ -437,7 +518,6 @@ fn steam_last_played(steam: &Path) -> std::collections::HashMap<u32, u64> {
     out
 }
 
-/// What Steam's app cache says about some apps: (has single-player, Windows build is 32-bit only).
 /// What Steam's app cache says about a game, before or after it is installed.
 #[derive(Default)]
 struct Facts {
@@ -635,7 +715,7 @@ pub fn steam_unity_library() -> Vec<Owned> {
 
 /// Asks Steam to install a game (its own install dialog opens).
 pub fn steam_install(app_id: u32) -> io::Result<()> {
-    Command::new("explorer").arg(format!("steam://install/{app_id}")).spawn().map(|_| ())
+    open(format!("steam://install/{app_id}"))
 }
 
 type Found = (PathBuf, u32, Option<String>, &'static str, u64);
@@ -777,5 +857,5 @@ fn player_log(g: &Game) -> Option<PathBuf> {
     let info = fs::read_to_string(data_dir(&g.exe).join("app.info")).ok()?;
     let mut lines = info.lines();
     let (company, product) = (lines.next()?, lines.next()?);
-    Some(dirs::data_local_dir()?.parent()?.join("LocalLow").join(company).join(product).join("Player.log"))
+    Some(game_user_dir(g, false)?.join(company).join(product).join("Player.log"))
 }
