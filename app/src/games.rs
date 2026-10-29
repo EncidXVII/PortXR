@@ -12,6 +12,7 @@ pub enum Compat {
     Supported,
     /// Anti-cheat or online-only: injecting could get the account banned.
     Blocked,
+    NativeVr,
     LinuxBuild,
     X86,
     Stripped,
@@ -29,6 +30,9 @@ pub struct Game {
     /// Steam installed the game's own Linux version: Parallax needs the Windows one, run by Proton.
     #[serde(default)]
     pub linux_build: bool,
+    /// Steam lists its own VR support: it is played in VR without Parallax.
+    #[serde(default)]
+    pub native_vr: bool,
     #[serde(deserialize_with = "leak_opt")]
     pub blocker: Option<&'static str>,
     #[serde(deserialize_with = "leak_opt")]
@@ -48,6 +52,8 @@ impl Game {
     pub fn compat(&self) -> Compat {
         if self.blocker.is_some() {
             Compat::Blocked
+        } else if self.native_vr {
+            Compat::NativeVr
         } else if self.linux_build {
             Compat::LinuxBuild
         } else if self.x86 {
@@ -64,6 +70,7 @@ impl Game {
             Compat::Supported if self.installed() => "VR added",
             Compat::Supported => "Installed",
             Compat::Blocked => self.blocker.unwrap_or("Anti-cheat"),
+            Compat::NativeVr => "Already VR",
             Compat::LinuxBuild => "Linux build",
             Compat::X86 => "32-bit",
             Compat::Stripped => "Trimmed engine",
@@ -231,6 +238,7 @@ pub fn detect(root: &Path) -> Option<Game> {
         il2cpp,
         x86: is_x86(&exe).unwrap_or(false),
         linux_build: exe.extension().is_some_and(|x| x == "x86_64"),
+        native_vr: false,
         stripped: !il2cpp && is_stripped(&dir, &data_dir(&exe).join("Managed")),
         blocker,
         other_loader,
@@ -495,7 +503,8 @@ pub struct Owned {
     pub app_id: u32,
     pub name: String,
     pub cover: Option<PathBuf>,
-    /// Why Parallax will not run it, known before it is installed: "Multiplayer only" or "32-bit".
+    /// Why Parallax will not run it, known before it is installed: "Anti-cheat", "Multiplayer only", "Already VR" or
+    /// "32-bit".
     pub blocker: Option<&'static str>,
     /// Unix seconds, from Steam's per-account play records (kept after an uninstall); 0 if never played.
     pub last_played: u64,
@@ -541,6 +550,8 @@ struct Facts {
     multiplayer: bool,
     /// VAC, an anti-cheat support page, a protected launcher or a Steam Deck anti-cheat test result.
     anti_cheat: bool,
+    /// VR support of its own (31, 53, 54).
+    vr: bool,
     osarch: String,
 }
 
@@ -606,6 +617,7 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Fact
                     "category_2" => found.single_player = true,
                     "category_1" | "category_9" | "category_20" | "category_27" | "category_36" | "category_38" | "category_47" | "category_48" | "category_49" => found.multiplayer = true,
                     "category_8" => found.anti_cheat = true,
+                    "category_31" | "category_53" | "category_54" => found.vr = true,
                     _ => {}
                 }
             }
@@ -724,7 +736,7 @@ pub fn steam_unity_library() -> Vec<Owned> {
     let played = steam_last_played(&steam);
     for o in &mut owned {
         o.last_played = played.get(&o.app_id).copied().unwrap_or(0);
-        o.blocker = facts.get(&o.app_id).and_then(|f| f.blocker().or((f.osarch == "32").then_some("32-bit")));
+        o.blocker = facts.get(&o.app_id).and_then(|f| f.blocker().or(f.vr.then_some("Already VR")).or((f.osarch == "32").then_some("32-bit")));
     }
     owned.sort_by_key(|o| o.name.to_lowercase());
     owned
@@ -791,9 +803,12 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
     };
     let ids: Vec<u32> = games.iter().map(id_of).filter(|&id| id > 0).collect();
     let facts = steam_facts(steam, &ids);
-    for g in games.iter_mut().filter(|g| g.blocker.is_none()) {
+    for g in games.iter_mut() {
         let Some(f) = facts.get(&id_of(g)) else { continue };
-        g.blocker = f.blocker().or((f.multiplayer && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
+        g.native_vr = f.vr;
+        if g.blocker.is_none() {
+            g.blocker = f.blocker().or((f.multiplayer && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
+        }
     }
 }
 

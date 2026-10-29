@@ -189,11 +189,9 @@ impl App {
             scanned: Arc::new(Mutex::new(None)),
             scanning: false,
         };
+        app.scan_in_background(&cc.egui_ctx);
         if let Some(dir) = open {
-            app.rescan();
             app.open_dir(&dir);
-        } else {
-            app.scan_in_background(&cc.egui_ctx);
         }
         app
     }
@@ -234,7 +232,11 @@ impl App {
                 self.status = (e.to_string(), Tone::Bad);
                 return;
             }
-            self.rescan();
+            // Joins the shown library now; the next scan brings it in with everything else.
+            let mut added = games::inspect(dir).unwrap_or(game.clone());
+            added.added = Some(dir.to_path_buf());
+            added.store = "Added by you";
+            self.games.push(added);
         }
         if let Some(i) = self.games.iter().position(|g| g.dir == game.dir) {
             self.open(i);
@@ -284,7 +286,8 @@ impl App {
             if !self.games.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let search = egui::TextEdit::singleline(&mut self.query).hint_text("Search games").margin(Margin::symmetric(12, 10));
-                    ui.add_sized([280.0, CONTROL_H], search);
+                    let r = ui.add_sized([280.0, CONTROL_H], search);
+                    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Search games"));
                 });
             }
         });
@@ -387,6 +390,7 @@ impl App {
     fn install_owned(&mut self, o: &games::Owned) {
         self.status = match o.blocker {
             Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
+            Some("Already VR") => (format!("{} has its own VR mode: play it in VR from Steam.", o.name), Tone::Info),
             Some("Multiplayer only") => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
             Some(_) => (format!("{} uses anti-cheat. Injecting into it risks a ban, so Parallax never runs in it.", o.name), Tone::Bad),
             None => match games::steam_install(o.app_id) {
@@ -428,12 +432,14 @@ impl App {
                 stores.sort();
                 stores.dedup();
                 if stores.len() > 1 {
-                    egui::ComboBox::from_id_salt("store").selected_text(button_text(self.store.unwrap_or("All stores"), INK)).show_ui(ui, |ui| {
+                    let shown = self.store.unwrap_or("All stores");
+                    let menu = egui::ComboBox::from_id_salt("store").selected_text(button_text(shown, INK)).show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.store, None, button_text("All stores", INK));
                         for s in stores {
                             ui.selectable_value(&mut self.store, Some(s), button_text(s, INK));
                         }
                     });
+                    menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Store: {shown}")));
                 }
             });
         });
@@ -441,10 +447,12 @@ impl App {
 
     fn sort_menu(&mut self, ui: &mut Ui) {
         let order = if self.sort == Sort::Recent { "Recently played" } else { "Name A-Z" };
-        egui::ComboBox::from_id_salt("sort").selected_text(button_text(order, INK)).show_ui(ui, |ui| {
+        let menu = egui::ComboBox::from_id_salt("sort").selected_text(button_text(order, INK)).show_ui(ui, |ui| {
             ui.selectable_value(&mut self.sort, Sort::Recent, button_text("Recently played", INK));
             ui.selectable_value(&mut self.sort, Sort::Name, button_text("Name A-Z", INK));
         });
+        // Screen readers name controls by their label; these show only their value.
+        menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Order: {order}")));
     }
 
     fn empty(&mut self, ui: &mut Ui, title: &str, text: &str, action: &str) {
@@ -458,6 +466,8 @@ impl App {
     }
 
     fn game_page(&mut self, ui: &mut Ui, i: usize) {
+        // The page reads the folder live (installed or not); redraw now and then so changes made elsewhere show.
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
         let g = self.games[i].clone();
         if tertiary(ui, "← Library").on_hover_text("Esc").clicked() {
             self.back();
@@ -596,11 +606,12 @@ impl App {
                     let own = game && !settings::same(&current, &global);
                     let tone = if current == "None" { INK3 } else if !game || own { INK } else { INK2 };
                     let mut pick = current.clone();
-                    egui::ComboBox::from_id_salt((d.key, game)).width(132.0).selected_text(button_text(&current, tone)).show_ui(ui, |ui| {
+                    let menu = egui::ComboBox::from_id_salt((d.key, game)).width(132.0).selected_text(button_text(&current, tone)).show_ui(ui, |ui| {
                         for k in settings::KEYS {
                             ui.selectable_value(&mut pick, k.to_string(), button_text(k, INK));
                         }
                     });
+                    menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("{}: {current}", d.label)));
                     if pick != current {
                         let text = if game { &mut self.cfg } else { &mut self.defaults };
                         *text = settings::set(text, d.section, d.key, &pick);
@@ -817,6 +828,7 @@ fn warning(g: &Game) -> (String, Tone) {
     match (g.compat(), g.other_loader) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
+        (Compat::NativeVr, _) => ("This game has its own VR mode: start it in VR from Steam. Parallax stays out of games that already support VR.".into(), Tone::Info),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
         (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
@@ -887,9 +899,10 @@ impl eframe::App for App {
         if self.page == Page::Library && ((focused && !self.focused) || ui.input(|i| i.key_pressed(egui::Key::F5))) {
             self.scan_in_background(ui.ctx());
         }
-        if let Some(found) = self.scanned.lock().unwrap().take() {
-            self.scanning = false;
-            if self.page == Page::Library {
+        // A finished scan waits for the library: replacing the list under an open game page would move its index.
+        if self.page == Page::Library {
+            if let Some(found) = self.scanned.lock().unwrap().take() {
+                self.scanning = false;
                 self.games = found;
             }
         }
@@ -1245,6 +1258,8 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
     let (text, kind) = match o.blocker {
+        // Ban risks are red; the rest are just unsupported.
+        Some(b @ ("Already VR" | "32-bit")) => (b, ChipKind::Unsupported),
         Some(b) => (b, ChipKind::Blocked),
         None => ("Not installed", ChipKind::NotInstalled),
     };

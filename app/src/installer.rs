@@ -55,6 +55,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
 // created is removed whole because the loader writes logs, caches and configs into it at runtime.
 pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     let game = checked(game_dir)?;
+    if game.native_vr {
+        return Err("This game has its own VR mode: start it in VR from Steam. Parallax stays out of games that already support VR.".into());
+    }
     if game.stripped {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
     }
@@ -165,9 +168,9 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
         let target = games::native(game_dir, &entry.path);
         if entry.backed_up {
             fs::create_dir_all(target.parent().unwrap())?;
-            fs::copy(games::native(&game_dir.join(BACKUP_DIR), &entry.path), &target)?;
+            patient(|| fs::copy(games::native(&game_dir.join(BACKUP_DIR), &entry.path), &target))?;
         } else if target.exists() {
-            fs::remove_file(&target)?;
+            patient(|| fs::remove_file(&target))?;
         }
     }
     remove_dir(&game_dir.join(BACKUP_DIR))?;
@@ -176,5 +179,16 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn remove_dir(dir: &Path) -> std::io::Result<()> {
-    if dir.exists() { fs::remove_dir_all(dir) } else { Ok(()) }
+    if dir.exists() { patient(|| fs::remove_dir_all(dir)) } else { Ok(()) }
+}
+
+/// Retries a file operation for up to three seconds: a game that just closed can hold its files a moment longer.
+fn patient<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    for _ in 0..15 {
+        match op() {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => std::thread::sleep(std::time::Duration::from_millis(200)),
+            done => return done,
+        }
+    }
+    op()
 }
