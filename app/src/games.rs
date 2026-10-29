@@ -475,6 +475,13 @@ pub fn scripts(g: &Game) -> Vec<PathBuf> {
 }
 
 pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
+    // Linux: the scripts live in the game's Proton prefix, which Proton makes on the first start; making its folders
+    // first would leave Proton a half-made prefix.
+    if let Some(pfx) = game_user_dir(g, true).filter(|_| !cfg!(windows)).and_then(|d| d.ancestors().nth(5).map(Path::to_path_buf)) {
+        if !pfx.join("system.reg").exists() {
+            return Err(io::Error::other("Start the game once through Steam first, so Proton sets up its Windows folder."));
+        }
+    }
     let dir = scripts_dir(g);
     fs::create_dir_all(&dir)?;
     let to = dir.join(file.file_name().unwrap_or_default());
@@ -531,7 +538,7 @@ fn localconfig_values(steam: &Path, key: &str) -> Vec<(u32, String)> {
 #[derive(Default)]
 struct Facts {
     single_player: bool,
-    online: bool,
+    multiplayer: bool,
     /// VAC, an anti-cheat support page, a protected launcher or a Steam Deck anti-cheat test result.
     anti_cheat: bool,
     osarch: String,
@@ -541,7 +548,8 @@ impl Facts {
     fn blocker(&self) -> Option<&'static str> {
         if self.anti_cheat {
             Some("Anti-cheat")
-        } else if !self.single_player {
+        } else if self.multiplayer && !self.single_player {
+            // Apps with no player modes listed at all (tools, overlays) are not called multiplayer.
             Some("Multiplayer only")
         } else {
             None
@@ -577,7 +585,7 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Fact
         *p += end + 1;
         s
     };
-    // Walks the binary key-values of one app: common/category/* (2 single-player; 1, 36, 38, 49 online; 8 VAC),
+    // Walks the binary key-values of one app: common/category/* (2 single-player; 1, 9, 20, 27, 36, 38, 47, 48, 49 multiplayer; 8 VAC),
     // common/osarch, and anything naming anti-cheat (keys like extended/anti_cheat_support_url, values like launch
     // executables and Steam Deck test results).
     fn walk(b: &[u8], p: &mut usize, path: &mut Vec<String>, key: &mut dyn FnMut(&mut usize) -> String, found: &mut Facts) -> Option<()> {
@@ -596,7 +604,7 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Fact
             if path.len() == 3 && path[2] == "category" {
                 match k.as_str() {
                     "category_2" => found.single_player = true,
-                    "category_1" | "category_36" | "category_38" | "category_49" => found.online = true,
+                    "category_1" | "category_9" | "category_20" | "category_27" | "category_36" | "category_38" | "category_47" | "category_48" | "category_49" => found.multiplayer = true,
                     "category_8" => found.anti_cheat = true,
                     _ => {}
                 }
@@ -785,7 +793,7 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
     let facts = steam_facts(steam, &ids);
     for g in games.iter_mut().filter(|g| g.blocker.is_none()) {
         let Some(f) = facts.get(&id_of(g)) else { continue };
-        g.blocker = f.blocker().or((f.online && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
+        g.blocker = f.blocker().or((f.multiplayer && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
     }
 }
 

@@ -104,9 +104,18 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
 /// Brings an installed game's plugin files up to this build, in place: the loader, its caches (IL2CPP interop takes
 /// minutes to regenerate) and the settings stay. Returns whether anything changed.
 pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
+    update_checked(&checked(game_dir)?)
+}
+
+/// `update` for a game the caller has just checked (the library scan checks every game).
+pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
+    if game.blocker.is_some() {
+        uninstall(&game.dir)?;
+        return Err("blocked".into());
+    }
+    let game_dir = game.dir.as_path();
     let path = receipt_path(game_dir);
     let mut receipt: Receipt = serde_json::from_slice(&fs::read(&path)?)?;
-    let game = checked(game_dir)?;
     let payload = payload(game.il2cpp)?;
     let mut sources = Vec::new();
     walk(&payload, &payload, &mut sources)?;

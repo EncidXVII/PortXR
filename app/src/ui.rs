@@ -215,7 +215,8 @@ impl App {
         std::thread::spawn(move || {
             let found = games::scan();
             for g in found.iter().filter(|g| g.installed()) {
-                let _ = installer::update(&g.dir);
+                // Taken out of games that gained anti-cheat, brought up to this build in the rest.
+                let _ = installer::update_checked(g);
             }
             *slot.lock().unwrap() = Some(found);
             ctx.request_repaint();
