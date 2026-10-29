@@ -304,7 +304,7 @@ namespace Parallax
         void ResetTab()
         {
             ConfigEntryBase[] entries;
-            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim };
+            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim };
             else if (tab == ViewTab)
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu, Settings.UiBlack };
             else if (tab == ControlsTab) entries = Bindings.Entries.SelectMany(g => g).Where(e => e != null).ToArray();
@@ -324,6 +324,19 @@ namespace Parallax
             Options("Display", Settings.Display, new[] { DisplayMode.Stereo, DisplayMode.Parallax, DisplayMode.Theater },
                 new[] { "Stereo", "Parallax", "Theater" }, null);
             if (Settings.Display.Value == DisplayMode.Parallax) Stepper("3D depth", Settings.Depth, 0.25f, 0f, 3f, "{0:0.00}×");
+            if (Settings.Display.Value != DisplayMode.Stereo)
+            {
+                ui.BeginRow();
+                Label("Screen", label, 360);
+                if (Button("Move & resize", false, 300))
+                {
+                    Toggle();
+                    rig.AdjustScreen(true);
+                }
+                if (Button("Reset", false, 200)) rig.ResetScreen();
+                ui.EndRow();
+                ui.Gap(12);
+            }
 
             ui.BeginRow();
             Label("Position", label, 360);
@@ -736,7 +749,7 @@ namespace Parallax
         }
 
         // Filled styles use the built-in white texture, tinted by GUI.backgroundColor when drawn (see Button).
-        static GUIStyle Style(TextAnchor align, Color text, int size, Font font, bool filled)
+        internal static GUIStyle Style(TextAnchor align, Color text, int size, Font font, bool filled)
         {
             var s = new GUIStyle { fontSize = size, alignment = align, font = font };
             s.normal.textColor = s.hover.textColor = s.active.textColor = text;

@@ -39,6 +39,8 @@ Also try **Display → Parallax** in the VR menu: the game in 3D inside a big sc
 controls. Does it feel deep without straining your eyes? Is the **3D depth** default right?
 
 If the 3D view is broken, **Theater** in the VR menu shows the flat game on a big screen. Say whether that worked.
+In Theater or Parallax, try **Screen → Move & resize**: drag the screen around, resize it from a corner, and use the
+right stick. Was it easy to put where you wanted?
 
 ## Reporting
 

@@ -444,6 +444,49 @@ def gate_theater(g):
           f"stereo frozen {stereo_stopped}, {'curved' if b['curvedSupported'] else 'flat'} screen ok {curved}, game frame covers {opaque:.0%} of the screen")
 
 
+def gate_screen(g):
+    """Move & resize: the trigger drags the theater screen around the player, the stick pushes it away and widens
+    it, B ends it and the result is saved for the game. Game input pauses meanwhile."""
+    g.cmd("theater 1")
+    time.sleep(0.5)
+    try:
+        g.cmd("adjust 1")
+        g.cmd("aim 0.2 -0.3 0.1 0 0 3")
+        g.cmd("ctrl 0 0 0 0 0 0 1 0 0")
+        time.sleep(0.4)
+        g.cmd("aim 0.2 -0.3 0.1 1.8 0.9 3")
+        time.sleep(0.6)
+        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
+        time.sleep(0.3)
+        moved = g.stats()
+        (overlay,) = g.capture("screen-adjust", ["quad.bmp"])
+        g.cmd("ctrl 0 0 0 1 1 0 0 0 0")
+        time.sleep(0.6)
+        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
+        time.sleep(0.3)
+        sized = g.stats()
+        g.cmd("ctrl 2 0 0 0 0 0 0 0 0")
+        time.sleep(0.3)
+        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
+        time.sleep(0.3)
+        done = g.stats()
+        saved = float(g.cmd("get ScreenYaw"))
+    finally:
+        g.cmd("ctrl off")
+        g.cmd("aim off")
+        g.cmd("adjust 0")
+        for key, value in (("ScreenYaw", "0"), ("ScreenPitch", "0"), ("ScreenDistance", "3"), ("ScreenWidth", "3.2")):
+            g.cmd(f"set {key} {value}")
+        g.cmd("theater 0")
+    yaw, pitch = moved["screenPose"][0], moved["screenPose"][1]
+    dist, width = sized["screenPose"][2], sized["screenPose"][3]
+    # The lime frame along the screen's top edge.
+    frame = ((overlay[:3, :, 1] > 200) & (overlay[:3, :, 0] > 150) & (overlay[:3, :, 2] < 90)).mean()
+    ok = frame > 0.8 and yaw > 20 and pitch > 5 and dist > 4 and width > 4 and moved["adjust"] == 1 and done["adjust"] == 0 and abs(saved - done["screenPose"][0]) < 0.2
+    check("19 screen adjust", ok, f"frame {frame:.0%}, dragged to yaw {yaw:.0f} pitch {pitch:.0f}, stick to {dist:.1f} m away {width:.1f} m wide, "
+          f"done {done['adjust'] == 0}, saved yaw {saved}")
+
+
 def gate_window(g):
     """Parallax mode: the game in 3D inside the screen. Each eye gets its own window image; the two differ by the
     stereo offset, the VR stereo layer stops, and leaning sideways shifts the view. Stereo resumes after."""
@@ -634,7 +677,7 @@ def main():
                 g.start()
                 # IL2CPP first launch generates interop assemblies before plugins load.
                 g.wait(lambda s: s["state"] == 3 and s["stereo"] > 10, 400, "stereo frames")
-                gates = [gate_stereo, gate_mirror, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_window, gate_menu, gate_render_scale]
+                gates = [gate_stereo, gate_mirror, gate_tracking, gate_timing, gate_ui, gate_pointer, gate_theater, gate_screen, gate_window, gate_menu, gate_render_scale]
                 if args.input:
                     gates.insert(5, gate_input)
                 else:
@@ -653,7 +696,7 @@ def main():
                     try:
                         gate(g)
                     except Exception as ex:
-                        check(gate.__name__, False, repr(ex))
+                        check(gate.__name__, False, repr(ex) + " at line " + str(ex.__traceback__.tb_next.tb_lineno if ex.__traceback__.tb_next else "?"))
                 gate_soak(g, args.soak, os.path.join(build, "BepInEx", "LogOutput.log"))
                 g.stop()
                 g.start()

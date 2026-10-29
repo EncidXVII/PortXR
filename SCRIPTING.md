@@ -35,7 +35,7 @@ active objects are found. A path that matches nothing raises an error.
 | Call | Does |
 |---|---|
 | `log(text)` | writes to the game's log |
-| `get(key)`, `set(key, value)` | reads or changes a Parallax setting by its key in `parallax.core.cfg`: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Display` (`Stereo`, `Parallax`, `Theater`), `Depth`, `Mode`… |
+| `get(key)`, `set(key, value)` | reads or changes a Parallax setting by its key in `parallax.core.cfg`: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Display` (`Stereo`, `Parallax`, `Theater`), `Depth`, `ScreenYaw`, `ScreenPitch`, `ScreenDistance`, `ScreenWidth`, `Mode`… |
 | `scene()` | the active scene's name |
 | `camera()` | the head camera's name, or nil |
 | `time()` | seconds since the game started |

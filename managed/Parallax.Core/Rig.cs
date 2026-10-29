@@ -49,7 +49,9 @@ namespace Parallax
         const int UiLayers = 1 << 5;
         bool eyesRendered;
         bool theaterShown;  // the last frame showed the theater screen (or the Parallax window), not the UI panel
-        bool CurvedShown => theaterShown && curvedTheater && !windowShown;
+        bool CurvedShown => theaterShown && CurveFits;
+        // The curve is a cylinder standing around the player, so it fits a screen at about eye level only.
+        bool CurveFits => curvedTheater && !windowShown && Mathf.Abs(screenPitch) < 12f;
         bool curvedTheater;  // the runtime draws curved layers (SteamVR does not)
         Camera extrasCamera;
         bool beforeRenderHooked;
@@ -333,7 +335,7 @@ namespace Parallax
             var cfg = new InputConfig
             {
                 mode = (int)Settings.InputNow,
-                neutral = Menu.Open || Hider.Active ? 1 : 0,
+                neutral = Menu.Open || Hider.Active || adjusting ? 1 : 0,
                 pointerActive = PointerActive ? 1 : 0,
                 pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
                 pointerY = Mathf.RoundToInt(pointerUv.y * Screen.height),
@@ -692,8 +694,8 @@ namespace Parallax
             // The Parallax window takes the theater screen's place, flat: its view is computed for a plane.
             theaterShown = !stereo;
             bool curved = CurvedShown;
-            f.quadPose = Xr.ToPose(curved ? originPos : center, rot);
-            f.quadRadius = curved ? TheaterDistance : 0;
+            f.quadPose = Xr.ToPose(curved ? CurveCenter : center, rot);
+            f.quadRadius = curved ? CurveRadius : 0;
             f.vignette = stereo ? VignetteNow : 0;
             f.beam = layered && beamOn ? 1 : 0;
             // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
@@ -741,11 +743,189 @@ namespace Parallax
 
         void Placement(bool stereo, out Vector3 center, out Quaternion rot, out float width, out float height)
         {
-            float dist = stereo ? Settings.UiDistance.Value : TheaterDistance;
-            width = stereo ? Settings.UiWidth.Value : TheaterWidth;
+            if (stereo)
+            {
+                width = Settings.UiWidth.Value;
+                rot = originYaw;
+                center = originPos + originYaw * new Vector3(0, -UiDrop, Settings.UiDistance.Value);
+            }
+            else
+            {
+                ScreenFromSettings();
+                width = screenWidth;
+                // Turned to face the recenter point, so the Parallax window's views stay centred on the player.
+                rot = originYaw * Quaternion.Euler(CurveFits ? 0 : -screenPitch, screenYaw, 0);
+                center = CurveFits ? CurveCenter + rot * Vector3.forward * CurveRadius : originPos + rot * Vector3.forward * screenDistance;
+            }
             height = width * Screen.height / Mathf.Max(1, Screen.width);
-            rot = originYaw;
-            center = originPos + originYaw * new Vector3(0, stereo ? -UiDrop : 0, dist);
+        }
+
+        // The theater and Parallax screen: a direction from the recenter point, a distance and a width, kept per game.
+        float screenYaw, screenPitch, screenDistance = TheaterDistance, screenWidth = TheaterWidth;
+        bool screenLive;  // being adjusted: these fields lead, the settings follow when a drag or stick move ends
+        const float MinScreen = 0.8f, MaxScreen = 20f;
+
+        internal Vector4 ScreenState => new Vector4(screenYaw, screenPitch, screenDistance, screenWidth);
+
+        float CurveRadius => screenDistance * Xr.Cos(screenPitch * Mathf.Deg2Rad);
+        Vector3 CurveCenter => originPos + Vector3.up * (screenDistance * Xr.Sin(screenPitch * Mathf.Deg2Rad));
+
+        void ScreenFromSettings()
+        {
+            if (screenLive) return;
+            screenYaw = Settings.ScreenYaw.Value;
+            screenPitch = Mathf.Clamp(Settings.ScreenPitch.Value, -60f, 75f);
+            screenDistance = Mathf.Clamp(Settings.ScreenDistance.Value, MinScreen, MaxScreen);
+            screenWidth = Mathf.Clamp(Settings.ScreenWidth.Value, MinScreen, MaxScreen);
+        }
+
+        void SaveScreen()
+        {
+            Settings.ScreenYaw.Value = Mathf.Round(screenYaw * 10) / 10;
+            Settings.ScreenPitch.Value = Mathf.Round(screenPitch * 10) / 10;
+            Settings.ScreenDistance.Value = Mathf.Round(screenDistance * 100) / 100;
+            Settings.ScreenWidth.Value = Mathf.Round(screenWidth * 100) / 100;
+        }
+
+        internal void ResetScreen()
+        {
+            foreach (var e in new[] { Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth }) e.BoxedValue = e.DefaultValue;
+            screenLive = false;
+            ScreenFromSettings();
+            screenLive = adjusting;
+        }
+
+        // Move & resize (VR menu): game input pauses. The trigger drags the screen around the player, or resizes it
+        // from a corner; the right stick pushes it away or pulls it in (up, down) and sizes it (right, left). B or the
+        // menu ends it, and what was set stays for this game.
+        bool adjusting, adjustB, adjustStick, adjustCorner;
+        int adjustGrab;  // 1 moving, 2 resizing
+        Quaternion grabFrom;
+        float grabWidth, grabReach;
+        readonly Optional adjustDraw = new Optional("Screen adjust overlay");
+        GUIStyle adjustText;
+
+        internal bool Adjusting => adjusting;
+
+        internal void AdjustScreen(bool on)
+        {
+            on &= Settings.Display.Value != DisplayMode.Stereo;
+            if (adjusting && !on) SaveScreen();
+            adjustGrab = 0;
+            screenLive = false;
+            ScreenFromSettings();
+            adjusting = screenLive = on;
+            adjustB = true;  // a B still held from opening it does not end it at once
+        }
+
+        void UpdateAdjust()
+        {
+            PointerActive = false;
+            if (!theaterShown || Menu.Open || Settings.Display.Value == DisplayMode.Stereo)
+            {
+                AdjustScreen(false);
+                return;
+            }
+            bool b = (controllers.buttons & Buttons.B) != 0;
+            if (b && !adjustB)
+            {
+                AdjustScreen(false);
+                return;
+            }
+            adjustB = b;
+
+            float dt = Time.unscaledDeltaTime;
+            bool stick = Mathf.Abs(controllers.ry) > 0.2f || Mathf.Abs(controllers.rx) > 0.2f;
+            if (stick)
+            {
+                screenDistance = Mathf.Clamp(screenDistance * (float)System.Math.Exp(controllers.ry * dt * 1.5f), MinScreen, MaxScreen);
+                screenWidth = Mathf.Clamp(screenWidth * (float)System.Math.Exp(controllers.rx * dt * 1.5f), MinScreen, MaxScreen);
+            }
+            else if (adjustStick) SaveScreen();
+            adjustStick = stick;
+
+            beamOn = controllers.aimValidR != 0;
+            if (!beamOn)
+            {
+                adjustGrab = 0;
+                return;
+            }
+            beamFrom = Xr.Position(controllers.aimR);
+            var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
+            Placement(false, out var c, out var r, out float w, out float h);
+            var inv = Quaternion.Inverse(r);
+            var uv = CurvedShown ? HitCylinder(inv * (beamFrom - CurveCenter), inv * dir, w, h, CurveRadius) : HitPlane(inv * (beamFrom - c), inv * dir, w, h);
+            bool on = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
+            adjustCorner = on && (uv.x < 0.15f || uv.x > 0.85f) && (uv.y < 0.2f || uv.y > 0.8f);
+            bool pull = controllers.rTrigger > 0.6f;
+            if (pull && adjustGrab == 0 && on)
+            {
+                adjustGrab = adjustCorner ? 2 : 1;
+                // Moving keeps the screen where it sat relative to the ray; resizing scales with the corner's reach.
+                grabFrom = Quaternion.Inverse(Quaternion.LookRotation(dir)) * (originYaw * Quaternion.Euler(-screenPitch, screenYaw, 0));
+                grabWidth = screenWidth;
+                grabReach = Reach(beamFrom, dir, c, r);
+                Native.prx_haptic_pulse(1, 0.3f, 0.03f);
+            }
+            else if (!pull && adjustGrab != 0)
+            {
+                adjustGrab = 0;
+                SaveScreen();
+            }
+            if (adjustGrab == 1)
+            {
+                var facing = Quaternion.Inverse(originYaw) * (Quaternion.LookRotation(dir) * grabFrom) * Vector3.forward;
+                screenYaw = Xr.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
+                screenPitch = Mathf.Clamp(Xr.Asin(Mathf.Clamp(facing.y, -1f, 1f)) * Mathf.Rad2Deg, -60f, 75f);
+            }
+            else if (adjustGrab == 2 && grabReach > 0.05f)
+            {
+                float reach = Reach(beamFrom, dir, c, r);
+                if (reach > 0) screenWidth = Mathf.Clamp(grabWidth * reach / grabReach, MinScreen, MaxScreen);
+            }
+            beamTo = on ? PanelPoint(uv, c, r, w, h) : beamFrom + dir;
+        }
+
+        // How far from the screen's centre the ray crosses the screen's plane; -1 when it does not.
+        static float Reach(Vector3 from, Vector3 dir, Vector3 center, Quaternion rot)
+        {
+            var inv = Quaternion.Inverse(rot);
+            Vector3 p = inv * (from - center), d = inv * dir;
+            if (d.z < 1e-4f) return -1;
+            var hit = p + d * (-p.z / d.z);
+            return new Vector2(hit.x, hit.y).magnitude;
+        }
+
+        // A lime frame on the screen, corner marks that light up where a drag resizes, and the controls under it.
+        void DrawAdjust()
+        {
+            GUI.matrix = Matrix4x4.identity;
+            float W = Screen.width, H = Screen.height, t = Mathf.Max(3, H / 180), arm = H / 9;
+            var lime = new Color(0.776f, 1f, 0.102f);
+            Menu.Fill(new Rect(0, 0, W, t), lime);
+            Menu.Fill(new Rect(0, H - t, W, t), lime);
+            Menu.Fill(new Rect(0, 0, t, H), lime);
+            Menu.Fill(new Rect(W - t, 0, t, H), lime);
+            float k = adjustCorner || adjustGrab == 2 ? 3 : 2;
+            foreach (var x in new[] { 0f, W })
+                foreach (var y in new[] { 0f, H })
+                {
+                    Menu.Fill(new Rect(x == 0 ? 0 : x - arm, y == 0 ? 0 : y - t * k, arm, t * k), lime);
+                    Menu.Fill(new Rect(x == 0 ? 0 : x - t * k, y == 0 ? 0 : y - arm, t * k, arm), lime);
+                }
+            // Drawn as the menu draws (GUI.Label and rich text are stripped from some IL2CPP games): plain lines.
+            int size = Mathf.RoundToInt(H / 36);
+            if (adjustText == null || adjustText.fontSize != size) adjustText = Menu.Style(TextAnchor.MiddleCenter, Color.white, size, null, false);
+            var box = new Rect(W * 0.18f, H * 0.78f, W * 0.64f, H * 0.16f);
+            Menu.Fill(box, new Color(0.04f, 0.04f, 0.04f, 0.85f));
+            string[] lines =
+            {
+                $"MOVE & RESIZE    {screenDistance:0.0} m away, {screenWidth:0.0} m wide",
+                "Trigger: drag to move, or drag a corner to resize",
+                "Right stick: up/down distance, left/right size.    B: done",
+            };
+            for (int n = 0; n < lines.Length; n++)
+                adjustText.Draw(new Rect(box.x, box.y + box.height * (n + 0.5f) / lines.Length - size, box.width, size * 2), new GUIContent(lines[n]), false, false, false, false);
         }
 
         void UpdatePointer()
@@ -767,6 +947,11 @@ namespace Parallax
                 controllers.aimR = Xr.ToPose(from, Quaternion.LookRotation(to - from));
                 controllers.aimValidR = 1;
             }
+            if (adjusting)
+            {
+                UpdateAdjust();
+                return;
+            }
             if (Test?.PointerOverride is Vector2 forced)
             {
                 pointerUv = forced;
@@ -777,7 +962,7 @@ namespace Parallax
                 var inv = Quaternion.Inverse(r);
                 var p = Xr.Position(controllers.aimR);
                 var d = inv * (Xr.Rotation(controllers.aimR) * Vector3.forward);
-                var uv = CurvedShown ? HitCylinder(inv * (p - originPos), d, w, h) : HitPlane(inv * (p - c), d, w, h);
+                var uv = CurvedShown ? HitCylinder(inv * (p - CurveCenter), d, w, h, CurveRadius) : HitPlane(inv * (p - c), d, w, h);
                 onQuad = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
                 // Hand tremor would shake the game's cursor (and the real mouse with it): small moves are eased, large
                 // ones followed at once, and a trigger being pulled (which tips the controller down) holds it steadier.
@@ -834,8 +1019,8 @@ namespace Parallax
         Vector3 PanelPoint(Vector2 uv, Vector3 center, Quaternion rot, float w, float h)
         {
             if (!CurvedShown) return center + rot * new Vector3((uv.x - 0.5f) * w, (0.5f - uv.y) * h, 0);
-            float a = (uv.x - 0.5f) * w / TheaterDistance;
-            return originPos + rot * new Vector3(Xr.Sin(a) * TheaterDistance, (0.5f - uv.y) * h, Xr.Cos(a) * TheaterDistance);
+            float R = CurveRadius, a = (uv.x - 0.5f) * w / R;
+            return CurveCenter + rot * new Vector3(Xr.Sin(a) * R, (0.5f - uv.y) * h, Xr.Cos(a) * R);
         }
 
         // Ray (in the panel's frame, panel centre at the origin, facing -Z) to panel UV; (-1, -1) for a miss.
@@ -849,14 +1034,14 @@ namespace Parallax
 
         // Ray (in the screen's frame, cylinder axis vertical through the origin) to UV on the curved theater screen,
         // whose arc length is w. The player stands inside, so the hit is where the ray leaves the cylinder.
-        static Vector2 HitCylinder(Vector3 p, Vector3 d, float w, float h)
+        static Vector2 HitCylinder(Vector3 p, Vector3 d, float w, float h, float radius)
         {
-            float a = d.x * d.x + d.z * d.z, b = 2 * (p.x * d.x + p.z * d.z), c = p.x * p.x + p.z * p.z - TheaterDistance * TheaterDistance;
+            float a = d.x * d.x + d.z * d.z, b = 2 * (p.x * d.x + p.z * d.z), c = p.x * p.x + p.z * p.z - radius * radius;
             float disc = b * b - 4 * a * c;
             if (a < 1e-6f || disc < 0) return new Vector2(-1, -1);
             float t = (-b + Xr.Sqrt(disc)) / (2 * a);
             var hit = p + d * t;
-            return t > 0 ? new Vector2(Xr.Atan2(hit.x, hit.z) * TheaterDistance / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
+            return t > 0 ? new Vector2(Xr.Atan2(hit.x, hit.z) * radius / w + 0.5f, 0.5f - hit.y / h) : new Vector2(-1, -1);
         }
 
         void OnGUI()
@@ -864,6 +1049,7 @@ namespace Parallax
             GUI.depth = -1000;
             menuDrawing.Run(Menu.Draw);
             if (PointerActive && Event.current.type == EventType.Repaint) pointerDot.Run(DrawPointer);
+            if (adjusting && Event.current.type == EventType.Repaint) adjustDraw.Run(DrawAdjust);
         }
 
         void DrawPointer()

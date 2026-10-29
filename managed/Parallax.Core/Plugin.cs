@@ -38,7 +38,7 @@ namespace Parallax
         }
 
         public static ConfigFile File;
-        public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth, Depth;
+        public static ConfigEntry<float> WorldScale, Height, RenderScale, MouseSpeed, UiDistance, UiWidth, Depth, ScreenYaw, ScreenPitch, ScreenDistance, ScreenWidth;
         public static ConfigEntry<bool> AutoRenderScale, WristMenu, FirstRun;
         public static ConfigEntry<DisplayMode> Display;
         public static ConfigEntry<InputMode> Input;
@@ -64,6 +64,11 @@ namespace Parallax
             if (theater.Value) Display.Value = DisplayMode.Theater;
             cfg.Remove(theater.Definition);
             Depth = cfg.Bind("View", "Depth", 1f, "Parallax mode: strength of the 3D, 0 (flat) to 3.");
+            // Set in VR with Move & resize; the screen always faces the spot the player recentered at.
+            ScreenYaw = cfg.Bind("View", "ScreenYaw", 0f, "Theater and Parallax screen: degrees to the right of straight ahead.");
+            ScreenPitch = cfg.Bind("View", "ScreenPitch", 0f, "Theater and Parallax screen: degrees above eye level.");
+            ScreenDistance = cfg.Bind("View", "ScreenDistance", 3f, "Theater and Parallax screen: distance in metres.");
+            ScreenWidth = cfg.Bind("View", "ScreenWidth", 3.2f, "Theater and Parallax screen: width in metres.");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");
             UiBlack = cfg.Bind("View", "UiBlack", UiBackground.Auto,
