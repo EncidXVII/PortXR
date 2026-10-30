@@ -17,6 +17,8 @@ namespace Parallax
         internal Vector2? PointerOverride;
         // Right controller at this offset from the play origin, aimed at the panel or at AimTarget (also from the origin).
         internal Vector3? AimOffset, AimTarget;
+        // Left hand raised in front of the face with the back of the wrist turned to the eyes (the wrist glance).
+        internal bool Wrist;
         internal string AimObject;  // or at this game object, wherever it is in the game world
         Vector3? headPos;
         float headYaw;
@@ -142,6 +144,9 @@ namespace Parallax
                 case "theater":
                     Settings.Display.Value = a[1] == "1" ? DisplayMode.Theater : DisplayMode.Stereo;
                     return "ok";
+                case "wrist":
+                    Wrist = a[1] == "1";
+                    return "ok";
                 case "adjust":
                     rig.AdjustScreen(a[1] == "1");
                     return "ok";
@@ -240,7 +245,7 @@ namespace Parallax
             return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
                 "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},"curved":{{s.curvedSubmitted}},"curvedSupported":{{s.curvedSupported}},
-                "theater":{{(Settings.Display.Value == DisplayMode.Theater ? 1 : 0)}},"window":{{(rig.WindowShown ? 1 : 0)}},"adjust":{{(rig.Adjusting ? 1 : 0)}},"screenPose":[{{rig.ScreenState.x:0.##}},{{rig.ScreenState.y:0.##}},{{rig.ScreenState.z:0.##}},{{rig.ScreenState.w:0.##}}],"focus":{{rig.Focus:0.##}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},"aim":{{(rig.Aiming ? 1 : 0)}},"smoothing":{{(rig.StepSmoothing ? 1 : 0)}},"orbit":{{rig.OrbitRadius:0.###}},"body":{{rig.BodyYaw:0.#}},
+                "theater":{{(Settings.Display.Value == DisplayMode.Theater ? 1 : 0)}},"window":{{(rig.WindowShown ? 1 : 0)}},"adjust":{{(rig.Adjusting ? 1 : 0)}},"watch":{{(rig.WatchShown ? 1 : 0)}},"glance":{{(rig.Glancing ? 1 : 0)}},"screenPose":[{{rig.ScreenState.x:0.##}},{{rig.ScreenState.y:0.##}},{{rig.ScreenState.z:0.##}},{{rig.ScreenState.w:0.##}}],"focus":{{rig.Focus:0.##}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},"aim":{{(rig.Aiming ? 1 : 0)}},"smoothing":{{(rig.StepSmoothing ? 1 : 0)}},"orbit":{{rig.OrbitRadius:0.###}},"body":{{rig.BodyYaw:0.#}},
                 "eyeL":{{V(rig.Eyes[0].transform.position)}},"eyeR":{{V(rig.Eyes[1].transform.position)}},
                 "cam":"{{(cam != null ? cam.name : "")}}","camMask":{{(cam != null ? cam.cullingMask : 0)}},"camPos":{{(cam != null ? V(cam.transform.position) : "null")}},
                 "fov":[{{f.left:0.#####}},{{f.right:0.#####}},{{f.up:0.#####}},{{f.down:0.#####}}],

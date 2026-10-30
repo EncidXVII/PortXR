@@ -41,5 +41,13 @@ namespace Parallax
         public static float Atan2(float y, float x) => (float)System.Math.Atan2(y, x);
         public static float Atan(float v) => (float)System.Math.Atan(v);
         public static float Sqrt(float v) => (float)System.Math.Sqrt(v);
+        // Vector3.Angle calls Math.Acos, which some IL2CPP games strip: degrees between two directions, from the
+        // plugin's own runtime.
+        public static float Angle(UnityEngine.Vector3 a, UnityEngine.Vector3 b)
+        {
+            double len = System.Math.Sqrt((double)UnityEngine.Vector3.Dot(a, a) * UnityEngine.Vector3.Dot(b, b));
+            if (len < 1e-12) return 0;
+            return (float)(System.Math.Acos(System.Math.Max(-1, System.Math.Min(1, UnityEngine.Vector3.Dot(a, b) / len))) * 180 / System.Math.PI);
+        }
     }
 }

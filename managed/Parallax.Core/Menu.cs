@@ -16,7 +16,7 @@ namespace Parallax
         const float RefHeight = 1080f, Width = 1100f, Height = 800f, Row = 64f, Pad = 48f;
         const int ThumbW = 304, ThumbH = 171, History = 120;
         static readonly Color Bg = new Color(0.039f, 0.039f, 0.039f, 0.97f), Surface = new Color(0.071f, 0.071f, 0.071f);
-        static readonly Color Raised = new Color(0.10f, 0.10f, 0.10f), Line = new Color(0.15f, 0.15f, 0.15f);
+        static readonly Color Raised = new Color(0.10f, 0.10f, 0.10f), Line = new Color(0.15f, 0.15f, 0.15f), HoverFill = new Color(0.19f, 0.19f, 0.19f);
         // Edge: outlines of things you can press (3:1 on the panel); Line stays for decorative dividers.
         static readonly Color Edge = new Color(0.369f, 0.369f, 0.369f);
         static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.502f, 0.502f, 0.502f);
@@ -62,6 +62,7 @@ namespace Parallax
 
         // Where the menu was last drawn, in screen pixels from the top-left.
         internal Rect ScreenRect;
+        Rect hoverRect;
 
         public Menu(Rig rig) { this.rig = rig; }
 
@@ -173,6 +174,9 @@ namespace Parallax
             {
                 if (welcome) DrawWelcome();
                 else DrawTabs();
+                // In a headset a hairline is lost: the control under the laser gets a lighter fill and a 2 px ring.
+                if (hoverRect.width > 0 && Repainting) Outline(hoverRect, Ink, 2);
+                hoverRect = default;
             });
             Matrix(Vector2.zero, 1);
             if (contents.Count > 512) contents.Clear();  // changing numbers (diagnostics) make new strings every frame
@@ -587,12 +591,14 @@ namespace Parallax
         {
             ui.BeginRow();
             Label(name, label, 360);
-            // 600 shared by label length, so a long label ("Keyboard & mouse") gets the room it needs.
-            float total = labels.Sum(l => l.Length + 6);
+            // Each option as wide as its text, the rest of 600 shared out as padding (at least 12 each), so a long
+            // label ("Keyboard & mouse") never touches its neighbours and the row keeps the column's right edge.
+            float[] text = labels.Select(l => Natural(l.ToUpperInvariant(), cell)).ToArray();
+            float pad = Mathf.Max(12f, (600f - text.Sum()) / text.Length);
             for (int i = 0; i < values.Length; i++)
             {
                 bool on = entry.Value.Equals(values[i]), lit = on && !(neutral.HasValue && neutral.Value.Equals(values[i]));
-                if (Button(labels[i], lit, 600f * (labels[i].Length + 6) / total)) entry.Value = values[i];
+                if (Button(labels[i], lit, text[i] + pad)) entry.Value = values[i];
                 if (on && !lit && Repainting) Outline(ui.Last, Ink);
             }
             ui.EndRow();
@@ -626,10 +632,12 @@ namespace Parallax
             if (Repainting)
             {
                 bool over = r.Contains(Mouse);
-                GUI.backgroundColor = on ? Lime : Surface;
+                GUI.backgroundColor = on ? Lime : over ? HoverFill : Surface;
                 style.Draw(r, Content(shown), over, false, false, false);
                 GUI.backgroundColor = Color.white;
-                if (!on) Outline(r, over ? Ink : Edge);
+                if (!on) Outline(r, Edge);
+                // Outlined after everything else, so the next cell's edge cannot cover part of it.
+                if (over) hoverRect = r;
                 Hover(r);
             }
             bool clicked = Clicked(r);
@@ -712,12 +720,12 @@ namespace Parallax
 
         static int fillMode;
 
-        static void Outline(Rect r, Color c)
+        static void Outline(Rect r, Color c, float t = 1)
         {
-            Fill(new Rect(r.x, r.y, r.width, 1), c);
-            Fill(new Rect(r.x, r.yMax - 1, r.width, 1), c);
-            Fill(new Rect(r.x, r.y, 1, r.height), c);
-            Fill(new Rect(r.xMax - 1, r.y, 1, r.height), c);
+            Fill(new Rect(r.x, r.y, r.width, t), c);
+            Fill(new Rect(r.x, r.yMax - t, r.width, t), c);
+            Fill(new Rect(r.x, r.y, t, r.height), c);
+            Fill(new Rect(r.xMax - t, r.y, t, r.height), c);
         }
 
         void EnsureStyles()

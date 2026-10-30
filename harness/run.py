@@ -572,6 +572,23 @@ def gate_beam(g):
           f"lime pixels {lime(before)} -> {lime(on)}, pointer {hovering}")
 
 
+def gate_wrist(g):
+    """Wrist glance: the left hand raised with the back of the wrist to the eyes lights the watch, and frames keep
+    coming meanwhile (a stripped math call once froze them on IL2CPP games)."""
+    g.cmd("wrist 1")
+    try:
+        time.sleep(0.5)
+        a = g.stats()
+        time.sleep(1.0)
+        b = g.stats()
+        (eye,) = g.capture("wrist", ["left.bmp"])
+    finally:
+        g.cmd("wrist 0")
+    lime = int(mask(eye, (198, 255, 26), 45).sum())
+    check("20 wrist glance", b["watch"] == 1 and b["glance"] == 1 and b["stereo"] > a["stereo"] + 30 and lime > 200,
+          f"watch {b['watch']}, glance {b['glance']}, frames {a['stereo']} -> {b['stereo']}, watch pixels {lime}")
+
+
 def gate_hide(g):
     """Hide-object tool: aimed at the magenta door, the trigger hides it (gone from the eye image when it was in view);
     Show all brings it back."""
@@ -686,6 +703,7 @@ def main():
                     gates.insert(4, gate_pad)
                 gates.append(gate_vignette)
                 gates.append(gate_beam)
+                gates.append(gate_wrist)
                 gates.append(gate_hide)
                 if args.fixture in PAD_FIXTURES:
                     gates.append(gate_aim)

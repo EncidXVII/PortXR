@@ -53,3 +53,45 @@ used the F1 test game (`fixtures\F1\Build`); every change to the folder and to t
 - **Add game, Import script:** both need a file dialog.
 - **Play waiting for a Steam update:** needs a pending update on a real game.
 - **Linux:** no Linux machine with a headset; the Linux code only passed a compile check.
+
+# QA: VR side
+
+Same day, test games F1 (Mono) and F3 (IL2CPP) on the simulated headset. A script opened every VR surface and
+captured the eye image and the UI panel or theater screen as the plugin hands them to the runtime. The simulated
+headset's own window was covered by SteamVR's status window, so the compositor's combined view was not captured.
+
+| Area | Check | F1 | F3 |
+| --- | --- | --- | --- |
+| Welcome card | Three steps, Recenter, world scale, Start playing | Pass | Pass, plain font |
+| Menu tabs | Quick, View, Controls, Game (camera previews) | Pass | Pass |
+| Menu, theater and Parallax | Screen row (Move & resize, Reset) shows only there; 3D depth only in Parallax | Pass | Pass |
+| Laser | Beam in the eye image, pointer dot on the panel | Pass | Pass |
+| Hover | The button under the laser is clearly marked | **Fixed** (finding 7) | **Fixed** |
+| Options row | "Keyboard & mouse" readable, row inside the column | **Fixed** (finding 8) | **Fixed** |
+| Wrist glance | Watch drawn and lit when the back of the wrist faces the eyes | Pass | **Failed, fixed** (finding 6) |
+| Theater | Game frame on the screen | Pass | Pass |
+| Move & resize | Lime frame, corner marks, controls panel | Pass | Pass |
+| Parallax | Window image framed as the flat view | Pass | Pass |
+
+## VR findings
+
+6. **Fixed, serious: on IL2CPP games that strip `Math.Acos`, raising the left wrist froze VR.** The wrist glance
+   check called `Vector3.Angle`, which throws there, every frame the hand was within 70 cm of the face: frames
+   stopped (1388 → 1388) until the hand moved away. The same call had switched off 2D-scene scaling in those games.
+   Both now use the plugin's own math. A new test gate (20 wrist glance) checks the watch lights and frames keep
+   coming; it passes on F1 and F3.
+7. **Fixed: hover was a 1 px line along the top of the button**, the rest covered by the next button's edge.
+   The button under the laser now gets a lighter fill and a 2 px ring drawn over everything.
+8. **Fixed: "KEYBOARD & MOUSE" was cramped against its neighbours.** Option buttons were sized by letter count;
+   they are now as wide as their text plus shared padding, and the row keeps the column's right edge.
+9. **Minor: on IL2CPP games the menu uses the game's default font** instead of the display and monospace fonts
+   (they don't load there). Readable, less polished.
+10. **Small text at low game resolutions.** The menu scales with the game's resolution; at the test games' 540p the
+    labels are about 9 px tall. At 1080p and up they are twice that. Worth checking in a headset on a game
+    running at a low resolution.
+
+## VR not covered
+
+- **The combined view in a headset:** layer order, curve and depth as the compositor shows them.
+- **Comfort:** Parallax depth, the theater distance, motion with the vignette.
+- **Real controllers:** laser jitter, haptics, and grabbing the screen by hand.

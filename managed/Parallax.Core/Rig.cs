@@ -368,6 +368,11 @@ namespace Parallax
             if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
             // Test runs drive the menu themselves; real players get the welcome card once, when VR first runs.
             if (Settings.FirstRun.Value && Test == null && State == XrState.Running && !Menu.Open) Menu.Show(-1);
+            if (Test?.Wrist == true)
+            {
+                controllers.aimL = Xr.ToPose(originPos + originYaw * new Vector3(-0.05f, -0.22f, 0.33f), originYaw * Quaternion.Euler(-20, -90, 0));
+                controllers.aimValidL = 1;
+            }
             bool glance = WristGlance(), trigger = controllers.rTrigger > 0.6f;
             if (glance && !glancing) Native.prx_haptic_pulse(0, 0.2f, 0.02f);
             if (glance && trigger && !glanceTrigger) Menu.Toggle();
@@ -806,6 +811,8 @@ namespace Parallax
         GUIStyle adjustText;
 
         internal bool Adjusting => adjusting;
+        internal bool WatchShown => watchShown;
+        internal bool Glancing => glancing;
 
         internal void AdjustScreen(bool on)
         {
@@ -1215,7 +1222,7 @@ namespace Parallax
             flatLookup.Run(() =>
             {
                 var t = cam.transform;
-                if (Vector3.Angle(t.forward, Vector3.forward) > 5f) return;
+                if (Xr.Angle(t.forward, Vector3.forward) > 5f) return;
                 var depths = new System.Collections.Generic.List<float>();
                 foreach (var body in Find.All<Rigidbody2D>())
                 {
@@ -1610,7 +1617,7 @@ namespace Parallax
             watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
             var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
             if (toHead.magnitude > 0.7f) return false;
-            if (Vector3.Angle(hand * Vector3.left, toHead) < 45f) return true;
+            if (Xr.Angle(hand * Vector3.left, toHead) < 45f) return true;
             // Or the right hand points at it: its ray passes within 6 cm of the face.
             if (controllers.aimValidR == 0) return false;
             var from = Xr.Position(controllers.aimR);
