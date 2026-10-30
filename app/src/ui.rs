@@ -189,10 +189,11 @@ impl App {
             scanned: Arc::new(Mutex::new(None)),
             scanning: false,
         };
-        app.scan_in_background(&cc.egui_ctx);
+        // The folder is remembered first, so the scan started next finds it too.
         if let Some(dir) = open {
             app.open_dir(&dir);
         }
+        app.scan_in_background(&cc.egui_ctx);
         app
     }
 

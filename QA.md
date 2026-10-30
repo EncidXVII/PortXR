@@ -1,8 +1,8 @@
-# QA: desktop app, build 8418c70, fixes retested after it
+# QA: build 5461d1d, plus one app fix found in this pass
 
-Date: 2026-10-29. Windows 11, the real Steam library (139 Unity games: 28 on this PC, 111 more owned on Steam).
+Date: 2026-10-30. Windows 11, the real Steam library (139 Unity games: 28 on this PC, 111 more owned on Steam).
 The app ran on the second screen. Clicks went through Windows UI Automation, so the mouse never moved. Installs
-used the F1 test game (`fixtures\F1\Build`).
+used the F1 test game (`fixtures\F1\Build`); every change to the folder and to the app's settings was undone after.
 
 ## Results
 
@@ -10,47 +10,46 @@ used the F1 test game (`fixtures\F1\Build`).
 | --- | --- | --- |
 | Start | First run, no saved library: skeleton cards, then the real grid | Pass |
 | Start | With a saved library: games show at once, the lime line sweeps while the scan refreshes | Pass |
-| Tabs | All 139 = VR added 20 + Installed 4 + Not installed 75 + Unsupported 40 (after finding 4 moved games with their own VR to Unsupported) | Pass |
-| Tabs | Each tab shows only its own cards; every card has one status label in the tab's words | Pass |
-| Labels | VR added solid lime, Installed lime dot, Not installed grey, blocked red dot with the reason, 32-bit and trimmed grey dot | Pass |
+| Start | Opening on a game folder (`Parallax.exe <folder>`): its page in 1.6 s | Pass |
+| Start | A folder opened that way stays in the library after the background scan | **Failed, fixed** (finding 1) |
+| Tabs | All 139 = VR added 20 + Installed 4 + Not installed 75 + Unsupported 40 | Pass |
+| Labels | One status label per card in the tabs' words; **Already VR** grey on XSOverlay with its note | Pass |
+| Accessibility | Search box, sort and store menus have names: "Search games", "Order: Recently played", "Store: All stores" | Pass |
 | Search | "knight" narrows the grid; "zzzz" shows the empty state with **Show all games** | Pass |
-| Game page | VR added (Frogun): Play in VR, Uninstall, Open folder, Export logs, Open log | Pass |
-| Game page | Blocked (VRChat): EasyAntiCheat label, only Open folder, red refusal text | Pass |
-| Game page | 32-bit (Phoenix Wright): no Play or Install | Pass |
-| Install | **Install** from the game page writes the receipt; **Uninstall → Confirm** leaves the folder byte-identical | Pass |
-| Library | **Remove from library** forgets an added folder and leaves the folder itself alone | Pass |
-| Anti-cheat | Steam data blocks Rust (EasyAntiCheat) and Unturned (BattlEye) before install | Pass |
+| Game pages | VR added (Frogun), blocked (VRChat, EasyAntiCheat), Already VR (XSOverlay): the right buttons and text | Pass |
+| Install | **Install**, then **Uninstall → Confirm**: receipt written, folder byte-identical after | Pass |
+| Install | Install from the command line while the page is open: it shows Uninstall within 2 s, no input needed | Pass |
+| Install | Uninstall right after the running game is killed: succeeds, folder byte-identical | Pass |
 | Anti-cheat | Install refused with an EasyAntiCheat folder present | Pass |
-| Anti-cheat | Installed game that gains EasyAntiCheat: the next update refuses, removes Parallax, folder byte-identical | Pass |
-| Anti-cheat | Game started directly with EasyAntiCheat present: the plugin logs the refusal and sets `enabled = false` in `doorstop_config.ini` | Pass |
-| Blocking | Apps with no player modes on Steam (XSOverlay) are no longer called "Multiplayer only" | Pass |
-| Regression | Test games F1 (Mono) and F3 (IL2CPP): 21 of 21 checks each | Pass |
+| Anti-cheat | Installed game that gains EasyAntiCheat: the next update refuses and removes Parallax | Pass |
+| Anti-cheat | Game started directly with EasyAntiCheat present: the plugin logs the refusal and sets `enabled = false` | Pass |
+| Settings | All-games page: **Display → Theater** then **Stereo** is written to `defaults.cfg` | Pass |
+| Settings | A game's own setting chosen before install goes into the game on install | Pass |
+| Settings | Changed while installed: written to the game's config; kept for next time after uninstall | Pass |
+| Export logs | Writes a zip to the desktop with the game's logs (`Player.log`, `game.txt` here, as F1 wasn't installed) | Pass |
+| Library | **Remove from library** forgets the folder and leaves it alone | Pass |
+| VR screen | Move & resize (test gate 19): drag, corner, stick, B to finish, saved per game, lime frame drawn | Pass on all 12 test games |
+| Regression | All 12 test games on 5461d1d: 11 pass every check | Pass, F0 flaky (finding 2) |
 
-## Findings, all fixed
+## Findings
 
-1. **The search box and the sort, store and key menus had no accessible name.** Fixed: they now read "Search
-   games", "Order: Recently played", "Store: …" and "<button>: <key>". Egui's menus still can't be opened through UI
-   Automation; keyboard and mouse work.
-2. **Opening the app on a game folder ran a full library scan before the window drew.** Fixed: the page opens from
-   the saved library (1.6 s from launch to the game page), the scan runs behind it, and its result waits until the
-   library is shown again, so an open page never loses its place.
-3. **A game page didn't redraw when its folder changed outside the app.** Fixed: the page redraws every second. After
-   an install from the command line, it showed Uninstall within 2 s without any input.
-4. **Resonite was allowed.** Fixed by a new rule: games Steam lists with VR support of their own (categories 31, 53,
-   54) are **Already VR**, unsupported with a grey label and a note to play them in VR from Steam. Install refuses
-   them. On this library: HUMANITY, Resonite and XSOverlay on the PC, and 18 owned games, all with real VR modes
-   (Boneworks, Demeo, The Forest, Tabletop Simulator and others).
-5. **Uninstalling right after a game closed could fail on locked files.** Fixed: removal retries for up to 3 s.
-   Uninstall right after killing the running test game now succeeds.
-
-Retested after the fixes: test games F1 (Mono) and F3 (IL2CPP) pass 21 of 21 checks each; the app builds for Windows
-and type-checks for Linux.
+1. **Fixed: a game folder opened from a shortcut fell out of the library.** The background scan started before the
+   folder was saved to the library list, so its result lacked the game; going back to the library hid it until
+   the next scan. The folder is now saved first. Retested: the game stays (All 140 with it).
+2. **F0 test game is flaky.** Some runs start with the simulated headset's tracking off, and then the stereo
+   marker, tracking and Parallax window checks fail together; the next run passes all 22. Not caused by recent
+   changes (the previous build fails the same way). Not yet diagnosed.
+3. **Minor: `Parallax.exe uninstall` on a game without Parallax says "The system cannot find the file
+   specified".** Only the command line (used by the test harness) shows it; the app hides Uninstall then.
+4. **Minor: the Already VR note says "This game" for apps too** (XSOverlay is an overlay tool).
+5. **Not reproduced: two stray characters ("[]") once appeared in the search box after UI Automation typed into
+   it.** Likely the automation, not the app; noted in case a player sees it.
 
 ## Not covered
 
-- **Play in VR from the app:** it launches games on the main screen. The test harness covers the in-game side.
-- **Installing a game through Steam** from a Not installed card: that opens Steam's install dialog.
+- **Play in VR from the app:** it launches games on the main screen; the test harness covers the in-game side.
+- **Move & resize by hand in a headset:** the test gate drives it with simulated controllers only.
+- **Installing through Steam** from a Not installed card: it opens Steam's install dialog.
 - **Add game, Import script:** both need a file dialog.
 - **Play waiting for a Steam update:** needs a pending update on a real game.
-- **Linux:** no Linux machine with a headset. The Linux build only passed a compile check.
-- **Settings page and Export logs:** opened, but values weren't changed.
+- **Linux:** no Linux machine with a headset; the Linux code only passed a compile check.
