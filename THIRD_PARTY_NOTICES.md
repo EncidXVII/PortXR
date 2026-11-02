@@ -3,8 +3,14 @@
 Parallax ships or downloads the following components. Each remains under its own license.
 
 ## BepInEx 5.4.23.5
-Plugin loader copied into the game folder on install. LGPL-2.1. https://github.com/BepInEx/BepInEx
+Plugin loader copied into Mono game folders on install. LGPL-2.1. https://github.com/BepInEx/BepInEx
 Bundled with it: HarmonyX (MIT), MonoMod (MIT), Mono.Cecil (MIT), Unity Doorstop (LGPL-2.1).
+
+## BepInEx 6.0.0-be.791
+Plugin loader copied into IL2CPP game folders on install. LGPL-2.1. https://github.com/BepInEx/BepInEx
+Bundled with it, each under its own license: Il2CppInterop (LGPL-3.0), Unity Doorstop (LGPL-2.1), the .NET runtime
+(MIT), Cpp2IL and LibCpp2IL (MIT), HarmonyX, MonoMod, Mono.Cecil, AsmResolver, Iced (MIT), Capstone and its .NET
+bindings (BSD-3-Clause, MIT), Dobby (Apache-2.0), and smaller MIT-licensed libraries. The BepInEx release lists them.
 
 ## OpenXR SDK loader 1.1.65
 `openxr_loader.dll` and headers. Apache-2.0. Copyright (c) 2017-2025 The Khronos Group Inc.

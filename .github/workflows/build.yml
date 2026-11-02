@@ -16,6 +16,8 @@ jobs:
           dotnet-version: 8.0.x
       # No Unity on the runner, so no IL2CPP interop assemblies: CI builds the Mono payload only. Full releases
       # (both payloads) are packed locally with release.ps1 after fixtures\interop.ps1.
+      - name: Lint the app
+        run: cargo clippy --manifest-path app/Cargo.toml -- -D warnings
       - name: Build and pack
         shell: pwsh
         run: ./release.ps1 -MonoOnly

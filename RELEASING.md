@@ -17,7 +17,7 @@ back to one commit.
 5. **Collect**: testers send a description, the game's **Export logs** zip and their headset and runtime. The log
    zip names the plugin version; the commit is in the zip's file name.
 6. **Fix and resend**: a new test build from the new commit. Testers unzip it over the old folder (or anywhere) and
-   start `Parallax.exe`, which updates the plugin in every game it installed into. **Play** updates it too.
+   start `Parallax.exe`, which updates the plugin in every game it installed into. **Play in VR** updates it too.
 
 ## Releases (public)
 
