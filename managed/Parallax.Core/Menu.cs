@@ -20,7 +20,7 @@ namespace Parallax
         // Edge: outlines of things you can press (3:1 on the panel); Line stays for decorative dividers.
         static readonly Color Edge = new Color(0.369f, 0.369f, 0.369f);
         static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.502f, 0.502f, 0.502f);
-        static readonly Color Lime = new Color(0.776f, 1f, 0.102f), OnLime = new Color(0.039f, 0.039f, 0.039f);
+        internal static readonly Color Lime = new Color(0.776f, 1f, 0.102f), OnLime = new Color(0.039f, 0.039f, 0.039f);
         static readonly Color Danger = new Color(1f, 0.353f, 0.235f);
         // Type scale (px at 1080 reference height); the app's scale times ~2 for reading at panel distance.
         const int Display = 60, Body = 28, Small = 24;
@@ -327,17 +327,12 @@ namespace Parallax
         {
             Options("Display", Settings.Display, new[] { DisplayMode.Stereo, DisplayMode.Parallax, DisplayMode.Theater },
                 new[] { "Stereo", "Parallax", "Theater" }, null);
-            if (Settings.Display.Value == DisplayMode.Parallax) Stepper("3D depth", Settings.Depth, 0.25f, 0f, 3f, "{0:0.00}×");
+            if (Settings.Display.Value == DisplayMode.Parallax) Stepper("3D depth", Settings.Depth, 0.25f, 0f, 1f, "{0:0.00}×");
             if (Settings.Display.Value != DisplayMode.Stereo)
             {
                 ui.BeginRow();
                 Label("Screen", label, 360);
-                if (Button("Move & resize", false, 300))
-                {
-                    Toggle();
-                    rig.AdjustScreen(true);
-                }
-                if (Button("Reset", false, 200)) rig.ResetScreen();
+                Label("Point at its corners to resize it, at the bar under it to move it.", muted, 0);
                 ui.EndRow();
                 ui.Gap(12);
             }
@@ -691,7 +686,7 @@ namespace Parallax
 
         static GUIStyle fillStyle;
 
-        // Also draws the pointer dot outside the menu.
+        // Also used outside the menu: the pointer dot and the screen handles.
         internal static void Fill(Rect r, Color c)
         {
             if (Event.current.type != EventType.Repaint || (MenuLayout.Current != null && MenuLayout.Current.Measuring)) return;

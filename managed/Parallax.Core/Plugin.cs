@@ -63,8 +63,8 @@ namespace Parallax
             var theater = cfg.Bind("View", "Theater", false, "");
             if (theater.Value) Display.Value = DisplayMode.Theater;
             cfg.Remove(theater.Definition);
-            Depth = cfg.Bind("View", "Depth", 1f, "Parallax mode: strength of the 3D, 0 (flat) to 3.");
-            // Set in VR with Move & resize; the screen always faces the spot the player recentered at.
+            Depth = cfg.Bind("View", "Depth", 1f, "Parallax mode: strength of the 3D, 0 (flat) to 1 (distant things an eye-width apart on the screen; more would make the eyes diverge).");
+            // Set in VR with the screen handles; the screen always faces the spot the player recentered at.
             ScreenYaw = cfg.Bind("View", "ScreenYaw", 0f, "Theater and Parallax screen: degrees to the right of straight ahead.");
             ScreenPitch = cfg.Bind("View", "ScreenPitch", 0f, "Theater and Parallax screen: degrees above eye level.");
             ScreenDistance = cfg.Bind("View", "ScreenDistance", 3f, "Theater and Parallax screen: distance in metres.");

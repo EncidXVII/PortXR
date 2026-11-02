@@ -445,51 +445,70 @@ def gate_theater(g):
 
 
 def gate_screen(g):
-    """Move & resize: the trigger drags the theater screen around the player, the stick pushes it away and widens
-    it, B ends it and the result is saved for the game. Game input pauses meanwhile."""
+    """Screen handles: with the laser on (VR menu open), a corner resizes the theater screen, RESET puts it back, the
+    bar under it drags it around the player while the stick pushes it away, and the result is saved for the game.
+    Game input pauses on a handle."""
     g.cmd("theater 1")
+    g.cmd("menu 1")
     time.sleep(0.5)
+    sw, sh = g.stats()["screen"]
+
+    def at(u, v, width=3.2):  # a point on the unmoved screen, 3 m ahead
+        return f"{(u - 0.5) * width:.3f} {(0.5 - v) * width * sh / sw:.3f} 3"
+
+    def pull(on):
+        g.cmd(f"ctrl 0 0 0 0 0 0 {1 if on else 0} 0 0")
+        time.sleep(0.3)
+
     try:
-        g.cmd("adjust 1")
-        g.cmd("aim 0.2 -0.3 0.1 0 0 3")
-        g.cmd("ctrl 0 0 0 0 0 0 1 0 0")
-        time.sleep(0.4)
-        g.cmd("aim 0.2 -0.3 0.1 1.8 0.9 3")
-        time.sleep(0.6)
-        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
+        g.cmd(f"aim 0.2 -0.3 0.1 {at(0.98, 0.03)}")
+        corner = g.wait(lambda s: s["handle"] == 2, 3, "corner handle")
         time.sleep(0.3)
-        moved = g.stats()
-        (overlay,) = g.capture("screen-adjust", ["quad.bmp"])
-        g.cmd("ctrl 0 0 0 1 1 0 0 0 0")
-        time.sleep(0.6)
-        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
-        time.sleep(0.3)
+        (overlay,) = g.capture("screen-handles", ["quad.bmp"])
+        pull(True)
+        g.cmd(f"aim 0.2 -0.3 0.1 {at(1.25, -0.25)}")
+        time.sleep(0.5)
+        pull(False)
         sized = g.stats()
-        g.cmd("ctrl 2 0 0 0 0 0 0 0 0")
-        time.sleep(0.3)
-        g.cmd("ctrl 0 0 0 0 0 0 0 0 0")
-        time.sleep(0.3)
+        g.cmd(f"aim 0.2 -0.3 0.1 {at(0.5 + 0.26 * sh / sw, 0.9675, sized['screenPose'][3])}")
+        g.wait(lambda s: s["handle"] == 3, 3, "reset handle")
+        pull(True)
+        pull(False)
+        reset = g.stats()
+        g.cmd(f"aim 0.2 -0.3 0.1 {at(0.5, 0.9675)}")
+        g.wait(lambda s: s["handle"] == 1, 3, "bar handle")
+        pull(True)
+        g.cmd("aim 0.2 -0.3 0.1 1.8 0.3 3")
+        time.sleep(0.5)
+        g.cmd("ctrl 0 0 0 0 1 0 1 0 0")
+        time.sleep(0.6)
+        moved = g.stats()
+        pull(False)
         done = g.stats()
         saved = float(g.cmd("get ScreenYaw"))
     finally:
         g.cmd("ctrl off")
         g.cmd("aim off")
-        g.cmd("adjust 0")
+        g.cmd("menu 0")
         for key, value in (("ScreenYaw", "0"), ("ScreenPitch", "0"), ("ScreenDistance", "3"), ("ScreenWidth", "3.2")):
             g.cmd(f"set {key} {value}")
         g.cmd("theater 0")
-    yaw, pitch = moved["screenPose"][0], moved["screenPose"][1]
-    dist, width = sized["screenPose"][2], sized["screenPose"][3]
-    # The lime frame along the screen's top edge.
-    frame = ((overlay[:3, :, 1] > 200) & (overlay[:3, :, 0] > 150) & (overlay[:3, :, 2] < 90)).mean()
-    ok = frame > 0.8 and yaw > 20 and pitch > 5 and dist > 4 and width > 4 and moved["adjust"] == 1 and done["adjust"] == 0 and abs(saved - done["screenPose"][0]) < 0.2
-    check("19 screen adjust", ok, f"frame {frame:.0%}, dragged to yaw {yaw:.0f} pitch {pitch:.0f}, stick to {dist:.1f} m away {width:.1f} m wide, "
-          f"done {done['adjust'] == 0}, saved yaw {saved}")
+    # The lime corner bracket in the screen's top-right.
+    n = max(3, int(overlay.shape[0] * 0.1))
+    region = overlay[:n, -n:]
+    lime = ((region[..., 1] > 200) & (region[..., 0] > 150) & (region[..., 2] < 90)).sum()
+    width, back = sized["screenPose"][3], reset["screenPose"][3]
+    yaw, pitch, dist = moved["screenPose"][0], moved["screenPose"][1], moved["screenPose"][2]
+    ok = (lime > 20 and corner["adjust"] == 0 and width > 3.6 and abs(back - 3.2) < 0.05 and yaw > 20 and pitch > 5 and dist > 3.3
+          and moved["adjust"] == 1 and done["adjust"] == 0 and abs(saved - done["screenPose"][0]) < 0.2)
+    check("19 screen handles", ok, f"corner lit {lime} px, resized to {width:.1f} m, reset to {back:.1f} m, dragged to yaw {yaw:.0f} "
+          f"pitch {pitch:.0f}, stick to {dist:.1f} m, released {done['adjust'] == 0}, saved yaw {saved}")
 
 
 def gate_window(g):
     """Parallax mode: the game in 3D inside the screen. Each eye gets its own window image; the two differ by the
-    stereo offset, the VR stereo layer stops, and leaning sideways shifts the view. Stereo resumes after."""
+    stereo offset, the VR stereo layer stops, and leaning sideways leaves the view alone (the game's camera alone
+    steers it). Stereo resumes after."""
     g.cmd("set Display Parallax")
     try:
         a = g.wait(lambda s: s["window"] == 1, 5, "window mode")
@@ -507,8 +526,8 @@ def gate_window(g):
     differ = np.abs(left[..., :3].astype(int) - right[..., :3].astype(int)).mean()
     lean = np.abs(left[..., :3].astype(int) - leaned[..., :3].astype(int)).mean()
     vr_stopped = b["stereo"] == a["stereo"] or b["stereo"] - a["stereo"] <= 2
-    check("18 parallax window", filled > 0.9 and 0.2 < differ and lean > differ and vr_stopped and b["focus"] > 0,
-          f"filled {filled:.0%}, eyes differ {differ:.2f}, lean differs {lean:.2f}, VR layer stopped {vr_stopped}, focus {b['focus']}")
+    check("18 parallax window", filled > 0.9 and 0.2 < differ and lean < differ / 2 and vr_stopped and b["focus"] > 0,
+          f"filled {filled:.0%}, eyes differ {differ:.2f}, leaning changes {lean:.2f}, VR layer stopped {vr_stopped}, focus {b['focus']}")
 
 
 def gate_render_scale(g):

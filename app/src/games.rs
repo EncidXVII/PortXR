@@ -153,8 +153,13 @@ fn is_player(exe: &Path) -> bool {
 /// The Unity player under `dir`: in it, or up to two folders down (many stores put the game in a subfolder).
 fn find_player(dir: &Path, depth: u32) -> Option<PathBuf> {
     let entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
-    let windows = |p: &&PathBuf| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe"));
-    if let Some(exe) = entries.iter().filter(|p| is_player(p)).max_by_key(|p| windows(p)) {
+    let windows = |p: &PathBuf| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe"));
+    // Some folders hold a second player (Dusk ships Duskworld beside it): the one named like the folder, else the
+    // shortest name, is the game itself.
+    let folder = dir.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+    let stem = |p: &PathBuf| p.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+    let rank = |p: &&PathBuf| (windows(p), stem(p) == folder, std::cmp::Reverse(stem(p).len()));
+    if let Some(exe) = entries.iter().filter(|p| is_player(p)).max_by_key(rank) {
         return Some(exe.clone());
     }
     if depth == 0 {
@@ -285,7 +290,9 @@ fn unity_version(data: &Path) -> Option<String> {
 // trimmed 0.26 MB; mscorlib is 4.07 MB or more on the .NET 4.x runtime (2.5 MB on .NET 3.5), trimmed 2.6 MB.
 fn is_stripped(dir: &Path, managed: &Path) -> bool {
     let size = |name: &str| fs::metadata(managed.join(name)).map(|m| m.len()).ok();
-    let corlib_min = if dir.join("MonoBleedingEdge").is_dir() { 3_500_000 } else { 1_800_000 };
+    // A player on the old runtime keeps its own Mono folder, even beside another player's MonoBleedingEdge.
+    let old_mono = managed.with_file_name("Mono").is_dir() || dir.join("Mono").is_dir();
+    let corlib_min = if dir.join("MonoBleedingEdge").is_dir() && !old_mono { 3_500_000 } else { 1_800_000 };
     size("UnityEngine.CoreModule.dll").is_some_and(|s| s < 600_000) || size("mscorlib.dll").is_some_and(|s| s < corlib_min)
 }
 
@@ -429,7 +436,9 @@ pub fn needs_launch_options(g: &Game) -> bool {
     if cfg!(windows) || g.app_id == 0 {
         return false;
     }
-    static SAVED: std::sync::Mutex<Option<(std::time::Instant, Vec<(u32, String)>)>> = std::sync::Mutex::new(None);
+    // When it was read, and each app's launch options.
+    type Saved = Option<(std::time::Instant, Vec<(u32, String)>)>;
+    static SAVED: std::sync::Mutex<Saved> = std::sync::Mutex::new(None);
     let mut saved = SAVED.lock().unwrap();
     if saved.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 2) {
         let options = steam_root().map(|s| localconfig_values(&s, "LaunchOptions")).unwrap_or_default();
@@ -485,11 +494,10 @@ pub fn scripts(g: &Game) -> Vec<PathBuf> {
 pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
     // Linux: the scripts live in the game's Proton prefix, which Proton makes on the first start; making its folders
     // first would leave Proton a half-made prefix.
-    if let Some(pfx) = game_user_dir(g, true).filter(|_| !cfg!(windows)).and_then(|d| d.ancestors().nth(5).map(Path::to_path_buf)) {
-        if !pfx.join("system.reg").exists() {
+    if let Some(pfx) = game_user_dir(g, true).filter(|_| !cfg!(windows)).and_then(|d| d.ancestors().nth(5).map(Path::to_path_buf))
+        && !pfx.join("system.reg").exists() {
             return Err(io::Error::other("Start the game once through Steam first, so Proton sets up its Windows folder."));
         }
-    }
     let dir = scripts_dir(g);
     fs::create_dir_all(&dir)?;
     let to = dir.join(file.file_name().unwrap_or_default());

@@ -643,12 +643,12 @@ impl App {
             ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
             self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
         }
-        if playable && !g.installed() && secondary(ui, "Install").clicked() {
+        if playable && !g.installed() && secondary(ui, "Add VR").clicked() {
             self.report(install(g, &self.defaults));
             self.cfg = load_cfg(g);
         }
         if g.installed() {
-            let label = if self.confirm_uninstall { "Confirm uninstall" } else { "Uninstall" };
+            let label = if self.confirm_uninstall { "Confirm: remove VR" } else { "Remove VR" };
             if destructive(ui, label, self.confirm_uninstall).clicked() {
                 if self.confirm_uninstall {
                     self.report(uninstall(g));
@@ -679,8 +679,8 @@ impl App {
         }
         // Only hand-added folders can be forgotten (store games come back on every scan), and not while installed,
         // or the game would vanish from the app with Parallax still in it.
-        if let Some(root) = g.added.as_ref().filter(|_| !g.installed()) {
-            if tertiary(ui, "Remove from library").clicked() {
+        if let Some(root) = g.added.as_ref().filter(|_| !g.installed())
+            && tertiary(ui, "Remove from library").clicked() {
                 match games::remove_folder(root) {
                     Ok(()) => {
                         self.rescan();
@@ -689,7 +689,6 @@ impl App {
                     Err(e) => self.status = (e.to_string(), Tone::Bad),
                 }
             }
-        }
     }
 
     // Lua scripts for this game (see SCRIPTING.md): for cases the automatic handling gets wrong. They load on the next
@@ -707,7 +706,7 @@ impl App {
                 ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).font(mono(BODY)).color(INK));
                 ui.spacing_mut().item_spacing.x = 24.0;
                 if tertiary(ui, "Edit").clicked() {
-                    let _ = games::edit(&path);
+                    let _ = games::edit(path);
                 }
                 if tertiary(ui, "Remove").clicked() {
                     remove = Some(path.clone());
@@ -720,11 +719,10 @@ impl App {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 24.0;
-            if secondary(ui, "Import script").clicked() {
-                if let Some(file) = rfd::FileDialog::new().add_filter("Lua script", &["lua"]).pick_file() {
+            if secondary(ui, "Import script").clicked()
+                && let Some(file) = rfd::FileDialog::new().add_filter("Lua script", &["lua"]).pick_file() {
                     self.report(games::import_script(g, &file).map(|to| format!("Imported {}.", to.file_name().unwrap_or_default().to_string_lossy())).map_err(Into::into));
                 }
-            }
             if tertiary(ui, "Open scripts folder").clicked() {
                 let dir = games::scripts_dir(g);
                 let _ = fs::create_dir_all(&dir);
@@ -901,12 +899,11 @@ impl eframe::App for App {
             self.scan_in_background(ui.ctx());
         }
         // A finished scan waits for the library: replacing the list under an open game page would move its index.
-        if self.page == Page::Library {
-            if let Some(found) = self.scanned.lock().unwrap().take() {
+        if self.page == Page::Library
+            && let Some(found) = self.scanned.lock().unwrap().take() {
                 self.scanning = false;
                 self.games = found;
             }
-        }
         self.focused = focused;
         let back = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.pointer.button_pressed(egui::PointerButton::Extra1));
         if back && self.page != Page::Library && !self.dirty && ui.ctx().memory(|m| m.focused().is_none()) {
@@ -1306,7 +1303,7 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     // everything else comes from the all-games values.
     let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
     write(&g.file(installer::CONFIG), settings::fill(&saved, defaults).as_bytes())?;
-    Ok("Installed. Start the game from here or from Steam with your headset on.".into())
+    Ok("VR added. Start the game from here or from Steam with your headset on.".into())
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
@@ -1333,7 +1330,7 @@ fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {
         write(&saved_path(g), &cfg)?;
     }
     installer::uninstall(&g.dir)?;
-    Ok("Removed. The game folder is back to its original files.".into())
+    Ok("VR removed. The game folder is back to its original files.".into())
 }
 
 // Settings live in the game's BepInEx config while installed; a copy in %APPDATA% survives uninstalls.
