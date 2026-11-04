@@ -13,7 +13,7 @@ Play flat Unity games in VR. Pick a game, press **Play in VR**, and play it with
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
-2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. **Add VR** sets a game up without starting it. Parallax installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
+2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. After **Play in VR** the page says when the game is in VR (or what to check if it starts flat), and later when you last played it in VR. **Add VR** sets a game up without starting it. Parallax installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Stereo, Parallax, Theater), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Linux
@@ -41,7 +41,7 @@ Parallax runs Windows Unity games through Proton, Steam's Windows layer: unpack 
 | Left menu: tap / hold / double-tap | Esc / Tab / VR menu |
 | Point at the UI panel + trigger | Mouse cursor + click (when the game shows a cursor) |
 
-Every button except the sticks can be rebound to a key or mouse button, in the VR menu (Controls tab) or in Parallax.exe (Buttons, for all games or one). Each button can also press another key on a double press, when held for half a second, or while the same hand's grip is held (grip + button). The menu warns when two bindings press the same key.
+Every button except the sticks can be rebound to a key or mouse button, in the VR menu (Controls tab) or in Parallax.exe (**Button layout** on a game's page, or Settings → Buttons for all games). Each button can also press another key on a double press, when held for half a second, or while the same hand's grip is held (grip + button). The menu warns when two bindings press the same key.
 
 **Off** (Controls, VR menu Quick or the app) leaves the game to your own keyboard, mouse or gamepad: the controllers then only work the VR menu and the laser pointer.
 
@@ -55,7 +55,9 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
-- Head aim: in first-person games the game camera turns to where you look, so you aim with your head; the right stick turns your body. Auto (the default) turns it on while you play (cursor hidden), tries it briefly on each new camera, and keeps it off for third-person cameras that orbit the player, where the right stick turns the game camera as on a flat screen; On or Off in Quick, Controls.
+- Head aim: in first-person games the game camera turns to where you look, so you aim with your head; the right stick turns your body. Auto (the default) turns it on while you play (cursor hidden), tries it briefly on each new camera, and keeps it off for third-person cameras that orbit the player, where the right stick turns the game camera as on a flat screen; **Aim** On or Off in the VR menu's Quick tab or the app.
+- Hand aim: **Aim with: Right hand** (VR menu Quick, or the app) steers the same way from the right controller instead: the game camera points where the controller points while your view stays on your head. The game still walks where its camera faces, so forward follows your hand. **Weapon in hand** (VR menu Game tab) moves the gun and arms an FPS hangs under its camera into your hand while the view is drawn.
+- Crosshair: the game's own crosshair sits in the middle of its UI panel, which stays put while the camera follows your head or hand. While aiming, Parallax moves the middle of the game's UI (the crosshair with its grab and use icons, prompts and hit markers) to what the camera aims at, at its depth. **Crosshair** (VR menu Game tab): Game's, Lime for a plain lime crosshair there instead, or Off.
 - The game's UI floats on a see-through panel. When a game paints that panel solid (a full-screen effect on its UI camera), Parallax notices and makes the black see-through, dim tints translucent (View, UI black: Auto, See-through or Keep).
 - Intro and cutscene videos that a game draws straight onto its camera play on the theater screen, then the view returns to stereo.
 - A round watch face sits on the back of your left wrist; it lights up when you glance at it, and a right trigger pull then opens the VR menu.

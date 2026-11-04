@@ -48,6 +48,7 @@ active objects are found. A path that matches nothing raises an error.
 | `enabled(path, type [, on])` | a component's `enabled`, by type name (`"Light"`, `"PostProcessLayer"`) |
 | `field(path, type, member [, value])` | reads, or writes, one field or property of a component: numbers, booleans, strings, enums (number or name) |
 | `eye_offset(x, y, z)` | moves both eyes, metres in the player's frame (x right, y up, z forward) |
+| `crosshair_area(w, h)` | how much of the middle of the game's UI moves with the crosshair while aiming (Crosshair: Game's), as fractions of the screen; default 0.18 x 0.16. Widen it for prompts that get cut |
 
 ## Examples
 

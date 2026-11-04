@@ -10,6 +10,7 @@
 
 ### In VR
 - Stereo 6DOF view, the game's UI on a see-through panel, head aim in first-person games.
+- Hand aim (the right controller steers the game camera) and a crosshair at the depth of what you aim at.
 - **Parallax** display mode: the game in 3D inside a screen, like a 3D monitor, with adjustable depth.
 - **Theater** mode: the flat game on a big, curved screen. Intro and cutscene videos play there automatically.
 - Screen handles while the VR menu is open: drag the bar to move the screen, the corners to resize it; kept per game.
@@ -24,5 +25,6 @@
 - Library from Steam, Epic, GOG and added folders, with cover art, search, filters and a Not installed shelf.
 - **Play in VR**, **Add VR** and **Remove VR** (the game folder goes back byte for byte).
 - Settings for all games, with per-game changes kept across uninstalls.
-- Export logs, update check.
+- Export logs, update check; the version, the guide and "Report a problem" at the end of Settings.
+- Play in VR follows the game until VR starts, names the active VR runtime, and warns when none is set up.
 - Linux build for games run through Proton.
