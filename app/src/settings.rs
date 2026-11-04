@@ -37,7 +37,8 @@ pub const QUICK: &[Def] = &[
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
     def("Controls", "Mode", "Controls", "Auto", Kind::Choice(&[("Auto", "Auto"), ("Gamepad", "Gamepad"), ("KeyboardMouse", "Keyboard & mouse"), ("Off", "Off")]), "Auto: gamepad in games made for one, else keyboard & mouse. Off: play with your own devices; controllers only work the VR menu."),
-    def("Controls", "HeadAim", "Head aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera turns to where you look, so you aim with your head. Auto: first-person games, while you play."),
+    def("Controls", "HeadAim", "Aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera follows your head, or your right hand, so you aim in VR. Auto: first-person games, while you play."),
+    def("Controls", "AimWith", "Aim with", "Head", Kind::Choice(&[("Head", "Head"), ("Hand", "Right hand")]), "Aim follows where you look, or where the right controller points. The view always follows your head."),
 ];
 
 pub const ADVANCED: &[Def] = &[
@@ -50,7 +51,9 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "MouseSpeed", "Look speed", "1200", Kind::Slider { lo: 240.0, hi: 3840.0, step: 60.0, per: 12.0, unit: "%" }, "Keyboard & mouse: how fast the right stick turns."),
     def("Controls", "Pointer", "Laser pointer", "Auto", Kind::Choice(&[("Auto", "With game cursor"), ("MenuOnly", "Menu only")]), ""),
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
-    def("Game", "CameraName", "Game camera", "", Kind::Text, "Name of the camera to use as your head. Easier: pick one in the VR menu's Game tab."),
+    def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
+    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Lime"), ("Off", "Off")]), "While aiming, the middle of the game's UI (crosshair, grab and use icons, prompts) moves to what you aim at, at its depth. Lime: a lime crosshair there instead."),
+    def("Game", "CameraName", "Game camera", "", Kind::Text, "The camera your view follows. Pick one in the VR menu's Game tab, which shows each with a live preview."),
 ];
 
 /// What a controller input can press, as the plugin names them.
@@ -58,6 +61,23 @@ pub const KEYS: &[&str] = &[
     "None", "Space", "Enter", "Esc", "Tab", "Backspace", "LeftShift", "LeftCtrl", "LeftAlt", "Q", "E", "R", "F", "G", "C", "V", "Z", "X",
     "T", "I", "M", "1", "2", "3", "4", "Up", "Down", "Left", "Right", "MouseLeft", "MouseRight", "MouseMiddle",
 ];
+
+/// A key as players read it; the plugin's names (LeftShift, MouseRight) stay in the settings files.
+pub fn key_label(key: &str) -> &str {
+    match key {
+        "LeftShift" => "Left Shift",
+        "LeftCtrl" => "Left Ctrl",
+        "LeftAlt" => "Left Alt",
+        "MouseLeft" => "Left click",
+        "MouseRight" => "Right click",
+        "MouseMiddle" => "Middle click",
+        "Up" => "Up arrow",
+        "Down" => "Down arrow",
+        "Left" => "Left arrow",
+        "Right" => "Right arrow",
+        other => other,
+    }
+}
 
 /// Controller inputs in the plugin's [Bindings] keys, left hand first: (key, shown name, what a press does by default).
 pub const INPUTS: &[(&str, &str, &str)] = &[

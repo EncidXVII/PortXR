@@ -36,6 +36,9 @@ namespace Parallax
 
         // Eye offset a script set, metres in the player's frame (x right, y up, z forward).
         public Vector3 EyeOffset;
+        // Part of the game's UI that moves with the crosshair (Crosshair: Game's): width and height as fractions of
+        // the screen; zero keeps the default.
+        public Vector2 CrosshairArea;
 
         public Scripts(Rig rig) { this.rig = rig; }
 
@@ -78,6 +81,7 @@ namespace Parallax
             stamp = now;
             scripts.Clear();
             EyeOffset = Vector3.zero;
+            CrosshairArea = Vector2.zero;
             scene = camera = null;
             foreach (var file in files)
             {
@@ -164,6 +168,11 @@ namespace Parallax
             Add("eye_offset", a =>
             {
                 EyeOffset = new Vector3((float)a[0].Number, (float)a[1].Number, (float)a[2].Number);
+                return DynValue.Nil;
+            });
+            Add("crosshair_area", a =>
+            {
+                CrosshairArea = new Vector2(Mathf.Clamp((float)a[0].Number, 0.02f, 1f), Mathf.Clamp((float)a[1].Number, 0.02f, 1f));
                 return DynValue.Nil;
             });
             Add("enabled", a => Member(a[0].String, a[1].String, "enabled", a.Count > 2 ? a[2] : null));

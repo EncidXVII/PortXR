@@ -13,6 +13,7 @@ cbuffer Params : register(b0) {
     float4 beam; float beamWidth; float aspect; float dstLinear; float key;
     float4 watch;
     float4 keep;
+    float4 aim;
 };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
@@ -54,6 +55,17 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     // premultiplied that way, which is how the runtime blends the layer.
     bool kept = at.x >= keep.x && at.x <= keep.z && at.y >= keep.y && at.y <= keep.w;
     if (key > 0 && !kept) c.a = min(c.a, saturate(max(shown.r, max(shown.g, shown.b)) * 2.5));
+    // Aim reticle: a lime ring and dot with a dark outline, readable on bright and dark scenes alike.
+    if (aim.z > 0) {
+        float d = length((at - aim.xy) * float2(aspect, 1)) / aim.z, aa = 0.08;
+        float ring = 1 - smoothstep(0.16, 0.16 + aa, abs(d - 0.8)), pip = 1 - smoothstep(0.18, 0.18 + aa, d);
+        float halo = 1 - smoothstep(0.32, 0.32 + aa, min(abs(d - 0.8), d));
+        float3 lime = float3(0.776, 1, 0.102), col = lime * saturate(ring + pip);
+        if (dstLinear > 0.5) col = toLinear(col);
+        float a = max(halo * 0.6, saturate(ring + pip));
+        c.rgb = lerp(c.rgb, col, a);
+        c.a = max(c.a, a);
+    }
     // Watch face: dark disc, lime rim, and a menu glyph (three bars) that turns lime while glanced at.
     if (watch.z > 0) {
         float2 k = float2(aspect, 1), q = (at - watch.xy) * k / watch.z;
@@ -114,6 +126,7 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     for (int i = 0; i < 4; ++i) p.watch[i] = o.watch[i];
     p.key = o.key;
     for (int i = 0; i < 4; ++i) p.keep[i] = o.keep[i];
+    for (int i = 0; i < 4; ++i) p.aim[i] = o.aim[i];
     p.aspect = aspect;
 }
 

@@ -212,7 +212,7 @@ namespace Parallax
             }
             ui.Flex();
             // Only tabs with settings have something to reset.
-            if (tab <= ControlsTab && Button("Reset", false, 128)) ResetTab();
+            if (tab <= GameTab && Button("Reset", false, 128)) ResetTab();
             ui.Gap(8);
             if (Button("Close", false, 128)) Toggle();
             ui.Gap(2);  // keeps the right outline inside the area's clip
@@ -308,10 +308,12 @@ namespace Parallax
         void ResetTab()
         {
             ConfigEntryBase[] entries;
-            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim };
+            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim, Settings.AimWith };
             else if (tab == ViewTab)
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu, Settings.UiBlack };
             else if (tab == ControlsTab) entries = Bindings.Entries.SelectMany(g => g).Where(e => e != null).ToArray();
+            // Hidden objects stay: they are picked one by one and undone the same way.
+            else if (tab == GameTab) entries = new ConfigEntryBase[] { Settings.CameraName, Settings.Crosshair, Settings.WeaponInHand };
             else return;
             var allGames = AllGamesValues();
             foreach (var e in entries)
@@ -343,6 +345,13 @@ namespace Parallax
             ui.EndRow();
             ui.Gap(12);
 
+            // Scale, turning, the vignette and aim only act on the stereo view: on a screen the game's own camera steers.
+            if (Settings.Display.Value != DisplayMode.Stereo)
+            {
+                Options("Controls", Settings.Input, new[] { InputMode.Auto, InputMode.Gamepad, InputMode.KeyboardMouse, InputMode.Off },
+                    new[] { "Auto", "Gamepad", "Keyboard & mouse", "Off" }, InputMode.Off);
+                return;
+            }
             Stepper("World scale", Settings.WorldScale, 0.1f, 0.5f, 3f, "{0:0.0}×");
             Options("Turning", Settings.Turning, new[] { TurnMode.Smooth, TurnMode.Snap15, TurnMode.Snap30, TurnMode.Snap45 },
                 new[] { "Smooth", "Snap 15°", "Snap 30°", "Snap 45°" }, null);
@@ -352,7 +361,9 @@ namespace Parallax
             // Same order as the app.
             Options("Controls", Settings.Input, new[] { InputMode.Auto, InputMode.Gamepad, InputMode.KeyboardMouse, InputMode.Off },
                 new[] { "Auto", "Gamepad", "Keyboard & mouse", "Off" }, InputMode.Off);
-            Options("Head aim", Settings.HeadAim, new[] { AimMode.Auto, AimMode.On, AimMode.Off }, new[] { "Auto", "On", "Off" }, AimMode.Off);
+            Options("Aim", Settings.HeadAim, new[] { AimMode.Auto, AimMode.On, AimMode.Off }, new[] { "Auto", "On", "Off" }, AimMode.Off);
+            if (Settings.HeadAim.Value != AimMode.Off)
+                Options("Aim with", Settings.AimWith, new[] { AimHand.Head, AimHand.Hand }, new[] { "Head", "Right hand" }, null);
         }
 
         void DrawView()
@@ -421,7 +432,7 @@ namespace Parallax
                 if (entry == null) continue;
                 ui.BeginRow();
                 Label(Bindings.Name(gesture, i), label, 260);
-                if (Button(entry.Value, false, 220)) picking = i;
+                if (Button(Bindings.Shown(entry.Value), false, 220)) picking = i;
                 ui.EndRow();
             }
             ui.EndColumn();
@@ -443,7 +454,7 @@ namespace Parallax
                 ui.BeginRow();
                 for (int j = start; j < Mathf.Min(start + columns, names.Length); j++)
                 {
-                    if (Button(names[j], names[j] == picked.Value, 160))
+                    if (Button(Bindings.Shown(names[j]), names[j] == picked.Value, 160))
                     {
                         picked.Value = names[j];
                         picking = -1;
@@ -498,6 +509,11 @@ namespace Parallax
                 ui.Gap(16);
             }
             ui.EndRow();
+            // How this game's weapon and crosshair come along when you aim: they depend on how the game draws them.
+            if (Settings.HeadAim.Value == AimMode.Off) return;
+            ui.Gap(24);
+            Options("Crosshair", Settings.Crosshair, new[] { CrosshairMode.Game, CrosshairMode.Lime, CrosshairMode.Off }, new[] { "Game's", "Lime", "Off" }, CrosshairMode.Off);
+            if (Settings.AimWith.Value == AimHand.Hand) Toggle("Weapon in hand", Settings.WeaponInHand);
         }
 
         void PickCamera(string name)

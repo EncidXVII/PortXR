@@ -400,6 +400,53 @@ fn under(dir: &Path, root: &Path) -> bool {
     d == r || d.starts_with(&(r + "\\"))
 }
 
+/// The headset software games will start in: the active OpenXR runtime's name, read at most every 3 s. None when no
+/// runtime is set up, which is the usual reason VR does not start.
+pub fn openxr_runtime() -> Option<String> {
+    type Seen = Option<(std::time::Instant, Option<String>)>;
+    static SEEN: std::sync::Mutex<Seen> = std::sync::Mutex::new(None);
+    let mut seen = SEEN.lock().unwrap();
+    if let Some(name) = seen.as_ref().filter(|(at, _)| at.elapsed().as_secs() < 3).map(|(_, name)| name.clone()) {
+        return name;
+    }
+    let name = active_runtime_json().map(|json| runtime_name(&json));
+    *seen = Some((std::time::Instant::now(), name.clone()));
+    name
+}
+
+#[cfg(windows)]
+fn active_runtime_json() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("XR_RUNTIME_JSON") {
+        return Some(PathBuf::from(p));
+    }
+    let key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\Khronos\OpenXR\1").ok()?;
+    key.get_value::<String, _>("ActiveRuntime").ok().map(PathBuf::from).filter(|p| p.is_file())
+}
+
+#[cfg(not(windows))]
+fn active_runtime_json() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("XR_RUNTIME_JSON") {
+        return Some(PathBuf::from(p));
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+    config.into_iter().chain([PathBuf::from("/etc/xdg")]).map(|d| d.join("openxr/1/active_runtime.json")).find(|p| p.is_file())
+}
+
+// Known runtimes by their install path (their manifests name themselves inconsistently), else the manifest's name.
+fn runtime_name(json: &Path) -> String {
+    let path = json.to_string_lossy().to_lowercase();
+    let known = [("steamvr", "SteamVR"), ("virtual desktop", "Virtual Desktop"), ("virtualdesktop", "Virtual Desktop"), ("oculus", "Meta Quest Link"),
+        ("wivrn", "WiVRn"), ("monado", "Monado"), ("mixedreality", "Windows Mixed Reality"), ("pimax", "Pimax"), ("varjo", "Varjo"), ("alvr", "ALVR")];
+    if let Some((_, name)) = known.iter().find(|(k, _)| path.contains(k)) {
+        return name.to_string();
+    }
+    fs::read_to_string(json)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v["runtime"]["name"].as_str().map(str::to_string))
+        .unwrap_or_else(|| json.file_stem().unwrap_or_default().to_string_lossy().into_owned())
+}
+
 #[cfg(windows)]
 fn steam_root() -> Option<PathBuf> {
     let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey(r"Software\Valve\Steam").ok()?;
@@ -452,6 +499,11 @@ fn played_list() -> PathBuf {
 }
 
 /// Records a launch from the app (`<unix seconds>\t<game dir>` lines) for the library's "Recently played" order.
+/// When VR last started in this game: the plugin notes its first frame sent to the headset beside itself.
+pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
+    fs::metadata(g.file(r"BepInEx\plugins\Parallax\played.txt")).and_then(|m| m.modified()).ok()
+}
+
 pub fn mark_played(dir: &Path) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let mut lines: Vec<String> = fs::read_to_string(played_list()).unwrap_or_default().lines().filter(|l| !l.ends_with(&format!("\t{}", dir.display()))).map(String::from).collect();

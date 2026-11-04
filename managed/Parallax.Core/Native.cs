@@ -39,6 +39,11 @@ namespace Parallax
         public float keepX0, keepY0, keepX1, keepY1;
         public int window;
         public Layer windowL, windowR;
+        public float aimLX, aimLY, aimLR, aimRX, aimRY, aimRR;
+        public float patchW, patchH;
+        public int patchShown;
+        public Pose aimPose;
+        public float aimW, aimH;
     }
 
     [Flags]

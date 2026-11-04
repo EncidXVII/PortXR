@@ -135,6 +135,19 @@ namespace Parallax
                     else if (a[1] == "show") rig.Hider.ShowAll();
                     else rig.Hider.Stop();
                     return "ok";
+                case "viewmodel":
+                    // A stand-in FPS weapon: a box hung under the game camera, low and to the right.
+                    var old = GameObject.Find("TestViewmodel");
+                    if (old != null) UnityEngine.Object.Destroy(old);
+                    if (a[1] == "on" && rig.GameCam != null)
+                    {
+                        var gun = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                        gun.name = "TestViewmodel";
+                        gun.transform.SetParent(rig.GameCam.transform, false);
+                        gun.transform.localPosition = new Vector3(0.2f, -0.2f, 0.4f);
+                        gun.transform.localScale = new Vector3(0.06f, 0.08f, 0.3f);
+                    }
+                    return "ok";
                 case "recenter":
                     rig.RequestRecenter();
                     return "ok";
@@ -242,7 +255,7 @@ namespace Parallax
             return $$"""
                 {"state":{{s.state}},"focused":{{s.focused}},"periodMs":{{s.periodMs:0.###}},"p95Ms":{{s.p95Ms:0.###}},
                 "frames":{{s.frames}},"submitted":{{s.submitted}},"stereo":{{s.stereoSubmitted}},"quad":{{s.quadSubmitted}},"curved":{{s.curvedSubmitted}},"curvedSupported":{{s.curvedSupported}},
-                "theater":{{(Settings.Display.Value == DisplayMode.Theater ? 1 : 0)}},"window":{{(rig.WindowShown ? 1 : 0)}},"handle":{{rig.Handle}},"adjust":{{rig.Grab}},"watch":{{(rig.WatchShown ? 1 : 0)}},"glance":{{(rig.Glancing ? 1 : 0)}},"screenPose":[{{rig.ScreenState.x:0.##}},{{rig.ScreenState.y:0.##}},{{rig.ScreenState.z:0.##}},{{rig.ScreenState.w:0.##}}],"focus":{{rig.Focus:0.##}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},"aim":{{(rig.Aiming ? 1 : 0)}},"smoothing":{{(rig.StepSmoothing ? 1 : 0)}},"orbit":{{rig.OrbitRadius:0.###}},"body":{{rig.BodyYaw:0.#}},
+                "theater":{{(Settings.Display.Value == DisplayMode.Theater ? 1 : 0)}},"window":{{(rig.WindowShown ? 1 : 0)}},"handle":{{rig.Handle}},"adjust":{{rig.Grab}},"watch":{{(rig.WatchShown ? 1 : 0)}},"glance":{{(rig.Glancing ? 1 : 0)}},"screenPose":[{{rig.ScreenState.x:0.##}},{{rig.ScreenState.y:0.##}},{{rig.ScreenState.z:0.##}},{{rig.ScreenState.w:0.##}}],"focus":{{rig.Focus:0.##}},"vignette":{{rig.VignetteNow:0.###}},"menu":{{(rig.Menu.Open ? 1 : 0)}},"pointer":{{(rig.PointerActive ? 1 : 0)}},"hider":{{(rig.Hider.Active ? 1 : 0)}},"hideTarget":"{{(rig.Hider.Target != null ? rig.Hider.Target.name : "")}}","aimValid":{{rig.AimValid}},"scanned":{{rig.Hider.Scanned}},"aim":{{(rig.Aiming ? 1 : 0)}},"reticle":[{{rig.Reticle[0]:0.###}},{{rig.Reticle[1]:0.###}},{{rig.Reticle[2]:0.####}}],"patch":{{(rig.PatchShown ? 1 : 0)}},"held":{{rig.Held}},"smoothing":{{(rig.StepSmoothing ? 1 : 0)}},"orbit":{{rig.OrbitRadius:0.###}},"body":{{rig.BodyYaw:0.#}},
                 "eyeL":{{V(rig.Eyes[0].transform.position)}},"eyeR":{{V(rig.Eyes[1].transform.position)}},
                 "cam":"{{(cam != null ? cam.name : "")}}","camMask":{{(cam != null ? cam.cullingMask : 0)}},"camPos":{{(cam != null ? V(cam.transform.position) : "null")}},
                 "fov":[{{f.left:0.#####}},{{f.right:0.#####}},{{f.up:0.#####}},{{f.down:0.#####}}],

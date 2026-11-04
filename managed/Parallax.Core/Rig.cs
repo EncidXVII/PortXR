@@ -118,6 +118,11 @@ namespace Parallax
         Scripts scripts;  // made on the first Update: IL2CPP's injected classes cannot pass `this` in a field initialiser
         readonly CanvasOverlay canvases = new CanvasOverlay();
         readonly ScreenQuads screenQuads = new ScreenQuads();
+        readonly HandHeld handHeld = new HandHeld();
+        bool vrNoted;  // played.txt beside the plugin, written at the first frame sent to the headset
+        bool handAiming;  // this frame's aim follows the right controller, at handAim
+        Pose handAim;
+        internal int Held { get; private set; }  // viewmodel parts moved into the hand this frame
         internal int AimValid => beamOn ? 1 : 0;
         Vector2 pointerUv;
         // Laser beam in tracking space, drawn into the eye images while the pointer is wanted.
@@ -427,6 +432,8 @@ namespace Parallax
             UpdateFlatScale(cam);
             float scale = Scale;
             var lift = Vector3.up * Settings.Height.Value;
+            eyeBase = basePos + lift;
+            eyeScale = scale;
             if (windowShown) WindowEyes(cam);
             for (int e = 0; e < 2; e++)
             {
@@ -463,6 +470,15 @@ namespace Parallax
                 StackPasses(e, eye, refreshExtras);
             }
             if (refreshExtras) headPost = CameraPost.Off(cam);
+            PlaceReticle(camT);
+            Held = 0;
+            if (aiming && handAiming && Settings.WeaponInHand.Value)
+            {
+                // The newest hand pose; the one aim used this frame when tracking dropped since.
+                var p = controllers.aimValidR != 0 ? controllers.aimR : handAim;
+                handHeld.Move(cam, ToWorld(Xr.Position(p) + Xr.Rotation(p) * new Vector3(0, 0, 0.08f)));
+                Held = handHeld.Held;
+            }
             eyesRendered = true;
         }
 
@@ -638,6 +654,7 @@ namespace Parallax
         void SubmitFrame()
         {
             screenQuads.Restore();
+            handHeld.Restore();
             // The game camera drew nothing, so the backbuffer now holds only overlay UI and IMGUI.
             bool native = D3D12 || captureIntoTexture == null || !managedCapture.Run(() =>
             {
@@ -707,6 +724,28 @@ namespace Parallax
             f.watchRadius = WatchRadius;
             f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;
             f.scene = sceneHandle;
+            if (stereo && reticleShown)
+            {
+                var area = scripts != null ? scripts.CrosshairArea : Vector2.zero;
+                f.patchW = area.x > 0 ? area.x / 2 : PatchW;
+                f.patchH = area.y > 0 ? area.y / 2 : PatchH;
+                if (PatchShown)
+                {
+                    // Same size to the eye as on the panel, facing the head.
+                    var headAt = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2;
+                    var at = ToTracking(ReticleAt);
+                    float grow = (at - headAt).magnitude / Mathf.Max(0.1f, (center - headAt).magnitude);
+                    f.patchShown = 1;
+                    f.aimPose = Xr.ToPose(at, Quaternion.LookRotation(at - headAt, originYaw * Vector3.up));
+                    f.aimW = 2 * f.patchW * f.quadWidth * grow;
+                    f.aimH = 2 * f.patchH * f.quadHeight * grow;
+                }
+                else
+                {
+                    f.aimLX = reticle[0]; f.aimLY = reticle[1]; f.aimLR = reticle[2];
+                    f.aimRX = reticle[3]; f.aimRY = reticle[4]; f.aimRR = reticle[5];
+                }
+            }
             if (Menu.Open)
             {
                 var r = Menu.ScreenRect;
@@ -714,6 +753,12 @@ namespace Parallax
                 f.keepY0 = r.yMin / Screen.height;
                 f.keepX1 = r.xMax / Screen.width;
                 f.keepY1 = r.yMax / Screen.height;
+            }
+            if (!vrNoted)
+            {
+                vrNoted = true;
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Rig).Assembly.Location), "played.txt"), DateTime.UtcNow.ToString("o")); }
+                catch (Exception e) { Plugin.Log.LogWarning("Couldn't note the VR start for the app: " + e.Message); }
             }
             Native.prx_set_frame(slot, ref f);
             GL.IssuePluginEvent(renderEvent, Native.EvSubmit | (slot << 8));
@@ -1004,6 +1049,7 @@ namespace Parallax
         {
             canvases.Restore();
             screenQuads.Restore();
+            handHeld.Restore();
             if (camHidden && GameCam != null)
             {
                 GameCam.cullingMask = savedMask;
@@ -1199,6 +1245,48 @@ namespace Parallax
 
         internal float OrbitRadius => orbitDen > 0 ? orbitNum / orbitDen : 0;
         internal bool Aiming => aiming;
+
+        // Tracking space (metres from the recenter point) to the game world, as the eyes are placed this frame.
+        Vector3 eyeBase;
+        float eyeScale = 1;
+        Vector3 ToWorld(Vector3 tracking) => eyeBase + Body * (Quaternion.Inverse(originYaw) * (tracking - originPos) * eyeScale);
+        Vector3 ToTracking(Vector3 world) => originPos + originYaw * (Quaternion.Inverse(Body) * (world - eyeBase) / eyeScale);
+
+        // The game's crosshair sits at the middle of its UI, which in VR is a panel that stays put while the camera
+        // follows the head or hand, so it points elsewhere. While aiming, that middle (with the game's grab and use
+        // icons, prompts and hit markers) moves to where the game camera actually aims, at the depth of what it hits,
+        // or a lime reticle is drawn there instead.
+        readonly float[] reticle = new float[6];
+        bool reticleShown;
+        internal float[] Reticle => reticleShown ? reticle : new float[3];
+        internal Vector3 ReticleAt { get; private set; }
+        internal bool PatchShown => reticleShown && Settings.Crosshair.Value == CrosshairMode.Game;
+        readonly Optional aimRay = new Optional("Crosshair distance");
+        const float ReticleDeg = 0.45f, ReticleFar = 40f, PatchW = 0.09f, PatchH = 0.08f;
+
+        void PlaceReticle(Transform camT)
+        {
+            reticleShown = !windowShown && aiming && Settings.Crosshair.Value != CrosshairMode.Off;
+            if (!reticleShown) return;
+            float dist = ReticleFar;
+            aimRay.Run(() =>
+            {
+                if (Physics.Raycast(camT.position, camT.forward, out var hit, ReticleFar, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    dist = Mathf.Max(hit.distance, 0.3f);
+            });
+            ReticleAt = camT.position + camT.forward * dist;
+            for (int e = 0; e < 2; e++)
+            {
+                var t = Eyes[e].transform;
+                var p = Quaternion.Inverse(t.rotation) * (ReticleAt - t.position);
+                var fov = Fovs[e];
+                float l = Xr.Tan(fov.left), r = Xr.Tan(fov.right), u = Xr.Tan(fov.up), d = Xr.Tan(fov.down);
+                bool front = p.z > 0.01f;
+                reticle[e * 3] = front ? (p.x / p.z - l) / (r - l) : 0;
+                reticle[e * 3 + 1] = front ? (u - p.y / p.z) / (u - d) : 0;
+                reticle[e * 3 + 2] = front ? Xr.Tan(ReticleDeg * Mathf.Deg2Rad) / (u - d) : 0;
+            }
+        }
         internal float BodyYaw => bodyYaw;
 
         // On is unconditional outside the VR menu. Auto needs the game's cursor hidden (play, not its menus); after 40
@@ -1244,7 +1332,9 @@ namespace Parallax
                 snapArmed = false;
                 bodyYaw += Mathf.Sign(rx) * SnapAngle(Settings.Turning.Value);
             }
-            var look = Quaternion.Inverse(originYaw) * Xr.Rotation(Views[0]) * Vector3.forward;
+            handAiming = Settings.AimWith.Value == AimHand.Hand && controllers.aimValidR != 0;
+            if (handAiming) handAim = controllers.aimR;
+            var look = Quaternion.Inverse(originYaw) * Xr.Rotation(handAiming ? controllers.aimR : Views[0]) * Vector3.forward;
             float wantYaw = bodyYaw + Xr.Atan2(look.x, look.z) * Mathf.Rad2Deg;
             float wantPitch = Mathf.Clamp(Xr.Asin(Mathf.Clamp(look.y, -1, 1)) * Mathf.Rad2Deg, -80, 80);
             var camT = GameCam.transform;

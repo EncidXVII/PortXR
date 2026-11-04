@@ -22,6 +22,25 @@ namespace Parallax
             "Q", "E", "R", "F", "G", "C", "V", "Z", "X", "T", "I", "M",
             "1", "2", "3", "4", "Up", "Down", "Left", "Right", "MouseLeft", "MouseRight", "MouseMiddle",
         };
+        // A key as players read it; the names above stay in the settings files. Same words as the app.
+        public static string Shown(string key)
+        {
+            switch (key)
+            {
+                case "LeftShift": return "Left Shift";
+                case "LeftCtrl": return "Left Ctrl";
+                case "LeftAlt": return "Left Alt";
+                case "MouseLeft": return "Left click";
+                case "MouseRight": return "Right click";
+                case "MouseMiddle": return "Middle click";
+                case "Up": return "Up arrow";
+                case "Down": return "Down arrow";
+                case "Left": return "Left arrow";
+                case "Right": return "Right arrow";
+                default: return key;
+            }
+        }
+
         static readonly int[] KeyCodes =
         {
             0, 0x39, 0x1C, 0x01, 0x0F, 0x0E, 0x2A, 0x1D, 0x38,

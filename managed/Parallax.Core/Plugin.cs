@@ -14,6 +14,8 @@ namespace Parallax
     public enum TurnMode { Smooth, Snap15, Snap30, Snap45 }
     public enum VignetteLevel { Off, Low, High }
     public enum AimMode { Auto, On, Off }
+    public enum AimHand { Head, Hand }
+    public enum CrosshairMode { Game, Lime, Off }
     public enum UiBackground { Auto, SeeThrough, Keep }
 
     internal static class Settings
@@ -46,6 +48,9 @@ namespace Parallax
         public static ConfigEntry<TurnMode> Turning;
         public static ConfigEntry<VignetteLevel> Vignette;
         public static ConfigEntry<AimMode> HeadAim;
+        public static ConfigEntry<AimHand> AimWith;
+        public static ConfigEntry<CrosshairMode> Crosshair;
+        public static ConfigEntry<bool> WeaponInHand;
         public static ConfigEntry<UiBackground> UiBlack;
         public static ConfigEntry<string> CameraName, Hidden;
         public static ConfigEntry<int> MenuKey;
@@ -85,6 +90,13 @@ namespace Parallax
             HeadAim = cfg.Bind("Controls", "HeadAim", AimMode.Auto,
                 "On: the game camera turns to where you look, so first-person games aim with your head (also in their menus). Auto: on in " +
                 "first-person games while the game hides the cursor, off for cameras that orbit the player. Off: the head only looks around.");
+            AimWith = cfg.Bind("Controls", "AimWith", AimHand.Head,
+                "What head aim follows. Head: where you look. Hand: where the right controller points; the view still follows your head.");
+            WeaponInHand = cfg.Bind("Controls", "WeaponInHand", true,
+                "With hand aim, move the weapon the game hangs under its camera (arms and gun) into the right hand while the eyes render.");
+            Crosshair = cfg.Bind("Controls", "Crosshair", CrosshairMode.Game,
+                "While aiming, the game's crosshair sits on the flat UI panel and misses. Game: the middle of the UI (crosshair, grab and use " +
+                "icons, prompts, hit markers) moves to what the camera aims at, at its depth. Lime: a lime crosshair there instead. Off: as the game draws it.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
             FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");

@@ -202,6 +202,14 @@ bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& captur
 
 XrPosef to_xr(const PrxPose& p) { return {{p.qx, p.qy, p.qz, p.qw}, {p.px, p.py, p.pz}}; }
 
+// The pose's position plus (x, y, 0) turned by its orientation.
+XrVector3f add_rotated(const XrPosef& p, float x, float y) {
+    const XrQuaternionf& q = p.orientation;
+    float tx = 2 * (-q.z * y), ty = 2 * (q.z * x), tz = 2 * (q.x * y - q.y * x);
+    return {p.position.x + x + q.w * tx + (q.y * tz - q.z * ty), p.position.y + y + q.w * ty + (q.z * tx - q.x * tz),
+            p.position.z + q.w * tz + (q.x * ty - q.y * tx)};
+}
+
 void pick_format() {
     uint32_t count = 0;
     xrEnumerateSwapchainFormats(g_xr.session, 0, &count, nullptr);
@@ -348,8 +356,11 @@ void do_submit(int slot) {
     XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerCylinderKHR cylinder{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
     XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
-    const XrCompositionLayerBaseHeader* layers[4];
+    // The flat panel around its middle (four strips) and the middle on its own at the aim point: see PrxFrame::aimPatch.
+    XrCompositionLayerQuad strips[5]{};
+    const XrCompositionLayerBaseHeader* layers[9];
     const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr;
+    uint32_t stripCount = 0;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
@@ -359,6 +370,7 @@ void do_submit(int slot) {
             // About 4 mm wide at arm's length on a typical 100 degree view.
             if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
             if (f.watch) watch_uv(f, e, over[e].watch);
+            for (int i = 0; i < 3; ++i) over[e].aim[i] = f.aimReticle[e][i];
         }
         if (f.window && f.windowLayer[0].texture && f.windowLayer[1].texture &&
             copy_layer(g_window[0], f.windowLayer[0], path(L"windowL.bmp")) &&
@@ -408,6 +420,34 @@ void do_submit(int slot) {
                 cylinder.aspectRatio = f.quadWidth / f.quadHeight;
                 uiLayer = (XrCompositionLayerBaseHeader*)&cylinder;
                 curved = true;
+            } else if (f.aimPatch[0] > 0) {
+                // Pixel edges first, so neighbouring strips meet without a gap.
+                int w = (int)g_quad.width, h = (int)g_quad.height;
+                int x0 = (int)((0.5f - f.aimPatch[0]) * w), x1 = w - x0, y0 = (int)((0.5f - f.aimPatch[1]) * h), y1 = h - y0;
+                int rects[4][4] = {{0, 0, w, y0}, {0, y1, w, h}, {0, y0, x0, y1}, {x1, y0, w, y1}};
+                for (auto& r : rects) {
+                    XrCompositionLayerQuad& q = strips[stripCount++];
+                    q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                    q.layerFlags = flags;
+                    q.space = g_xr.local;
+                    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    q.subImage = {g_quad.handle, {{r[0], r[1]}, {r[2] - r[0], r[3] - r[1]}}, 0};
+                    // The strip's centre on the panel plane: x right, y up from the panel's centre.
+                    float x = ((r[0] + r[2]) / 2.f / w - 0.5f) * f.quadWidth, y = (0.5f - (r[1] + r[3]) / 2.f / h) * f.quadHeight;
+                    q.pose = pose;
+                    q.pose.position = add_rotated(pose, x, y);
+                    q.size = {f.quadWidth * (r[2] - r[0]) / w, f.quadHeight * (r[3] - r[1]) / h};
+                }
+                if (f.aimPatchShown) {
+                    XrCompositionLayerQuad& q = strips[stripCount++];
+                    q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                    q.layerFlags = flags;
+                    q.space = g_xr.local;
+                    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    q.subImage = {g_quad.handle, {{x0, y0}, {x1 - x0, y1 - y0}}, 0};
+                    q.pose = to_xr(f.aimPose);
+                    q.size = {f.aimSize[0], f.aimSize[1]};
+                }
             } else {
                 quad.layerFlags = flags;
                 quad.space = g_xr.local;
@@ -427,6 +467,7 @@ void do_submit(int slot) {
     if (overlayEyes) std::swap(order[0], order[1]);
     for (auto* l : order)
         if (l) layers[count++] = l;
+    for (uint32_t i = 0; i < stripCount; ++i) layers[count++] = (XrCompositionLayerBaseHeader*)&strips[i];
     g_gpu->set_mirror(!f.mirror ? nullptr : f.window ? f.windowLayer[0].texture : stereo ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);

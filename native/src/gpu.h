@@ -13,6 +13,8 @@ struct Overlay {
     // Near-black pixels made see-through (UI panel whose alpha the game filled in).
     float key = 0;
     float keep[4] = {};  // UV rect left unkeyed
+    // Aim reticle: centre (u, v) and radius in UV of the image height; 0 draws none.
+    float aim[4] = {};
     // Copy the drawn image for an opacity measurement, read back without stalling on a later draw.
     bool probe = false;
 };
@@ -61,6 +63,7 @@ struct BlitParams {
     float beam[4], beamWidth, aspect, dstLinear, key;
     float watch[4];
     float keep[4];
+    float aim[4];
 };
 void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,

@@ -56,7 +56,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
 pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     let game = checked(game_dir)?;
     if game.native_vr {
-        return Err("This game has its own VR mode: start it in VR from Steam. Parallax stays out of games that already support VR.".into());
+        return Err("Already runs in VR on its own: start it in VR from Steam or its launcher. Parallax stays out of anything that already supports VR.".into());
     }
     if game.stripped {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
@@ -85,23 +85,40 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
             created_dirs.push(top);
         }
     }
+    // Backups and the receipt reach the disk before any game file changes, so Remove VR can undo an install that a
+    // crash or power cut stopped halfway.
     let mut files = Vec::new();
-    for rel in sources {
-        let target = games::native(game_dir, &rel);
+    for rel in &sources {
+        let target = games::native(game_dir, rel);
         let backed_up = target.exists();
         if backed_up {
-            let backup = games::native(&game_dir.join(BACKUP_DIR), &rel);
+            let backup = games::native(&game_dir.join(BACKUP_DIR), rel);
             fs::create_dir_all(backup.parent().unwrap())?;
-            fs::copy(&target, backup)?;
+            fs::copy(&target, &backup)?;
+            fs::OpenOptions::new().write(true).open(&backup)?.sync_all()?;
         }
-        fs::create_dir_all(target.parent().unwrap())?;
-        fs::copy(games::native(&payload, &rel), &target)?;
-        let sha256 = Sha256::digest(fs::read(&target)?).iter().map(|b| format!("{b:02x}")).collect();
-        files.push(ReceiptFile { path: rel, sha256, backed_up });
+        let sha256 = Sha256::digest(fs::read(games::native(&payload, rel))?).iter().map(|b| format!("{b:02x}")).collect();
+        files.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
     }
     let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting, created_dirs, files };
-    fs::write(receipt_path(game_dir), serde_json::to_vec(&receipt)?)?;
+    write_durable(&receipt_path(game_dir), &serde_json::to_vec(&receipt)?)?;
+    for rel in &sources {
+        let target = games::native(game_dir, rel);
+        fs::create_dir_all(target.parent().unwrap())?;
+        fs::copy(games::native(&payload, rel), &target)?;
+    }
     Ok(())
+}
+
+/// Written beside and renamed over, flushed first: a crash leaves the old file or the new one, never a torn or
+/// zero-filled one.
+fn write_durable(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    let mut f = fs::File::create(&tmp)?;
+    std::io::Write::write_all(&mut f, data)?;
+    f.sync_all()?;
+    drop(f);
+    fs::rename(&tmp, path)
 }
 
 /// Brings an installed game's plugin files up to this build, in place: the loader, its caches (IL2CPP interop takes
@@ -140,7 +157,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     }
     if changed {
         receipt.version = env!("CARGO_PKG_VERSION").into();
-        fs::write(&path, serde_json::to_vec(&receipt)?)?;
+        write_durable(&path, &serde_json::to_vec(&receipt)?)?;
     }
     Ok(changed)
 }
@@ -156,7 +173,11 @@ fn checked(game_dir: &Path) -> Result<games::Game, Box<dyn Error>> {
 }
 
 pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let receipt: Receipt = serde_json::from_slice(&fs::read(receipt_path(game_dir))?)?;
+    let bytes = match fs::read(receipt_path(game_dir)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err("VR isn't added to this game, so there is nothing to remove.".into()),
+        r => r?,
+    };
+    let receipt: Receipt = serde_json::from_slice(&bytes)?;
     for dir in &receipt.created_dirs {
         remove_dir(&games::native(game_dir, dir))?;
     }

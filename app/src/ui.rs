@@ -112,6 +112,9 @@ struct App {
     confirm_uninstall: bool,
     advanced: bool,
     buttons: bool,
+    scroll_to_buttons: bool,
+    // Play pressed for this game folder at this time: the game page waits for the plugin's note that VR started.
+    launched: Option<(PathBuf, std::time::SystemTime)>,
     scripts_open: bool,
     update: Arc<Mutex<Option<Release>>>,
     // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
@@ -183,6 +186,8 @@ impl App {
             confirm_uninstall: false,
             advanced: false,
             buttons: false,
+            scroll_to_buttons: false,
+            launched: None,
             scripts_open: false,
             update,
             steam_unity,
@@ -323,7 +328,7 @@ impl App {
             Entry::Here(i) => self.games[*i].name.to_lowercase(),
             Entry::Steam(o) => o.name.to_lowercase(),
         };
-        let mut shown: Vec<Entry> = self
+        let mut shown: Vec<(Filter, Entry)> = self
             .entries()
             .into_iter()
             .filter(|(f, e)| {
@@ -333,18 +338,20 @@ impl App {
                 };
                 (self.filter == Filter::All || *f == self.filter) && self.store.is_none_or(|s| store == s) && name(e).contains(&query)
             })
-            .map(|(_, e)| e)
             .collect();
-        shown.sort_by_key(|e| name(e));
+        shown.sort_by_key(|(_, e)| name(e));
         // A stable sort keeps name order among games never played.
         if self.sort == Sort::Recent {
-            shown.sort_by_key(|e| {
+            shown.sort_by_key(|(_, e)| {
                 std::cmp::Reverse(match e {
                     Entry::Here(i) => self.games[*i].last_played,
                     Entry::Steam(o) => o.last_played,
                 })
             });
         }
+        // The library opens on what can be played: games Parallax cannot run go last in every order.
+        shown.sort_by_key(|(f, _)| *f == Filter::Unsupported);
+        let shown: Vec<Entry> = shown.into_iter().map(|(_, e)| e).collect();
         if shown.is_empty() {
             ui.label(RichText::new("Nothing matches this search and these filters.").color(INK2));
             ui.add_space(12.0);
@@ -401,8 +408,10 @@ impl App {
         };
     }
 
-    // Status (with counts) on the left; store and order on the right. A filter with one possible value is left out.
+    // Status (with counts) on the left; store and order on the right, or on their own row when the window is too
+    // narrow for both. A filter with one possible value is left out.
     fn toolbar(&mut self, ui: &mut Ui) {
+        let mut wrap = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 12.0);
             // The tabs split the library: each card is in one, and the counts add up to All.
@@ -426,8 +435,21 @@ impl App {
             if let Some(f) = segmented(ui, &options, self.filter, None) {
                 self.filter = f;
             }
+            // The two menus' width, measured at 100 %.
+            wrap = ui.available_width() < 310.0;
+            if !wrap {
+                self.menus(ui);
+            }
+        });
+        if wrap {
+            ui.add_space(12.0);
+            ui.horizontal(|ui| self.menus(ui));
+        }
+    }
 
+    fn menus(&mut self, ui: &mut Ui) {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
                 self.sort_menu(ui);
                 let mut stores: Vec<&'static str> = self.games.iter().map(|g| g.store).collect();
                 stores.sort();
@@ -443,7 +465,6 @@ impl App {
                     menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Store: {shown}")));
                 }
             });
-        });
     }
 
     fn sort_menu(&mut self, ui: &mut Ui) {
@@ -494,9 +515,17 @@ impl App {
                 ui.add(egui::Label::new(RichText::new(g.dir.display().to_string()).font(mono(LABEL)).color(INK3)).wrap());
                 ui.add_space(24.0);
                 ui.horizontal_wrapped(|ui| self.actions(ui, &g));
+                self.follow_launch(ui.ctx(), &g);
                 let (text, tone) = if self.status.0.is_empty() { warning(&g) } else { self.status.clone() };
                 if !text.is_empty() {
                     status_line(ui, &text, tone);
+                } else if g.compat() == Compat::Supported {
+                    // Checked before Play: without a runtime the game just starts flat.
+                    let last = games::last_vr(&g).map(|t| format!(" Last played in VR {}.", ago(t))).unwrap_or_default();
+                    match games::openxr_runtime() {
+                        Some(name) => status_line(ui, &format!("Starts in VR through {name}. Put your headset on first.{last}"), Tone::Info),
+                        None => status_line(ui, "No VR runtime is set up, so the game would start flat. Install and start SteamVR, Virtual Desktop or Meta Quest Link.", Tone::Bad),
+                    }
                 }
             });
         });
@@ -568,6 +597,18 @@ impl App {
         self.settings(ui, settings::QUICK, false);
         self.advanced_section(ui, false);
         self.buttons_section(ui, false);
+        // Who made this and where to go when something is wrong.
+        section_break(ui);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 24.0;
+            ui.label(RichText::new(format!("PARALLAX {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK3).extra_letter_spacing(TRACK));
+            if tertiary(ui, "Guide ↗").clicked() {
+                let _ = games::open(format!("https://github.com/{REPO}#readme"));
+            }
+            if tertiary(ui, "Report a problem ↗").on_hover_text("Export logs from the game's page first and attach the zip").clicked() {
+                let _ = games::open(format!("https://github.com/{REPO}/issues/new/choose"));
+            }
+        });
     }
 
     fn advanced_section(&mut self, ui: &mut Ui, game: bool) {
@@ -581,6 +622,9 @@ impl App {
     // Keyboard & mouse bindings: one row per controller input, one column per gesture.
     fn buttons_section(&mut self, ui: &mut Ui, game: bool) {
         let changed = if game { self.changed(&settings::BINDINGS) } else { 0 };
+        if std::mem::take(&mut self.scroll_to_buttons) {
+            ui.scroll_to_cursor(Some(Align::TOP));
+        }
         if !fold(ui, "03", "Buttons", changed, &mut self.buttons) {
             return;
         }
@@ -607,12 +651,12 @@ impl App {
                     let own = game && !settings::same(&current, &global);
                     let tone = if current == "None" { INK3 } else if !game || own { INK } else { INK2 };
                     let mut pick = current.clone();
-                    let menu = egui::ComboBox::from_id_salt((d.key, game)).width(132.0).selected_text(button_text(&current, tone)).show_ui(ui, |ui| {
+                    let menu = egui::ComboBox::from_id_salt((d.key, game)).width(152.0).selected_text(button_text(settings::key_label(&current), tone)).show_ui(ui, |ui| {
                         for k in settings::KEYS {
-                            ui.selectable_value(&mut pick, k.to_string(), button_text(k, INK));
+                            ui.selectable_value(&mut pick, k.to_string(), button_text(settings::key_label(k), INK));
                         }
                     });
-                    menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("{}: {current}", d.label)));
+                    menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("{}: {}", d.label, settings::key_label(&current))));
                     if pick != current {
                         let text = if game { &mut self.cfg } else { &mut self.defaults };
                         *text = settings::set(text, d.section, d.key, &pick);
@@ -635,7 +679,9 @@ impl App {
         ui.spacing_mut().item_spacing.x = 8.0;
         let playable = g.compat() == Compat::Supported;
         if playable && primary(ui, "Play in VR ↗").clicked() {
-            self.report(play(g, &self.defaults));
+            let started = play(g, &self.defaults);
+            self.launched = started.is_ok().then(|| (g.dir.clone(), std::time::SystemTime::now()));
+            self.report(started);
             self.confirm_uninstall = false;
         }
         // Linux: Steam keeps its launch options to itself while running, so the player pastes them in.
@@ -662,6 +708,10 @@ impl App {
         if playable || g.installed() {
             ui.add_space(16.0);
         }
+        if playable && tertiary(ui, "Button layout").clicked() {
+            self.buttons = true;
+            self.scroll_to_buttons = true;
+        }
         if tertiary(ui, "Open folder").clicked() {
             let _ = games::open(&g.dir);
         }
@@ -671,7 +721,7 @@ impl App {
                 let _ = std::os::windows::process::CommandExt::raw_arg(&mut std::process::Command::new("explorer"), format!("/select,\"{}\"", zip.display())).spawn();
                 #[cfg(not(windows))]
                 let _ = zip.parent().map(games::open);
-                "Logs saved to your desktop. Attach the zip to your bug report.".into()
+                "Logs saved to your desktop. Attach the zip to a report: Settings → Report a problem.".into()
             }));
         }
         if g.file(LOG).exists() && tertiary(ui, "Open log").clicked() {
@@ -734,6 +784,32 @@ impl App {
         });
     }
 
+    // After Play: "Starting" until the plugin notes its first frame in the headset, then a confirmation; a game that
+    // shows no VR within 90 s gets what to check.
+    fn follow_launch(&mut self, ctx: &egui::Context, g: &Game) {
+        let Some((dir, at)) = self.launched.clone() else { return };
+        if dir != g.dir {
+            return;
+        }
+        if games::last_vr(g).is_some_and(|t| t >= at) {
+            self.launched = None;
+            self.status = ("In VR. Double-tap the left menu button for the VR menu.".into(), Tone::Good);
+            return;
+        }
+        let waited = at.elapsed().map_or(0, |d| d.as_secs());
+        if waited >= 90 {
+            self.launched = None;
+            let runtime = games::openxr_runtime().unwrap_or_else(|| "your VR runtime".into());
+            self.status = (format!("No VR yet. If the game runs flat, check that {runtime} is running and the headset is awake, then restart the game. Still flat? Export logs and attach them to a report (Settings → Report a problem)."), Tone::Bad);
+            return;
+        }
+        // The launch message stays readable for its first seconds.
+        if waited >= 4 {
+            self.status = (format!("Starting… {waited} s. Put your headset on."), Tone::Info);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+    }
+
     fn report(&mut self, result: Result<String, Box<dyn Error>>) {
         self.status = match result {
             Ok(text) => (text, Tone::Good),
@@ -746,8 +822,21 @@ impl App {
     fn settings(&mut self, ui: &mut Ui, defs: &[Def], game: bool) {
         // Name column up to 300, giving way first when the window is narrow; controls keep their natural width.
         let name_w = (ui.available_width() - 32.0 - 480.0).clamp(180.0, 300.0);
+        // Rows that only matter with another setting's value show with it, as in the VR menu.
+        let value = |key: &str| {
+            let d = settings::QUICK.iter().chain(settings::ADVANCED).find(|d| d.key == key).unwrap();
+            let global = settings::global(&self.defaults, d);
+            if game { settings::get(&self.cfg, d.section, d.key).unwrap_or(global) } else { global }
+        };
+        let (parallax, aim, hand) = (value("Display") == "Parallax", value("HeadAim") != "Off", value("AimWith") == "Hand");
+        let relevant = |d: &Def| match d.key {
+            "Depth" => parallax,
+            "AimWith" | "Crosshair" => aim,
+            "WeaponInHand" => aim && hand,
+            _ => true,
+        };
         egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {
-            for d in defs.iter().filter(|d| game || !d.per_game()) {
+            for d in defs.iter().filter(|d| (game || !d.per_game()) && relevant(d)) {
                 let global = settings::global(&self.defaults, d);
                 let current = if game { settings::get(&self.cfg, d.section, d.key).unwrap_or_else(|| global.clone()) } else { global.clone() };
                 let mut back = false;
@@ -815,10 +904,16 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
             segmented(ui, options, options.iter().find(|(v, _)| settings::same(v, current)).map_or(options[0].0, |o| o.0), neutral).map(String::from)
         }
         Kind::Key => None,  // drawn by the Buttons table
+        // The camera name: picked in VR, where each camera has a preview; here it only shows and can go back.
         Kind::Text => {
-            let mut v = current.to_string();
-            let edit = egui::TextEdit::singleline(&mut v).hint_text("Automatic").desired_width(260.0).margin(Margin::symmetric(12, 10));
-            ui.add(edit).changed().then_some(v)
+            ui.add_space((CONTROL_H - LABEL) / 2.0);
+            if current.is_empty() {
+                ui.label(RichText::new("AUTOMATIC").font(mono(LABEL)).color(INK2).extra_letter_spacing(TRACK));
+                None
+            } else {
+                ui.label(RichText::new(current).font(mono(LABEL)).color(INK));
+                small_link(ui, "Use automatic").clicked().then(String::new)
+            }
         }
     }
 }
@@ -827,7 +922,7 @@ fn warning(g: &Game) -> (String, Tone) {
     match (g.compat(), g.other_loader) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
-        (Compat::NativeVr, _) => ("This game has its own VR mode: start it in VR from Steam. Parallax stays out of games that already support VR.".into(), Tone::Info),
+        (Compat::NativeVr, _) => ("Already runs in VR on its own: start it in VR from Steam or its launcher. Parallax stays out of anything that already supports VR.".into(), Tone::Info),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
         (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
@@ -984,6 +1079,18 @@ fn section_break(ui: &mut Ui) {
 }
 
 // One line of feedback under the thing it is about: ink2 info, lime success, danger error.
+// How long ago, as people say it: "today", "yesterday", "3 days ago", "2 weeks ago", "5 months ago".
+fn ago(t: std::time::SystemTime) -> String {
+    let days = t.elapsed().map_or(0, |d| d.as_secs() / 86_400);
+    match days {
+        0 => "today".into(),
+        1 => "yesterday".into(),
+        2..=13 => format!("{days} days ago"),
+        14..=59 => format!("{} weeks ago", days / 7),
+        _ => format!("{} months ago", days / 30),
+    }
+}
+
 fn status_line(ui: &mut Ui, text: &str, tone: Tone) {
     ui.add_space(8.0);
     ui.label(RichText::new(text).color(tone_color(tone)));

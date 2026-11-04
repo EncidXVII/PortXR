@@ -48,6 +48,14 @@ struct PrxFrame {
     // (quadWidth x quadHeight). The eye layers then carry only the beam and the watch, over the screen.
     int32_t window;
     PrxLayer windowLayer[2];
+    // Aim reticle per eye: centre in image UV (top-left origin) and radius in UV of the image height; 0 draws none.
+    float aimReticle[2][3];
+    // The game's crosshair: the middle of the flat UI panel (aimPatch: half width and half height in panel UV) is left
+    // out of it, and with aimPatchShown drawn on its own quad at aimPose (aimSize metres), where the camera aims.
+    float aimPatch[2];
+    int32_t aimPatchShown;
+    PrxPose aimPose;
+    float aimSize[2];
 };
 
 enum PrxButton : uint32_t {

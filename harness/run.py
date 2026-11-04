@@ -407,7 +407,9 @@ def gate_snap(g):
 
 
 def gate_aim(g):
-    """Head aim on an Input System game in gamepad mode: turning the head 40 degrees turns the game camera with it."""
+    """Head aim on an Input System game in gamepad mode: turning the head 40 degrees turns the game camera with it, and
+    the crosshair sits mid-view. Hand aim: the right controller pointing 30 degrees right turns the camera there while
+    the head looks ahead, and the crosshair moves right in the view."""
     g.cmd("set Mode Gamepad")
     g.cmd("set HeadAim On")
     try:
@@ -417,12 +419,39 @@ def gate_aim(g):
         time.sleep(2.0)
         f1 = g.fixture()
         s = g.stats()
+        g.cmd("head 0 1.6 0 0")
+        g.cmd("set AimWith Hand")
+        g.cmd("set Crosshair Lime")
+        g.cmd("viewmodel on")
+        g.cmd(f"aim 0.2 -0.3 0.1 {0.2 + 3 * math.sin(math.radians(30)):.3f} -0.3 {0.1 + 3 * math.cos(math.radians(30)):.3f}")
+        time.sleep(2.0)
+        f2 = g.fixture()
+        h = g.stats()
+        (eye,) = g.capture("aim", ["left.bmp"])
+        g.cmd("set Crosshair Game")
+        time.sleep(0.3)
+        p = g.stats()
     finally:
+        g.cmd("aim off")
         g.cmd("head off")
+        g.cmd("viewmodel off")
+        g.cmd("set Crosshair Game")
+        g.cmd("set AimWith Head")
         g.cmd("set HeadAim Auto")
         g.cmd("set Mode KeyboardMouse")
     turned = (f1["yaw"] - f0["yaw"] + 180) % 360 - 180
-    check("17 head aim", s["aim"] == 1 and abs(turned - 40) < 5, f"aim {s['aim']}, head turned 40, game turned {turned:.1f}deg")
+    u, v, r = s["reticle"]
+    check("17 head aim", s["aim"] == 1 and abs(turned - 40) < 5 and r > 0 and abs(u - 0.5) < 0.12 and abs(v - 0.5) < 0.12,
+          f"aim {s['aim']}, head turned 40, game turned {turned:.1f}deg, crosshair at {u:.2f} {v:.2f} r {r:.4f}")
+    hand = (f2["yaw"] - f0["yaw"] + 180) % 360 - 180
+    # Lime pixels in a box around the crosshair in the eye image; then the game's own crosshair moved there instead.
+    hu, hv, hr = h["reticle"]
+    ih, iw = eye.shape[:2]
+    x, y, rad = int(hu * iw), int(hv * ih), max(4, int(hr * ih * 2))
+    ring = int(mask(eye[y - rad:y + rad, x - rad:x + rad], (198, 255, 26), 45).sum())
+    check("17b hand aim", h["aim"] == 1 and abs(hand - 30) < 5 and hu > u + 0.1 and ring > 10 and p["patch"] == 1,
+          f"controller at 30, game turned {hand:.1f}deg, crosshair at {hu:.2f} (head aim {u:.2f}), {ring} lime px, game's moved {p['patch']}")
+    check("17c weapon in hand", h["held"] == 1, f"viewmodel parts moved to the hand: {h['held']}")
 
 
 def gate_theater(g):
@@ -729,6 +758,8 @@ def main():
                     gates.append(gate_snap)  # last: they turn the player away from the door
                 if args.fixture in POST_FIXTURES:
                     gates.insert(1, gate_post)
+                if os.environ.get("GATES"):  # a quick run of some gates while developing: GATES=gate_aim,gate_beam
+                    gates = [x for x in gates if x.__name__ in os.environ["GATES"].split(",")]
                 for gate in gates:
                     try:
                         gate(g)
