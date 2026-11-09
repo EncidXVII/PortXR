@@ -32,7 +32,7 @@ Thanks for helping. The most useful contributions, roughly in order:
 
 ## Build
 
-Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+ and Rust (stable, MSVC). Then:
+Needs Visual Studio 2022 or later Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+ and Rust (stable, MSVC). Then:
 
 ```
 .\build.ps1

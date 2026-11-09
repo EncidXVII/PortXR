@@ -15,6 +15,10 @@ struct Overlay {
     float keep[4] = {};  // UV rect left unkeyed
     // Aim reticle: centre (u, v) and radius in UV of the image height; 0 draws none.
     float aim[4] = {};
+    // UV rect (u0, v0, u1, v1) of the drawn image left transparent; all zero leaves none.
+    float hole[4] = {};
+    // UV rect of the source, as displayed, drawn over the whole target; all zero draws the whole source.
+    float crop[4] = {};
     // Copy the drawn image for an opacity measurement, read back without stalling on a later draw.
     bool probe = false;
 };
@@ -64,6 +68,7 @@ struct BlitParams {
     float watch[4];
     float keep[4];
     float aim[4];
+    float hole[4];
 };
 void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,

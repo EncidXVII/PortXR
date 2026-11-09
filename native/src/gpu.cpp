@@ -14,6 +14,7 @@ cbuffer Params : register(b0) {
     float4 watch;
     float4 keep;
     float4 aim;
+    float4 hole;
 };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
@@ -34,6 +35,8 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     float3 shown = decode > 0.5 ? c.rgb : (encode > 0.5 || dstLinear > 0.5) ? toSrgb(saturate(c.rgb)) : c.rgb;
     if (decode > 0.5) c.rgb = toLinear(saturate(c.rgb));
     if (encode > 0.5) c.rgb = toSrgb(saturate(c.rgb));
+    // The panel's middle, shown on its own layer at the aim point instead (PrxFrame::aimPatch).
+    if (hole.z > 0 && at.x >= hole.x && at.x <= hole.z && at.y >= hole.y && at.y <= hole.w) c = 0;
     // Comfort vignette: the clear centre shrinks as the strength rises; a wide smoothstep keeps the edge soft.
     if (vignette > 0) {
         float inner = lerp(1.25, 0.45, vignette);
@@ -127,6 +130,13 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     p.key = o.key;
     for (int i = 0; i < 4; ++i) p.keep[i] = o.keep[i];
     for (int i = 0; i < 4; ++i) p.aim[i] = o.aim[i];
+    for (int i = 0; i < 4; ++i) p.hole[i] = o.hole[i];
+    if (o.crop[2] > 0) {
+        p.scaleX = o.crop[2] - o.crop[0];
+        p.scaleY = o.crop[3] - o.crop[1];
+        p.offsetX = o.crop[0];
+        p.offsetY = p.flip > 0.5f ? 1 - o.crop[3] : o.crop[1];  // the shader flips before it crops
+    }
     p.aspect = aspect;
 }
 

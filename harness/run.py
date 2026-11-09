@@ -431,6 +431,10 @@ def gate_aim(g):
         g.cmd("set Crosshair Game")
         time.sleep(0.3)
         p = g.stats()
+        try:
+            quad, mid = g.capture("aim-split", ["quad.bmp", "patch.bmp"])
+        except FileNotFoundError:
+            quad = mid = None
     finally:
         g.cmd("aim off")
         g.cmd("head off")
@@ -452,6 +456,16 @@ def gate_aim(g):
     check("17b hand aim", h["aim"] == 1 and abs(hand - 30) < 5 and hu > u + 0.1 and ring > 10 and p["patch"] == 1,
           f"controller at 30, game turned {hand:.1f}deg, crosshair at {hu:.2f} (head aim {u:.2f}), {ring} lime px, game's moved {p['patch']}")
     check("17c weapon in hand", h["held"] == 1, f"viewmodel parts moved to the hand: {h['held']}")
+    # The game's middle leaves the panel as a hole and is drawn into a texture of its own, each a whole image (runtimes
+    # differ on sub-rectangles of one image).
+    if quad is None:
+        check("17d crosshair layer", False, "no patch.bmp: the middle was not copied to its own layer")
+    else:
+        qh, qw = quad.shape[:2]
+        hole = float(quad[qh // 2 - 4:qh // 2 + 4, qw // 2 - 4:qw // 2 + 4, 3].max())
+        share = mid.shape[1] / qw
+        check("17d crosshair layer", hole == 0 and abs(share - 0.18) < 0.02,
+              f"panel middle alpha {hole:.0f}, own layer {mid.shape[1]}x{mid.shape[0]} ({share:.2f} of the panel width)")
 
 
 def gate_theater(g):

@@ -1,8 +1,34 @@
-﻿# Parallax
+﻿# Parallax: play flat Unity games in VR
 
-Play flat Unity games in VR. Pick a game, press **Play in VR**, and play it with your VR controllers: full stereo 6DOF view, the game's UI on a panel, a Parallax mode that shows the game in 3D inside a big screen, and a flat theater mode for anything that does not work in 3D.
+[![Latest release](https://img.shields.io/github/v/release/EncidXVII/Parallax?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/EncidXVII/Parallax/total?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/EncidXVII/Parallax/build.yml?branch=main&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/actions/workflows/build.yml)
+[![License: GPL-3.0](https://img.shields.io/github/license/EncidXVII/Parallax?color=c6ff1a&labelColor=0a0a0a)](LICENSE)
 
-**[Download the latest release](https://github.com/EncidXVII/Parallax/releases/latest)** · [Compatibility](COMPAT.md) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
+**Parallax is a free, open-source VR mod for Unity games on PC.** Pick a game you already own, press **Play in VR**,
+and play it in full 6DOF stereo with motion controllers: aim with your head or your hand, the gun in your hand, the
+game's UI on a panel you can point at. Games that don't suit 3D play on a big screen instead. It works with any
+OpenXR headset: Meta Quest 2, 3 and Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed
+Reality and others through SteamVR, on Windows and on Linux through Proton.
+
+**[Download the latest release](https://github.com/EncidXVII/Parallax/releases/latest)** · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
+
+<img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Stereo, Parallax, Theater), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
+
+## Highlights
+
+- **One click per game.** A desktop app finds your Unity games on Steam, Epic and GOG, adds VR to one and starts it.
+  **Remove VR** puts the game folder back byte for byte.
+- **Real VR, not a flat screen.** Stereo 6DOF view at real scale, smooth or snap turning, comfort vignette, recenter.
+- **Motion controls without setup.** Controllers act as keyboard & mouse or an Xbox pad; every button can be rebound.
+- **Head aim or hand aim.** The game camera follows your head or your right controller; the game's gun moves into
+  your hand, and its crosshair sits on what you aim at.
+- **Three ways to play.** Stereo (stand in the game), Parallax (the game in 3D inside a big screen, like a 3D
+  monitor) and Theater (the flat game on a big screen, curved on Virtual Desktop and Meta).
+- **Broad Unity support.** Unity 2018.4 to Unity 6, Mono and IL2CPP, Direct3D 11 and 12, built-in, URP and HDRP, with
+  the game's bloom and tonemapping kept.
+- **Per-game fixes** in small Lua scripts that anyone can share.
+- **Safe by design.** Single-player only: anti-cheat games are refused. No account, no telemetry.
 
 ## Requirements
 
@@ -73,9 +99,38 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them.
 - See [COMPAT.md](COMPAT.md).
 
+## FAQ
+
+**Can I play my Unity game in VR with Parallax?** Most likely, if it is a 64-bit Windows Unity game that uses
+Direct3D 11 or 12 and has no anti-cheat. The app tells you per game, before anything is installed. Tested titles and
+known issues are in [COMPAT.md](COMPAT.md); report how yours went with a game report.
+
+**Does it work with Meta Quest 3, Quest 2 or Quest Pro?** Yes, through Quest Link, Air Link, Virtual Desktop or
+Steam Link, as a PC VR headset. Parallax runs on the PC; the Quest's standalone mode is not supported.
+
+**Which headsets work?** Any headset with an OpenXR runtime on the PC: SteamVR (Index, Vive, Pico, Windows Mixed
+Reality, Bigscreen Beyond), Virtual Desktop, Meta Quest Link, WiVRn and Monado on Linux.
+
+**Is it free?** Yes, free and open source under the GPL-3.0.
+
+**Can I get banned?** Parallax refuses games with EasyAntiCheat or BattlEye and flags multiplayer-only games. Use it
+for single-player games only.
+
+**Does it change my game files?** It adds BepInEx and the Parallax plugin to the game folder and records every file.
+**Remove VR** restores the folder exactly; nothing else on your PC changes.
+
+**My game starts flat. What now?** Start your VR runtime first (SteamVR, Virtual Desktop or Quest Link) and put the
+headset on. The game page names the runtime Parallax will use and says what to check if VR does not start. Still
+flat? **Export logs** and open an issue.
+
+**Does it work with Unreal, Godot or other engines?** No, only Unity games.
+
+**How is it different from a game's own VR mode?** Parallax adds VR to games that have none. Games with their own VR
+mode are marked **Already VR**; start those in VR from Steam.
+
 ## Build
 
-Needs Visual Studio 2022 Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+, Rust (stable, MSVC toolchain).
+Needs Visual Studio 2022 or later Build Tools (C++ and .NET), CMake 3.24+, .NET SDK 8+, Rust (stable, MSVC toolchain). Downloads (BepInEx, the OpenXR loader) are pinned by SHA-256.
 
 ```
 .\build.ps1

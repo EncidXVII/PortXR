@@ -4,20 +4,27 @@ param([string]$Config = "Release")
 $root = $PSScriptRoot
 $build = Join-Path $root "build"
 $dist = Join-Path $root "dist"
+# Each download is pinned by its SHA-256: what ships inside games is exactly what was reviewed.
 $deps = @{
-    bepinex5 = "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip"
+    bepinex5 = @("https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip",
+        "82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4")
     # Pinned bleeding-edge build: be.788 crashes Il2CppInterop on Unity 6000.3.
-    bepinex6 = "https://builds.bepinex.dev/projects/bepinex_be/791/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.791%2Bb782da4.zip"
+    bepinex6 = @("https://builds.bepinex.dev/projects/bepinex_be/791/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.791%2Bb782da4.zip",
+        "bb1c510909b69522733791f3a0817a487379a52da6468a492f1c9c19b3ec6f9a")
 }
+New-Item -ItemType Directory -Force (Join-Path $build "deps") | Out-Null
 foreach ($name in $deps.Keys) {
     $dir = Join-Path $build "deps\$name"
     if (-not (Test-Path $dir)) {
-        Invoke-WebRequest $deps[$name] -OutFile "$dir.zip"
+        $url, $sha = $deps[$name]
+        Invoke-WebRequest $url -OutFile "$dir.zip"
+        if ((Get-FileHash "$dir.zip" -Algorithm SHA256).Hash -ne $sha) { Remove-Item "$dir.zip"; throw "$name download does not match its pinned SHA-256" }
         Expand-Archive "$dir.zip" $dir
     }
 }
 
-cmake -S "$root\native" -B "$build\native" -G "Visual Studio 17 2022" -A x64 -Wno-author -Wno-deprecated | Out-Null
+# The newest Visual Studio installed (2022 or later) builds it.
+cmake -S "$root\native" -B "$build\native" -A x64 -Wno-author -Wno-deprecated | Out-Null
 if ($LASTEXITCODE) { throw "native configure failed" }
 cmake --build "$build\native" --config $Config
 if ($LASTEXITCODE) { throw "native build failed" }

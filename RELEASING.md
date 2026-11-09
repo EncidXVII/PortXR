@@ -25,11 +25,49 @@ back to one commit.
    `release.ps1` checks.
 2. Update `COMPAT.md` with the games verified for this version. Then commit, regress and run `.\release.ps1`, which
    gives `release\Parallax-<version>.zip`.
-3. Tag `v<version>` and publish a GitHub release with the zip and `SHA256SUMS.txt`. The app's update check reads
-   GitHub releases. Publishing is outward-facing: only on an explicit go-ahead.
+3. Tag `v<version>` and publish a GitHub release with the zip and `SHA256SUMS.txt`, its notes taken from this
+   version's `CHANGELOG.md` section. The app's update check reads GitHub releases. Publishing is outward-facing: only
+   on an explicit go-ahead.
+   ```
+   git tag v0.2.0; git push origin main v0.2.0
+   gh release create v0.2.0 release\Parallax-0.2.0.zip release\SHA256SUMS.txt --title "Parallax 0.2.0" --notes-file notes.md
+   ```
 
-## Rules
+## First publish (once)
 
-- No build from a dirty tree, and none with a failing fixture gate.
-- Testers get test builds only. Nothing is published without an explicit go-ahead.
-- Real-game checks on this machine use offline single-player titles only, unattended (no launcher clicks).
+1. Create the repository `EncidXVII/Parallax` (public, no template files: they are here already), then
+   `git remote add origin https://github.com/EncidXVII/Parallax.git` and push `main`. The app's links (Guide, Report a
+   problem, update check, scripting guide) and the README badges point there.
+2. **About** (the gear beside it on the repository page). GitHub search ranks the name, description, topics and
+   README; topic pages list repositories by stars.
+   - Description: `Free, open-source VR mod for Unity games: play flat PC games in 6DOF VR with motion controls, head
+     and hand aim. Meta Quest, Index, Vive, Pico, any OpenXR headset.`
+   - Website: leave empty, or the latest release page.
+   - Topics (20 at most): `vr`, `virtual-reality`, `vr-mod`, `flat2vr`, `openxr`, `steamvr`, `unity`, `unity3d`,
+     `bepinex`, `il2cpp`, `mod`, `modding`, `game-mod`, `meta-quest`, `oculus-quest`, `valve-index`, `6dof`,
+     `motion-controls`, `rust`, `egui`.
+   - Tick "Releases" and untick "Packages" and "Deployments" so the sidebar shows only what matters.
+3. **Settings → General → Social preview**: upload `docs/images/social-preview.png` (the card shown when the repository
+   link is shared). Features: Issues on, Discussions on (categories: Q&A, Game reports, Show and tell), Wiki off.
+4. **Security**: turn on Private vulnerability reporting (`SECURITY.md` sends reports there) and Dependabot alerts.
+5. **Branch protection** on `main`: require the `build` check before merging.
+6. Check the first CI run is green, then make the release as above: notes from the CHANGELOG section with the
+   headset clip at the top, the zip and `SHA256SUMS.txt` attached. Releases feed the Downloads badge and the app's
+   update check.
+7. Open and pin an issue "Game reports: tell us what works", linking the game report template, so visitors see the
+   list growing; label a few small issues `good first issue` (GitHub lists those to new contributors).
+8. Pin the repository on your GitHub profile.
+
+## Launch (each post is outward-facing: only on an explicit go-ahead)
+
+- **Record a 30-60 s clip in the headset first**: hand aim in an FPS, the VR menu, Theater. A clip moves far more people
+  than text; put it (as a GIF or MP4, under 10 MB, which GitHub plays inline) at the top of the README and the release
+  notes, and use it in every post.
+- Within GitHub: open pull requests adding Parallax to curated lists people browse (for example `awesome-vr`,
+  `awesome-openxr`, `awesome-unity`), each following that list's own rules.
+- Outside it, where the stars that drive GitHub Trending come from: r/virtualreality, r/SteamVR, r/oculus,
+  r/OculusQuest (PC VR flair), r/VRGaming, the Flat2VR community Discord, and a Show HN on Hacker News for the
+  technical side. Each with the clip,
+  a one-line pitch, the tested games, and the single-player-only rule up front.
+- Answer early comments quickly and turn game reports into COMPAT.md rows: a list of games that work is what people
+  search for ("<game> VR mod").

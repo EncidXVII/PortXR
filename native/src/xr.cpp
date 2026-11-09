@@ -30,7 +30,9 @@ bool g_cylinder;  // runtime supports curved layers (theater screen)
 Gpu* g_gpu;
 std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-Swapchain g_eyes[2], g_quad, g_window[2];
+// g_patch: the UI panel's middle on its own, for its layer at the aim point. Every layer shows a whole swapchain
+// image: some runtimes draw sub-rectangles of a shared image wrong (Virtual Desktop showed them solid white).
+Swapchain g_eyes[2], g_quad, g_patch, g_window[2];
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -186,9 +188,13 @@ bool beam_uv(const PrxFrame& f, int e, float out[4]) {
     return true;
 }
 
-bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath, const Overlay& overlay = {}) {
+// width/height: the swapchain's size when not the source's (a crop).
+bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& capturePath, const Overlay& overlay = {},
+                int width = 0, int height = 0) {
     int w, h;
-    if (!g_gpu->size(layer.texture, w, h) || !ensure_swapchain(sc, w, h)) return false;
+    if (!g_gpu->size(layer.texture, w, h)) return false;
+    if (width > 0) w = width, h = height;
+    if (!ensure_swapchain(sc, w, h)) return false;
     uint32_t index;
     if (!xr_ok(xrAcquireSwapchainImage(sc.handle, nullptr, &index), "xrAcquireSwapchainImage")) return false;
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, nullptr, XR_INFINITE_DURATION};
@@ -201,14 +207,6 @@ bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& captur
 }
 
 XrPosef to_xr(const PrxPose& p) { return {{p.qx, p.qy, p.qz, p.qw}, {p.px, p.py, p.pz}}; }
-
-// The pose's position plus (x, y, 0) turned by its orientation.
-XrVector3f add_rotated(const XrPosef& p, float x, float y) {
-    const XrQuaternionf& q = p.orientation;
-    float tx = 2 * (-q.z * y), ty = 2 * (q.z * x), tz = 2 * (q.x * y - q.y * x);
-    return {p.position.x + x + q.w * tx + (q.y * tz - q.z * ty), p.position.y + y + q.w * ty + (q.z * tx - q.x * tz),
-            p.position.z + q.w * tz + (q.x * ty - q.y * tx)};
-}
 
 void pick_format() {
     uint32_t count = 0;
@@ -356,11 +354,10 @@ void do_submit(int slot) {
     XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
     XrCompositionLayerCylinderKHR cylinder{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
     XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
-    // The flat panel around its middle (four strips) and the middle on its own at the aim point: see PrxFrame::aimPatch.
-    XrCompositionLayerQuad strips[5]{};
-    const XrCompositionLayerBaseHeader* layers[9];
-    const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr;
-    uint32_t stripCount = 0;
+    // The flat panel's middle on its own at the aim point: see PrxFrame::aimPatch.
+    XrCompositionLayerQuad patch{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    const XrCompositionLayerBaseHeader* layers[6];
+    const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr, *patchLayer = nullptr;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
@@ -405,6 +402,10 @@ void do_submit(int slot) {
         for (int i = 0; i < 4; ++i) panel.keep[i] = f.keepRect[i];
         // Measured unkeyed, about twice a second, until it latches.
         panel.probe = f.quadAlpha && f.uiKey == 0 && !g_uiKeyed && (g_panelFrames++ % 45) == 0;
+        // While aiming the middle leaves the flat panel (a hole) and is copied to its own layer.
+        bool split = f.aimPatch[0] > 0 && f.quadRadius <= 0;
+        float middle[4] = {0.5f - f.aimPatch[0], 0.5f - f.aimPatch[1], 0.5f + f.aimPatch[0], 0.5f + f.aimPatch[1]};
+        if (split) std::copy(middle, middle + 4, panel.hole);
         if (f.quad && quadSource.texture && copy_layer(g_quad, quadSource, path(L"quad.bmp"), panel)) {
             XrCompositionLayerFlags flags = f.quadAlpha ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT : 0;
             XrSwapchainSubImage image{g_quad.handle, {{0, 0}, {g_quad.width, g_quad.height}}, 0};
@@ -420,35 +421,20 @@ void do_submit(int slot) {
                 cylinder.aspectRatio = f.quadWidth / f.quadHeight;
                 uiLayer = (XrCompositionLayerBaseHeader*)&cylinder;
                 curved = true;
-            } else if (f.aimPatch[0] > 0) {
-                // Pixel edges first, so neighbouring strips meet without a gap.
-                int w = (int)g_quad.width, h = (int)g_quad.height;
-                int x0 = (int)((0.5f - f.aimPatch[0]) * w), x1 = w - x0, y0 = (int)((0.5f - f.aimPatch[1]) * h), y1 = h - y0;
-                int rects[4][4] = {{0, 0, w, y0}, {0, y1, w, h}, {0, y0, x0, y1}, {x1, y0, w, y1}};
-                for (auto& r : rects) {
-                    XrCompositionLayerQuad& q = strips[stripCount++];
-                    q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-                    q.layerFlags = flags;
-                    q.space = g_xr.local;
-                    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                    q.subImage = {g_quad.handle, {{r[0], r[1]}, {r[2] - r[0], r[3] - r[1]}}, 0};
-                    // The strip's centre on the panel plane: x right, y up from the panel's centre.
-                    float x = ((r[0] + r[2]) / 2.f / w - 0.5f) * f.quadWidth, y = (0.5f - (r[1] + r[3]) / 2.f / h) * f.quadHeight;
-                    q.pose = pose;
-                    q.pose.position = add_rotated(pose, x, y);
-                    q.size = {f.quadWidth * (r[2] - r[0]) / w, f.quadHeight * (r[3] - r[1]) / h};
-                }
-                if (f.aimPatchShown) {
-                    XrCompositionLayerQuad& q = strips[stripCount++];
-                    q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-                    q.layerFlags = flags;
-                    q.space = g_xr.local;
-                    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                    q.subImage = {g_quad.handle, {{x0, y0}, {x1 - x0, y1 - y0}}, 0};
-                    q.pose = to_xr(f.aimPose);
-                    q.size = {f.aimSize[0], f.aimSize[1]};
-                }
             } else {
+                Overlay middlePart;
+                middlePart.key = panel.key;
+                std::copy(middle, middle + 4, middlePart.crop);
+                int pw = std::max(1, (int)(2 * f.aimPatch[0] * g_quad.width)), ph = std::max(1, (int)(2 * f.aimPatch[1] * g_quad.height));
+                if (split && f.aimPatchShown && copy_layer(g_patch, quadSource, path(L"patch.bmp"), middlePart, pw, ph)) {
+                    patch.layerFlags = flags;
+                    patch.space = g_xr.local;
+                    patch.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    patch.subImage = {g_patch.handle, {{0, 0}, {g_patch.width, g_patch.height}}, 0};
+                    patch.pose = to_xr(f.aimPose);
+                    patch.size = {f.aimSize[0], f.aimSize[1]};
+                    patchLayer = (XrCompositionLayerBaseHeader*)&patch;
+                }
                 quad.layerFlags = flags;
                 quad.space = g_xr.local;
                 quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -467,7 +453,7 @@ void do_submit(int slot) {
     if (overlayEyes) std::swap(order[0], order[1]);
     for (auto* l : order)
         if (l) layers[count++] = l;
-    for (uint32_t i = 0; i < stripCount; ++i) layers[count++] = (XrCompositionLayerBaseHeader*)&strips[i];
+    if (patchLayer) layers[count++] = patchLayer;
     g_gpu->set_mirror(!f.mirror ? nullptr : f.window ? f.windowLayer[0].texture : stereo ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
@@ -487,6 +473,7 @@ void do_shutdown() {
         destroy_swapchain(g_eyes[0]);
         destroy_swapchain(g_eyes[1]);
         destroy_swapchain(g_quad);
+        destroy_swapchain(g_patch);
         destroy_swapchain(g_window[0]);
         destroy_swapchain(g_window[1]);
     }
