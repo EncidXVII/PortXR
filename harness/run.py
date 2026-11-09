@@ -504,7 +504,11 @@ def gate_screen(g):
         time.sleep(0.3)
 
     try:
+        # Locked (the default): no handles under the laser, so playing never brings them up.
         g.cmd(f"aim 0.2 -0.3 0.1 {at(0.98, 0.03)}")
+        time.sleep(0.8)
+        locked = g.stats()["handle"]
+        g.cmd("unlock 1")
         corner = g.wait(lambda s: s["handle"] == 2, 3, "corner handle")
         time.sleep(0.3)
         (overlay,) = g.capture("screen-handles", ["quad.bmp"])
@@ -546,6 +550,7 @@ def gate_screen(g):
           and moved["adjust"] == 1 and done["adjust"] == 0 and abs(saved - done["screenPose"][0]) < 0.2)
     check("19 screen handles", ok, f"corner lit {lime} px, resized to {width:.1f} m, reset to {back:.1f} m, dragged to yaw {yaw:.0f} "
           f"pitch {pitch:.0f}, stick to {dist:.1f} m, released {done['adjust'] == 0}, saved yaw {saved}")
+    check("19b screen locked", locked == 0, f"handle under the laser while locked: {locked}")
 
 
 def gate_window(g):
@@ -603,6 +608,12 @@ def gate_menu(g):
     opened = g.stats()["menu"]
     time.sleep(0.5)
     (quad,) = g.capture("menu", ["quad.bmp"])
+    # One capture per tab for review (harness/out/menu-tab*.bmp).
+    for t in range(5):
+        g.cmd(f"tab {t}")
+        time.sleep(0.4)
+        g.capture(f"menu-tab{t}", ["quad.bmp"])
+    g.cmd("tab 0")
     h, w = quad.shape[:2]
     # The menu's own background must stay solid, also where the panel's black is keyed out.
     panel = int(np.median(quad[int(h * 0.3):int(h * 0.8), int(w * 0.3):int(w * 0.7), 3]))

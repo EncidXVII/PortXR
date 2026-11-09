@@ -15,6 +15,7 @@ cbuffer Params : register(b0) {
     float4 keep;
     float4 aim;
     float4 hole;
+    float4 watchLook;
 };
 Texture2D src : register(t0);
 SamplerState smp : register(s0);
@@ -69,20 +70,29 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         c.rgb = lerp(c.rgb, col, a);
         c.a = max(c.a, a);
     }
-    // Watch face: dark disc, lime rim, and a menu glyph (three bars) that turns lime while glanced at.
-    if (watch.z > 0) {
+    // Watch face: dark disc, a grey rim and three round-ended bars (the menu glyph). Glanced at (watch.w, eased
+    // 0..1) the rim thickens and rim and bars turn lime. The whole face fades with watchLook.x as the player looks.
+    if (watch.z > 0 && watchLook.x > 0.004) {
         float2 k = float2(aspect, 1), q = (at - watch.xy) * k / watch.z;
         float d = length(q), aa = 0.06;
         if (d < 1 + aa) {
-            float3 lime = float3(0.776, 1, 0.102), ink = float3(0.64, 0.64, 0.64), black = float3(0.04, 0.04, 0.04);
+            float3 lime = float3(0.776, 1, 0.102), rest = float3(0.29, 0.29, 0.314), bar = float3(0.659, 0.659, 0.686);
+            float3 black = float3(0.043, 0.043, 0.047);
+            float lit = saturate(watch.w);
             float face = 1 - smoothstep(1 - aa, 1, d);
-            float rim = face * smoothstep(watch.w > 0.5 ? 0.72 : 0.84, (watch.w > 0.5 ? 0.72 : 0.84) + aa, d);
-            float bars = (1 - smoothstep(0.42, 0.42 + aa, abs(q.x))) *
-                         (1 - smoothstep(0.07, 0.07 + aa, abs(abs(q.y) < 0.15 ? q.y : abs(q.y) - 0.28)));
-            float3 col = lerp(black, watch.w > 0.5 ? lime : ink, saturate(rim + bars * step(abs(q.y), 0.4)));
+            float inner = lerp(0.84, 0.72, lit);
+            float rim = face * smoothstep(inner, inner + aa, d);
+            // Capsules: half length 0.36, radius 0.07, at y = -0.28, 0, 0.28.
+            float y = q.y - clamp(round(q.y / 0.28), -1, 1) * 0.28;
+            float2 e = float2(max(abs(q.x) - 0.36, 0), y);
+            float bars = 1 - smoothstep(0.07, 0.07 + aa, length(e));
+            float3 col = black;
+            col = lerp(col, lerp(bar, lime, lit), bars);
+            col = lerp(col, lerp(rest, lime, lit), rim);
             if (dstLinear > 0.5) col = toLinear(col);
-            c.rgb = lerp(c.rgb, col, face * 0.92);
-            c.a = max(c.a, face * 0.92);
+            float a = face * 0.92 * saturate(watchLook.x);
+            c.rgb = lerp(c.rgb, col, a);
+            c.a = max(c.a, a);
         }
     }
     return c;
@@ -127,6 +137,7 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     for (int i = 0; i < 4; ++i) p.beam[i] = o.beam[i];
     p.beamWidth = o.beamWidth;
     for (int i = 0; i < 4; ++i) p.watch[i] = o.watch[i];
+    p.watchLook[0] = o.watchAlpha;
     p.key = o.key;
     for (int i = 0; i < 4; ++i) p.keep[i] = o.keep[i];
     for (int i = 0; i < 4; ++i) p.aim[i] = o.aim[i];

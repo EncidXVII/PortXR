@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Parallax
 {
@@ -58,7 +58,8 @@ namespace Parallax
             ScreenFromSettings();
         }
 
-        // Screen handles (Theater and Parallax), shown while the VR menu is open:
+        // Screen handles (Theater and Parallax), shown while the VR menu is open and the player has unlocked the screen
+        // there (it locks again when the menu closes, so playing never brings them up):
         // a bar under the middle of the screen drags it anywhere around the player, the corners resize it, and RESET
         // beside the bar brings back 3 m ahead. While a handle is dragged the right stick pushes the screen away or pulls
         // it in (up, down) and sizes it (right, left). Game input pauses over a handle; each game keeps its screen.
@@ -166,35 +167,37 @@ namespace Parallax
             return new Vector2(hit.x, hit.y).magnitude;
         }
 
-        // Faint white marks over the game, lime under the laser: corner brackets, the bar, RESET; the stick's controls
-        // and the size show above the bar while dragging. Drawn as the menu draws (GUI.Label and rich text are stripped
-        // from some IL2CPP games).
+        // Faint marks over the game, lime under the laser: rounded corner brackets, a pill bar, a quiet RESET; the
+        // stick's controls and the size show above the bar while dragging. Drawn as the menu draws (GUI.Label and rich
+        // text are stripped from some IL2CPP games).
         void DrawHandles()
         {
             GUI.matrix = Matrix4x4.identity;
-            float W = Screen.width, H = Screen.height, t = Mathf.Max(2, H / 200), arm = CornerSize * 0.6f, inset = H * 0.02f;
-            var faint = new Color(1f, 1f, 1f, 0.45f);
-            var shade = new Color(0f, 0f, 0f, 0.35f);
+            float W = Screen.width, H = Screen.height, t = Mathf.Max(3, H / 160), arm = CornerSize * 0.6f, inset = H * 0.02f;
+            var faint = new Color(0.961f, 0.961f, 0.969f, 0.4f);
+            var shade = new Color(0.043f, 0.043f, 0.047f, 0.55f);
             bool sizing = handle == 2 || adjustGrab == 2;
             float k = sizing ? 2 : 1;
             foreach (var x in new[] { inset, W - inset })
                 foreach (var y in new[] { inset, H - inset })
                 {
-                    Menu.Fill(new Rect(x < W / 2 ? x : x - arm, y < H / 2 ? y : y - t * k, arm, t * k), sizing ? Menu.Lime : faint);
-                    Menu.Fill(new Rect(x < W / 2 ? x : x - t * k, y < H / 2 ? y : y - arm, t * k, arm), sizing ? Menu.Lime : faint);
+                    var c = sizing ? Menu.Lime : faint;
+                    Menu.Round(new Rect(x < W / 2 ? x : x - arm, y < H / 2 ? y : y - t * k, arm, t * k), c, t * k / 2);
+                    Menu.Round(new Rect(x < W / 2 ? x : x - t * k, y < H / 2 ? y : y - arm, t * k, arm), c, t * k / 2);
                 }
             var bar = Bar;
-            Menu.Fill(bar, shade);
-            Menu.Fill(new Rect(bar.x + bar.width * 0.2f, bar.center.y - t * 1.5f, bar.width * 0.6f, t * 3), handle == 1 || adjustGrab == 1 ? Menu.Lime : faint);
+            Menu.Round(bar, shade, bar.height / 2);
+            var grip = new Rect(bar.x + bar.width * 0.2f, bar.center.y - t, bar.width * 0.6f, t * 2);
+            Menu.Round(grip, handle == 1 || adjustGrab == 1 ? Menu.Lime : faint, t);
             int size = Mathf.RoundToInt(H / 40);
             if (handleText == null || handleText.fontSize != size) handleText = Menu.Style(TextAnchor.MiddleCenter, Color.white, size, null, false);
             var reset = ResetRect;
-            Menu.Fill(reset, handle == 3 ? Menu.Lime : shade);
-            handleText.normal.textColor = handle == 3 ? Color.black : faint;
+            Menu.Round(reset, handle == 3 ? Menu.Lime : shade, reset.height * 0.3f);
+            handleText.normal.textColor = handle == 3 ? Menu.OnLime : faint;
             handleText.Draw(reset, new GUIContent("RESET"), false, false, false, false);
             if (adjustGrab == 0) return;
             var tip = new Rect(W / 2 - H * 0.5f, bar.y - H * 0.1f, H, H * 0.08f);
-            Menu.Fill(tip, new Color(0.04f, 0.04f, 0.04f, 0.8f));
+            Menu.Round(tip, new Color(0.043f, 0.043f, 0.047f, 0.85f), tip.height * 0.25f);
             handleText.normal.textColor = Color.white;
             handleText.Draw(new Rect(tip.x, tip.y, tip.width, tip.height / 2), new GUIContent($"{screenDistance:0.0} m away, {screenWidth:0.0} m wide"), false, false, false, false);
             handleText.Draw(new Rect(tip.x, tip.center.y, tip.width, tip.height / 2), new GUIContent("Right stick: up/down distance, left/right size"), false, false, false, false);
@@ -243,8 +246,8 @@ namespace Parallax
             }
             bool wanted = Menu.Open || (Settings.Pointer.Value == PointerMode.Auto && Cursor.visible && Cursor.lockState != CursorLockMode.Locked);
             bool screen = theaterShown && Settings.Display.Value != DisplayMode.Stereo && !Hider.Active && Test?.PointerOverride == null;
-            // Only with the menu open: game buttons often sit in the corners or at the bottom middle.
-            if (UpdateHandles(screen && Menu.Open, screen, onQuad, uv, c, r, w, h)) return;
+            // Only with the menu open and the screen unlocked: game buttons often sit in the corners or at the bottom middle.
+            if (UpdateHandles(screen && Menu.Open && Menu.ScreenUnlocked, screen, onQuad, uv, c, r, w, h)) return;
             bool active = onQuad && wanted;
             if (Hider.Active)
             {

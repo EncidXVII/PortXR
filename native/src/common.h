@@ -34,10 +34,12 @@ struct PrxFrame {
     float vignette;    // comfort vignette on the eye layers, 0..1
     int32_t beam;      // draw the laser beam from beamFrom to beamTo (tracking space, metres) into the eye layers
     float beamFrom[3], beamTo[3];
-    // Wrist watch: a round face at watchAt (tracking space) on the back of the left hand, watchRadius metres; lit
-    // while the player glances at it (the menu is a trigger pull away).
-    int32_t watch, watchLit;
-    float watchAt[3], watchRadius;
+    // Wrist watch: a round face at watchAt (tracking space) on the back of the left hand, watchRadius metres. It fades
+    // in (watchAlpha 0..1) as the player looks at it, like DesktopVR's clock; lit (watchLit 0..1, eased) while glanced
+    // at, when the menu is a trigger pull away.
+    int32_t watch;
+    float watchLit;
+    float watchAt[3], watchRadius, watchAlpha;
     // UI panel black: 0 auto (made see-through once the panel is found fully opaque, e.g. a full-screen effect on a
     // UI camera wrote alpha 1; until `scene` changes), 1 always see-through, 2 never.
     int32_t uiKey, scene;

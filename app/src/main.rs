@@ -17,6 +17,21 @@ fn attach_console() {
     };
 }
 
+/// Windows' "Animation effects" setting (Settings > Accessibility > Visual effects), as DesktopVR reads it; on when
+/// unknown. Off keeps every state change and drops the movement.
+pub fn animations_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW};
+        let mut on: i32 = 1;
+        // SAFETY: plain query into a BOOL we own.
+        let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut on).cast(), 0) };
+        ok == 0 || on != 0
+    }
+    #[cfg(not(windows))]
+    true
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // The Steam library's Unity games and what is known about them before install, for checking the library scan.

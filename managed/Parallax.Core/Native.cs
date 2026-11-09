@@ -33,8 +33,9 @@ namespace Parallax
         public float vignette;
         public int beam;
         public float fromX, fromY, fromZ, toX, toY, toZ;
-        public int watch, watchLit;
-        public float watchX, watchY, watchZ, watchRadius;
+        public int watch;
+        public float watchLit;
+        public float watchX, watchY, watchZ, watchRadius, watchAlpha;
         public int uiKey, scene;
         public float keepX0, keepY0, keepX1, keepY1;
         public int window;

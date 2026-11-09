@@ -8,20 +8,25 @@ namespace Parallax
     // Drawn with IMGUI onto the screen, so it reaches the headset through the UI capture and the laser pointer.
     // Only engine members that survive IL2CPP stripping in typical games are used: no texture creation outside an
     // Optional guard, no style copies, layout options always passed as arrays (Il2CppInterop has no params).
-    // Look: "Night Lime" (black, one lime accent, hairlines, mono labels), the same tokens as the desktop app.
+    // Look: "Night Lime" in DesktopVR's graphite greys (one lime accent, filled rounded cells, mono labels), the same tokens
+    // as the desktop app. Motion as in DesktopVR (see Motion): the menu fades in, the tab bar and a row's choice slide,
+    // hovers ease, presses answer on trigger-down.
     internal class Menu
     {
         static readonly string[] Tabs = { "Quick", "View", "Controls", "Game", "Diagnostics" };
         const int QuickTab = 0, ViewTab = 1, ControlsTab = 2, GameTab = 3;
         const float RefHeight = 1080f, Width = 1100f, Height = 800f, Row = 64f, Pad = 48f;
         const int ThumbW = 304, ThumbH = 171, History = 120;
-        static readonly Color Bg = new Color(0.039f, 0.039f, 0.039f, 0.97f), Surface = new Color(0.071f, 0.071f, 0.071f);
-        static readonly Color Raised = new Color(0.10f, 0.10f, 0.10f), Line = new Color(0.15f, 0.15f, 0.15f), HoverFill = new Color(0.19f, 0.19f, 0.19f);
-        // Edge: outlines of things you can press (3:1 on the panel); Line stays for decorative dividers.
-        static readonly Color Edge = new Color(0.369f, 0.369f, 0.369f);
-        static readonly Color Ink = new Color(0.95f, 0.95f, 0.95f), Ink2 = new Color(0.64f, 0.64f, 0.64f), Ink3 = new Color(0.502f, 0.502f, 0.502f);
-        internal static readonly Color Lime = new Color(0.776f, 1f, 0.102f), OnLime = new Color(0.039f, 0.039f, 0.039f);
-        static readonly Color Danger = new Color(1f, 0.353f, 0.235f);
+        static readonly Color Bg = Rgb(0x0B0B0C), Surface = Rgb(0x1D1D20), Line = Rgb(0x2A2A2E);
+        // Cells: Surface at rest, HoverFill under the laser, PressFill while the trigger is held on them.
+        static readonly Color HoverFill = Rgb(0x2A2A2E), PressFill = Rgb(0x36363B);
+        static readonly Color Ink = Rgb(0xF5F5F7), Ink2 = Rgb(0xA8A8AF), Ink3 = Rgb(0x88888F);
+        internal static readonly Color Lime = Rgb(0xC6FF1A), OnLime = Rgb(0x0B0B0C);
+        static readonly Color LimePressed = Rgb(0xA9DB12), Danger = Rgb(0xFF5A3C), DangerInk = Rgb(0xFF8A6E);
+        // Corner radii (px at the 1080 reference height): the panel, cells, a segment's inner cell.
+        const float PanelRadius = 24, CellRadius = 14, InnerRadius = 12;
+
+        static Color Rgb(int v) => new Color((v >> 16 & 255) / 255f, (v >> 8 & 255) / 255f, (v & 255) / 255f);
         // Type scale (px at 1080 reference height); the app's scale times ~2 for reading at panel distance.
         const int Display = 60, Body = 28, Small = 24;
 
@@ -58,11 +63,22 @@ namespace Parallax
         readonly Dictionary<string, GUIContent> contents = new Dictionary<string, GUIContent>();
         readonly Dictionary<int, GUIContent> images = new Dictionary<int, GUIContent>();
         int camPage;
-        GUIStyle cell, cellOn, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn;
+        GUIStyle cell, cellOn, cellQuiet, quiet, sign, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn;
 
         // Where the menu was last drawn, in screen pixels from the top-left.
         internal Rect ScreenRect;
         Rect hoverRect;
+
+        // Theater and Parallax: the screen's handles show only once the player unlocks them here, so nothing gets in the
+        // way of playing; closing the menu locks the screen again.
+        internal bool ScreenUnlocked;
+
+        // Motion state: when the menu opened (it fades in), the tab bar's place, each row's sliding choice, and how far
+        // each control's hover has come. Keys are a control's place in the panel, stable from frame to frame.
+        float openedAt, barX = -1, barW;
+        readonly Dictionary<string, Vector2> slides = new Dictionary<string, Vector2>();
+        readonly Dictionary<int, float> hovers = new Dictionary<int, float>();
+        static float fade = 1;
 
         public Menu(Rig rig) { this.rig = rig; }
 
@@ -75,10 +91,12 @@ namespace Parallax
             {
                 savedLock = Cursor.lockState;
                 savedVisible = Cursor.visible;
+                openedAt = Time.unscaledTime;
             }
             else
             {
                 welcome = false;
+                ScreenUnlocked = false;
                 Cursor.lockState = savedLock;
                 Cursor.visible = savedVisible;
             }
@@ -166,8 +184,10 @@ namespace Parallax
             Matrix(Vector2.zero, k);
             var area = new Rect((Screen.width / k - Width) / 2, (RefHeight - Height) / 2, Width, Height);
             ScreenRect = new Rect(area.x * k, area.y * k, area.width * k, area.height * k);
-            Fill(area, Bg);
-            Outline(area, Line);
+            fade = Motion.Out(openedAt, Motion.Fast);
+            var savedColor = GUI.color;
+            GUI.color = new Color(1, 1, 1, fade);
+            Round(area, Bg, PanelRadius);
             // The content's origin moved by the matrix, so the layout starts at (0, 0).
             Matrix(new Vector2((area.x + Pad) * k, (area.y + 32) * k), k);
             ui.Run(Width - 2 * Pad, () =>
@@ -175,10 +195,12 @@ namespace Parallax
                 if (welcome) DrawWelcome();
                 else DrawTabs();
                 // In a headset a hairline is lost: the control under the laser gets a lighter fill and a 2 px ring.
-                if (hoverRect.width > 0 && Repainting) Outline(hoverRect, Ink, 2);
+                if (hoverRect.width > 0 && Repainting) Ring(hoverRect, Ink, CellRadius);
                 hoverRect = default;
             });
             Matrix(Vector2.zero, 1);
+            GUI.color = savedColor;
+            fade = 1;
             if (contents.Count > 512) contents.Clear();  // changing numbers (diagnostics) make new strings every frame
 
             // A light tick when the pointer moves onto another control.
@@ -195,6 +217,7 @@ namespace Parallax
         {
             // Tabs: words with a lime underline under the active one; Close and Reset stay quiet on the right.
             ui.BeginRow();
+            Rect active = default;
             for (int i = 0; i < Tabs.Length; i++)
             {
                 bool on = i == tab;
@@ -203,21 +226,32 @@ namespace Parallax
                 var r = ui.Take(Natural(word, style), Row);
                 Text(r, word, style, true);
                 if (Clicked(r)) Select(i);
-                if (Repainting)
-                {
-                    if (on) Fill(new Rect(r.x, r.yMax - 3, r.width, 3), Lime);
-                    Hover(r);
-                }
-                ui.Gap(24);
+                if (on) active = r;
+                if (Repainting) Hover(r);
+                ui.Gap(28);
             }
             ui.Flex();
             // Only tabs with settings have something to reset.
-            if (tab <= GameTab && Button("Reset", false, 128)) ResetTab();
+            if (tab <= GameTab && Quiet("Reset", 128)) ResetTab();
             ui.Gap(8);
-            if (Button("Close", false, 128)) Toggle();
-            ui.Gap(2);  // keeps the right outline inside the area's clip
+            if (Quiet("Close", 128)) Toggle();
+            ui.Gap(2);
             ui.EndRow();
-            Fill(ui.Take(0, 1), Line);
+            var rule = ui.Take(0, 1);
+            Fill(rule, Line);
+            // The lime bar under the active tab slides to a newly picked one.
+            if (Repainting && active.width > 0)
+            {
+                if (barX < 0)
+                {
+                    barX = active.x;
+                    barW = active.width;
+                }
+                float dt = Time.unscaledDeltaTime;
+                barX = Motion.Follow(barX, active.x, Motion.Slow / 4, dt);
+                barW = Motion.Follow(barW, active.width, Motion.Slow / 4, dt);
+                Round(new Rect(barX, rule.y - 3, barW, 4), Lime, 2);
+            }
             ui.Gap(24);
 
             if (tab == QuickTab) DrawQuick();
@@ -332,9 +366,13 @@ namespace Parallax
             if (Settings.Display.Value == DisplayMode.Parallax) Stepper("3D depth", Settings.Depth, 0.25f, 0f, 1f, "{0:0.00}×");
             if (Settings.Display.Value != DisplayMode.Stereo)
             {
+                bool unlocked = ScreenUnlocked;
+                Choice("Screen", "Locked", "Unlocked", ref unlocked);
+                ScreenUnlocked = unlocked;
                 ui.BeginRow();
-                Label("Screen", label, 360);
-                Label("Point at its corners to resize it, at the bar under it to move it.", muted, 0);
+                ui.Gap(360);
+                Label(unlocked ? "Point at its corners to resize it, at the bar under it to move it."
+                    : "Locked while you play. Unlock it to move or resize the screen.", muted, 0, 40);
                 ui.EndRow();
                 ui.Gap(12);
             }
@@ -403,11 +441,8 @@ namespace Parallax
                 return;
             }
             ui.BeginRow();
-            for (int g = 0; g < Bindings.Gestures.Length; g++)
-            {
-                if (Button(Bindings.Gestures[g], g == gesture, 220)) gesture = g;
-                ui.Gap(4);
-            }
+            int pickedGesture = Segment("gesture", Bindings.Gestures, Bindings.Gestures.Select(_ => 212f).ToArray(), gesture);
+            if (pickedGesture >= 0) gesture = pickedGesture;
             ui.EndRow();
             Label(gesture == Bindings.Press ? "Left stick moves (W A S D), right stick looks. Pick a button to change it."
                 : gesture == Bindings.Double ? "Two quick presses. The first press still does its own key."
@@ -500,9 +535,9 @@ namespace Parallax
                 var cam = candidates[j];
                 ui.BeginColumn(ThumbW);
                 var rect = ui.Take(ThumbW, ThumbH);
-                Fill(rect, Surface);
+                Round(rect, Surface, InnerRadius);
                 if (Repainting && thumbs.TryGetValue(cam.GetInstanceID(), out var rt)) Image(rect, rt);
-                Outline(rect, cam == rig.GameCam ? Lime : Line);
+                if (cam == rig.GameCam) Ring(rect, Lime, InnerRadius);
                 // Lime fill only for a camera the player picked; the automatic pick gets the lime outline above.
                 if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW, true)) PickCamera(cam.name);
                 ui.EndColumn();
@@ -548,9 +583,9 @@ namespace Parallax
         {
             var rect = ui.Take(0, 160);
             if (!Repainting) return;
+            Round(rect, Surface, 16);
+            rect = new Rect(rect.x + 12, rect.y + 8, rect.width - 24, rect.height - 16);
             float top = Mathf.Max(budgetMs * 1.5f, 1f), bar = rect.width / History;
-            Fill(rect, Surface);
-            Outline(rect, Line);
             for (int i = 0; i < History; i++)
             {
                 float ms = frameMs[(historyAt + i) % History], h = Mathf.Min(ms / top, 1f) * rect.height;
@@ -585,35 +620,79 @@ namespace Parallax
             entry.Value = on;
         }
 
-        // Segmented control: two cells side by side, the selected one lime.
+        // Segmented control: two 292 px halves in a rounded track, the chosen one ink.
         void Choice(string name, string off, string on, ref bool v, bool offIsNeutral = false)
         {
             ui.BeginRow();
             Label(name, label, 360);
-            if (Button(off, !v && !offIsNeutral, 300)) v = false;
-            if (!v && offIsNeutral && Repainting) Outline(ui.Last, Ink);
-            if (Button(on, v, 300)) v = true;
+            int picked = Segment(name, new[] { off, on }, new[] { 292f, 292f }, v ? 1 : 0);
+            if (picked >= 0) v = picked == 1;
             ui.EndRow();
             ui.Gap(12);
         }
 
-        // Segmented control over an enum setting, cells sharing the 600 px value column; `neutral` (an Off) is not lime.
+        // Segmented control over an enum setting in the 600 px value column, the chosen cell ink. `neutral` is kept for
+        // the callers' sake: an Off is chosen like any other value now (lime is for the tab bar and primary actions).
         void Options<T>(string name, ConfigEntry<T> entry, T[] values, string[] labels, T? neutral) where T : struct, System.Enum
         {
             ui.BeginRow();
             Label(name, label, 360);
-            // Each option as wide as its text, the rest of 600 shared out as padding (at least 12 each), so a long
+            // Each option as wide as its text, the rest of 592 shared out as padding (at least 12 each), so a long
             // label ("Keyboard & mouse") never touches its neighbours and the row keeps the column's right edge.
             float[] text = labels.Select(l => Natural(l.ToUpperInvariant(), cell)).ToArray();
-            float pad = Mathf.Max(12f, (600f - text.Sum()) / text.Length);
-            for (int i = 0; i < values.Length; i++)
-            {
-                bool on = entry.Value.Equals(values[i]), lit = on && !(neutral.HasValue && neutral.Value.Equals(values[i]));
-                if (Button(labels[i], lit, text[i] + pad)) entry.Value = values[i];
-                if (on && !lit && Repainting) Outline(ui.Last, Ink);
-            }
+            float pad = Mathf.Max(12f, (592f - text.Sum()) / text.Length);
+            int current = System.Array.FindIndex(values, x => entry.Value.Equals(x));
+            int picked = Segment(name, labels, text.Select(t => t + pad).ToArray(), current);
+            if (picked >= 0) entry.Value = values[picked];
             ui.EndRow();
             ui.Gap(12);
+        }
+
+        // Cells of `widths` in a rounded track. The chosen one is filled ink and slides over when another is picked;
+        // returns the cell clicked this event, or -1.
+        int Segment(string id, string[] labels, float[] widths, int selected)
+        {
+            var track = ui.Take(widths.Sum() + 8, Row);
+            Round(track, Surface, CellRadius + 2);
+            int clicked = -1;
+            float x = track.x + 4;
+            var cells = new Rect[labels.Length];
+            for (int i = 0; i < labels.Length; i++)
+            {
+                cells[i] = new Rect(x, track.y + 4, widths[i], track.height - 8);
+                x += widths[i];
+            }
+            if (Repainting && selected >= 0)
+            {
+                var to = new Vector2(cells[selected].x, cells[selected].width);
+                if (!slides.TryGetValue(id, out var at)) at = to;
+                float dt = Time.unscaledDeltaTime;
+                at = new Vector2(Motion.Follow(at.x, to.x, Motion.Slow / 4, dt), Motion.Follow(at.y, to.y, Motion.Slow / 4, dt));
+                slides[id] = at;
+                Round(new Rect(at.x, track.y + 4, at.y, track.height - 8), Ink, InnerRadius);
+            }
+            for (int i = 0; i < labels.Length; i++)
+            {
+                var r = cells[i];
+                bool on = i == selected;
+                if (Repainting)
+                {
+                    bool over = r.Contains(Mouse);
+                    float h = Eased(r, over && !on);
+                    if (!on && Pressed(r)) Round(r, PressFill, InnerRadius);
+                    else if (!on && h > 0.01f) Round(r, new Color(HoverFill.r, HoverFill.g, HoverFill.b, h), InnerRadius);
+                    var style = on ? cellOn : cellQuiet;
+                    style.Draw(r, Content(labels[i].ToUpperInvariant()), false, false, false, false);
+                    if (over && !on) hoverRect = r;
+                    Hover(r);
+                }
+                if (Clicked(r) && !on)
+                {
+                    clicked = i;
+                    Native.prx_haptic_pulse(1, 0.35f, 0.02f);
+                }
+            }
+            return clicked;
         }
 
         void Stepper(string name, ConfigEntry<float> entry, float step, float min, float max, string format)
@@ -628,26 +707,33 @@ namespace Parallax
         void StepperControls(ConfigEntry<float> entry, float step, float min, float max, string format)
         {
             // Rounded so repeated steps land on clean values.
-            if (Button("−", false, 96)) entry.Value = Mathf.Round(Mathf.Max(min, entry.Value - step) * 100) / 100;
+            if (Button("−", false, 96, false, sign)) entry.Value = Mathf.Round(Mathf.Max(min, entry.Value - step) * 100) / 100;
             Label(string.Format(format, entry.Value), value, 200);
-            if (Button("+", false, 96)) entry.Value = Mathf.Round(Mathf.Min(max, entry.Value + step) * 100) / 100;
+            if (Button("+", false, 96, false, sign)) entry.Value = Mathf.Round(Mathf.Min(max, entry.Value + step) * 100) / 100;
         }
 
-        // Secondary cell: edge outline, ink outline on hover; `on` fills it lime (selected state). Labels are UPPERCASE
-        // like the app's buttons; `data` (a camera object name) is shown as the game wrote it.
-        bool Button(string text, bool on, float width, bool data = false)
+        // A cell: filled Surface, lighter under the laser (eased), lighter still while the trigger is held on it; `on`
+        // fills it ink (selected state). Labels are UPPERCASE like the app's buttons; `data` (a camera object name) is
+        // shown as the game wrote it.
+        bool Button(string text, bool on, float width, bool data = false, GUIStyle look = null)
         {
             string shown = data ? text : text.ToUpperInvariant();
-            var style = on ? cellOn : cell;
+            var style = look ?? (on ? cellOn : cell);
             var r = ui.Take(width > 0 ? width : Natural(shown, style) + 48, Row);
+            return Cell(r, shown, style, on ? Ink : Surface, on);
+        }
+
+        bool Cell(Rect r, string shown, GUIStyle style, Color fill, bool on, bool lime = false)
+        {
             if (Repainting)
             {
                 bool over = r.Contains(Mouse);
-                GUI.backgroundColor = on ? Lime : over ? HoverFill : Surface;
-                style.Draw(r, Content(shown), over, false, false, false);
-                GUI.backgroundColor = Color.white;
-                if (!on) Outline(r, Edge);
-                // Outlined after everything else, so the next cell's edge cannot cover part of it.
+                float h = Eased(r, over && !on);
+                Color c = lime ? (Pressed(r) ? LimePressed : Lime)
+                    : on ? fill : Pressed(r) ? PressFill : Color.Lerp(fill, HoverFill, h);
+                Round(r, c, CellRadius);
+                style.Draw(r, Content(shown), false, false, false, false);
+                // Outlined after everything else, so the next cell cannot cover part of it.
                 if (over) hoverRect = r;
                 Hover(r);
             }
@@ -656,8 +742,35 @@ namespace Parallax
             return clicked;
         }
 
+        // Reset and Close: quiet cells, shorter than the row, on the tab line's right.
+        bool Quiet(string text, float width)
+        {
+            var row = ui.Take(width, Row);
+            var r = new Rect(row.x, row.y + 6, row.width, row.height - 12);
+            return Cell(r, text.ToUpperInvariant(), quiet, Surface, false);
+        }
+
+        // How far a control's hover has come (0..1), eased over Motion.Fast.
+        float Eased(Rect r, bool over)
+        {
+            int key = (int)(r.x * 7919f + r.y);
+            hovers.TryGetValue(key, out float h);
+            h = Motion.Follow(h, over ? 1f : 0f, Motion.Fast / 4, Time.unscaledDeltaTime);
+            hovers[key] = h;
+            if (hovers.Count > 512) hovers.Clear();
+            return h;
+        }
+
+        // The trigger is held on `r`: pressed state, shown the moment it goes down. (The legacy Input class, which could
+        // tell a held mouse button, throws in games that only use the Input System package.)
+        bool Pressed(Rect r) => pointing && triggerDown && r.Contains(Mouse);
+
         // The one primary action of a view: lime fill.
-        bool Primary(string text, float width) => Button(text, true, width);
+        bool Primary(string text, float width)
+        {
+            var r = ui.Take(width, Row);
+            return Cell(r, text.ToUpperInvariant(), cellOn, Lime, false, true);
+        }
 
         void Hover(Rect r)
         {
@@ -712,7 +825,7 @@ namespace Parallax
                 fillStyle.normal.background = Texture2D.whiteTexture;
             }
             var saved = GUI.color;
-            GUI.color = c;
+            GUI.color = new Color(c.r, c.g, c.b, c.a * fade);
             try
             {
                 // GUIStyle.Draw goes straight to the engine; DrawTexture only if a game lacks it.
@@ -739,31 +852,115 @@ namespace Parallax
             Fill(new Rect(r.xMax - t, r.y, t, r.height), c);
         }
 
+        // Rounded fills and rings: a small white texture per radius, drawn nine-sliced (its corners kept, its middle
+        // stretched) and tinted. Texture creation can be stripped in IL2CPP games: then the square fill and outline.
+        static readonly Optional rounding = new Optional("Rounded corners");
+        static readonly Dictionary<int, GUIStyle> roundStyles = new Dictionary<int, GUIStyle>();
+
+        internal static void Round(Rect r, Color c, float radius) => Shape(r, c, radius, false);
+
+        static void Ring(Rect r, Color c, float radius) => Shape(r, c, radius, true);
+
+        static void Shape(Rect r, Color c, float radius, bool ring)
+        {
+            if (Event.current.type != EventType.Repaint || (MenuLayout.Current != null && MenuLayout.Current.Measuring)) return;
+            int k = Mathf.Clamp(Mathf.RoundToInt(Mathf.Min(radius, r.width / 2, r.height / 2)), 1, 32);
+            var style = RoundStyle(k, ring);
+            if (style == null)
+            {
+                if (ring) Outline(r, c, 2);
+                else Fill(r, c);
+                return;
+            }
+            var saved = GUI.color;
+            GUI.color = new Color(c.r, c.g, c.b, c.a * fade);
+            try
+            {
+                style.Draw(r, false, false, false, false);
+            }
+            finally
+            {
+                GUI.color = saved;
+            }
+        }
+
+        static GUIStyle RoundStyle(int k, bool ring)
+        {
+            int key = ring ? -k : k;
+            if (roundStyles.TryGetValue(key, out var found)) return found;
+            GUIStyle made = null;
+#if IL2CPP
+            // Il2CppInterop exposes no Texture2D constructor in the games this build targets: square cells there.
+#else
+            rounding.Run(() =>
+            {
+                // Twice the radius and a texel of middle; supersampled 4x4 for a smooth edge.
+                int n = 2 * k + 2;
+                // The two-argument constructor: IL2CPP games often strip the others.
+                var tex = new Texture2D(n, n) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
+                var px = new Color32[n * n];
+                float c0 = k, c1 = n - k;
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        int inside = 0;
+                        for (int sy = 0; sy < 4; sy++)
+                            for (int sx = 0; sx < 4; sx++)
+                            {
+                                float fx = x + (sx + 0.5f) / 4, fy = y + (sy + 0.5f) / 4;
+                                float dx = Mathf.Max(0, Mathf.Max(c0 - fx, fx - c1)), dy = Mathf.Max(0, Mathf.Max(c0 - fy, fy - c1));
+                                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                                // Distance to the edge from inside: the corner arc, or the straight sides.
+                                float edge = Mathf.Min(Mathf.Min(fx, n - fx), Mathf.Min(fy, n - fy));
+                                float inner = dx > 0 && dy > 0 ? k - d : edge;
+                                bool hit = d <= k && (!ring || inner <= 2f);
+                                if (hit) inside++;
+                            }
+                        px[y * n + x] = new Color32(255, 255, 255, (byte)(inside * 255 / 16));
+                    }
+                tex.SetPixels32(px);
+                tex.Apply();
+                var border = new RectOffset { left = k, right = k, top = k, bottom = k };
+                made = new GUIStyle { border = border };
+                made.normal.background = tex;
+            });
+#endif
+            roundStyles[key] = made;
+            return made;
+        }
+
         void EnsureStyles()
         {
             if (cell != null) return;
-            Font displayFont = null, monoFont = null;
-            // OS fonts every Windows has: Impact (heavy condensed, like the app's Anton) for headlines, Consolas for
-            // labels and numbers; the IMGUI default otherwise.
+            Font displayFont = null, monoFont = null, bodyFont = null;
+            // OS fonts: the app's Barlow where installed, else what every Windows has (Segoe UI, Cascadia
+            // Mono or Consolas); Anton, else Impact (heavy condensed, like it) for headlines. The IMGUI default otherwise.
             fonts.Run(() =>
             {
-                displayFont = Font.CreateDynamicFontFromOSFont("Impact", 60);
-                monoFont = Font.CreateDynamicFontFromOSFont("Consolas", 22);
+                displayFont = Font.CreateDynamicFontFromOSFont(new[] { "Anton", "Impact" }, 60);
+                monoFont = Font.CreateDynamicFontFromOSFont(new[] { "Cascadia Mono", "Consolas" }, 24);
+                bodyFont = Font.CreateDynamicFontFromOSFont(new[] { "Barlow", "Segoe UI" }, 28);
             });
-            cell = Style(TextAnchor.MiddleCenter, Ink, Small, null, true);
-            cellOn = Style(TextAnchor.MiddleCenter, OnLime, Small, null, true);
-            label = Style(TextAnchor.MiddleLeft, Ink, Body, null, false);
-            muted = Style(TextAnchor.MiddleLeft, Ink2, Small, null, false);
-            warn = Style(TextAnchor.MiddleLeft, Danger, Small, null, false);
+            // Cells draw their own rounded fill; their styles only carry the text.
+            cell = Style(TextAnchor.MiddleCenter, Ink, 23, bodyFont, false);
+            cellOn = Style(TextAnchor.MiddleCenter, OnLime, 23, bodyFont, false);
+            cellOn.fontStyle = FontStyle.Bold;
+            cellQuiet = Style(TextAnchor.MiddleCenter, Ink2, 23, bodyFont, false);
+            quiet = Style(TextAnchor.MiddleCenter, Ink2, 22, bodyFont, false);
+            sign = Style(TextAnchor.MiddleCenter, Ink, 30, bodyFont, false);
+            label = Style(TextAnchor.MiddleLeft, Ink, Body, bodyFont, false);
+            muted = Style(TextAnchor.MiddleLeft, Ink2, Small, bodyFont, false);
+            warn = Style(TextAnchor.MiddleLeft, DangerInk, Small, bodyFont, false);
             label.wordWrap = muted.wordWrap = warn.wordWrap = true;
             value = Style(TextAnchor.MiddleCenter, Ink, Body, monoFont, false);
             data = Style(TextAnchor.MiddleLeft, Ink, Body, monoFont, false);
             display = Style(TextAnchor.MiddleLeft, Ink, Display, displayFont, false);
             eyebrow = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
             eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, Small, monoFont, false);
-            tabStyle = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
+            tabStyle = Style(TextAnchor.MiddleLeft, Ink2, 26, monoFont, false);
             tabStyle.hover.textColor = Ink;
-            tabOn = Style(TextAnchor.MiddleLeft, Ink, Small, monoFont, false);
+            tabOn = Style(TextAnchor.MiddleLeft, Ink, 26, monoFont, false);
+            tabOn.fontStyle = FontStyle.Bold;
             imageStyle = new GUIStyle { imagePosition = ImagePosition.ImageOnly, alignment = TextAnchor.MiddleCenter };
         }
 

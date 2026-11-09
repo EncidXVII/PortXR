@@ -10,32 +10,40 @@ use crate::games::{self, Compat, Game};
 use crate::installer;
 use crate::settings::{self, Def, Kind};
 
-// "Night Lime" tokens, shared with the VR menu (Menu.cs): black stage, one lime accent, hairlines instead of boxes,
-// sharp corners. Spacing scale 4/8/12/16/24/32/48/64.
-const BG: Color32 = Color32::from_rgb(10, 10, 10);
-const SURFACE: Color32 = Color32::from_rgb(18, 18, 18);
-const RAISED: Color32 = Color32::from_rgb(26, 26, 26);
-const LINE: Color32 = Color32::from_rgb(38, 38, 38);
-const EDGE: Color32 = Color32::from_rgb(94, 94, 94);
-const INK: Color32 = Color32::from_rgb(242, 242, 242);
-const INK2: Color32 = Color32::from_rgb(163, 163, 163);
-const INK3: Color32 = Color32::from_rgb(128, 128, 128);
+// "Night Lime" tokens in DesktopVR's graphite greys, shared with the VR menu (Menu.cs): dark stage, one lime accent,
+// filled soft cells. Spacing scale 4/8/12/16/24/32/48/64.
+const BG: Color32 = Color32::from_rgb(11, 11, 12);
+const SURFACE: Color32 = Color32::from_rgb(20, 20, 22);
+const RAISED: Color32 = Color32::from_rgb(29, 29, 32);
+const LINE: Color32 = Color32::from_rgb(42, 42, 46);
+const PRESSED: Color32 = Color32::from_rgb(54, 54, 59);
+const PLACEHOLDER: Color32 = Color32::from_rgb(56, 56, 61);
+const INK: Color32 = Color32::from_rgb(245, 245, 247);
+const INK2: Color32 = Color32::from_rgb(168, 168, 175);
+const INK3: Color32 = Color32::from_rgb(136, 136, 143);
 const LIME: Color32 = Color32::from_rgb(198, 255, 26);
-const ON_LIME: Color32 = Color32::from_rgb(10, 10, 10);
+const LIME_PRESSED: Color32 = Color32::from_rgb(169, 219, 18);
+const ON_LIME: Color32 = Color32::from_rgb(11, 11, 12);
 const DANGER: Color32 = Color32::from_rgb(255, 90, 60);
-// Shape and rhythm shared by every control: sharp corners, one control height, one uppercase tracking.
-const RADIUS: u8 = 0;
-const CONTROL_H: f32 = 40.0;
+const DANGER_BG: Color32 = Color32::from_rgb(43, 23, 18);
+const DANGER_INK: Color32 = Color32::from_rgb(255, 138, 110);
+// Shape and rhythm shared by every control: soft corners, one control height, one uppercase tracking.
+const RADIUS: u8 = 12;
+const CELL_RADIUS: u8 = 10;
+const CONTROL_H: f32 = 44.0;
+// Motion (seconds): hovers and presses ease, things that travel take a little longer. Zero when Windows'
+// "Animation effects" is off.
+const FAST: f32 = 0.16;
 // Widest a page's column grows on a big window, so rows and their links stay together.
 const PAGE_W: f32 = 1040.0;
 const TRACK: f32 = 1.2;
-// Type scale, nothing in between: Anton titles, Segoe UI body and small text, mono labels.
-const TITLE: f32 = 48.0;
+// Type scale, nothing in between: Anton titles, Barlow body and small text, mono labels.
+const TITLE: f32 = 52.0;
 const HEADING: f32 = 32.0;
-const BRAND: f32 = 22.0;
-const BODY: f32 = 15.0;
-const SMALL: f32 = 13.0;
-const LABEL: f32 = 12.0;
+const BRAND: f32 = 30.0;
+const BODY: f32 = 16.0;
+const SMALL: f32 = 14.0;
+const LABEL: f32 = 13.0;
 const REPO: &str = "EncidXVII/Parallax";
 const LOG: &str = r"BepInEx\LogOutput.log";
 
@@ -432,7 +440,7 @@ impl App {
                 })
                 .collect();
             let options: Vec<(Filter, &str)> = labels.iter().map(|(f, l)| (*f, l.as_str())).collect();
-            if let Some(f) = segmented(ui, &options, self.filter, None) {
+            if let Some(f) = segmented(ui, &options, self.filter, true) {
                 self.filter = f;
             }
             // The two menus' width, measured at 100 %.
@@ -885,23 +893,37 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
     match d.kind {
         Kind::Slider { lo, hi, step, per, .. } => {
             let mut v: f32 = current.parse().unwrap_or_else(|_| d.default.parse().unwrap());
-            let slider = egui::Slider::new(&mut v, lo..=hi)
-                .step_by(step as f64)
-                .custom_formatter(|x, _| settings::number(&d.kind, x))
-                .custom_parser(move |t| t.trim().trim_end_matches(['×', '%', 'm', ' ']).trim().parse::<f64>().ok().map(|x| x * per as f64));
+            let parse = move |t: &str| t.trim().trim_end_matches(['×', '%', 'm', ' ']).trim().parse::<f64>().ok().map(|x| x * per as f64);
+            // Lime fill on a dark rail with an ink knob (painted over egui's, which shares the rail's fill), then
+            // the value in its own box.
+            let changed = ui
+                .horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 16.0;
+                    let r = ui.add(egui::Slider::new(&mut v, lo..=hi).step_by(step as f64).show_value(false));
+                    let radius = r.rect.height() / 2.5;
+                    let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+                    let x = egui::lerp(r.rect.left() + radius..=r.rect.right() - radius, t);
+                    let grow = ease(ui, r.id.with("knob"), r.hovered() || r.dragged(), FAST);
+                    ui.painter().circle_filled(pos2(x, r.rect.center().y), radius + grow * 2.0, INK);
+                    let value = egui::DragValue::new(&mut v)
+                        .range(lo..=hi)
+                        .speed(step)
+                        .custom_formatter(|x, _| settings::number(&d.kind, x))
+                        .custom_parser(parse);
+                    let b = ui.add_sized([72.0, CONTROL_H - 4.0], value);
+                    r.changed() || b.changed()
+                })
+                .inner;
             // A slider may nudge a value onto its step grid just by being drawn; only a real change counts.
-            let changed = ui.add(slider).changed();
             let new = format!("{}", (v * 100.0).round() / 100.0);
             (changed && !settings::same(&new, current)).then_some(new)
         }
         Kind::Toggle => {
             let on = current.eq_ignore_ascii_case("true");
-            segmented(ui, &[(false, "Off"), (true, "On")], on, Some(false)).map(|b| b.to_string())
+            segmented(ui, &[(false, "Off"), (true, "On")], on, false).map(|b| b.to_string())
         }
         Kind::Choice(options) => {
-            // An "Off" option is the neutral one: selected, it is outlined rather than lime.
-            let neutral = options.iter().find(|(v, _)| *v == "Off").map(|o| o.0);
-            segmented(ui, options, options.iter().find(|(v, _)| settings::same(v, current)).map_or(options[0].0, |o| o.0), neutral).map(String::from)
+            segmented(ui, options, options.iter().find(|(v, _)| settings::same(v, current)).map_or(options[0].0, |o| o.0), false).map(String::from)
         }
         Kind::Key => None,  // drawn by the Buttons table
         // The camera name: picked in VR, where each camera has a preview; here it only shows and can go back.
@@ -934,7 +956,7 @@ fn warning(g: &Game) -> (String, Tone) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let bar = egui::Frame::new().fill(BG).inner_margin(Margin::symmetric(32, 16)).stroke(Stroke::new(1.0, LINE));
+        let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(40, 16));
         egui::Panel::top("top").frame(bar).show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Brand, then the places (tabs, left); the one action of the page sits alone on the right.
@@ -1105,14 +1127,33 @@ fn button_text(text: &str, color: Color32) -> RichText {
     RichText::new(text.to_uppercase()).font(body(SMALL)).color(color).extra_letter_spacing(TRACK)
 }
 
+// Seconds for an animation, or none when Windows' "Animation effects" is off.
+fn motion(seconds: f32) -> f32 {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    if *ON.get_or_init(crate::animations_enabled) { seconds } else { 0.0 }
+}
+
+// 0..1, easing toward `on` over `seconds`.
+fn ease(ui: &Ui, id: egui::Id, on: bool, seconds: f32) -> f32 {
+    ui.ctx().animate_bool_with_time(id, on, motion(seconds))
+}
+
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    Color32::from_rgb(lerp(a.r(), b.r(), t), lerp(a.g(), b.g(), t), lerp(a.b(), b.b(), t))
+}
+
 fn primary(ui: &mut Ui, text: &str) -> egui::Response {
     let enabled = ui.is_enabled();
-    let (fill, ink) = if enabled { (LIME, ON_LIME) } else { (RAISED, INK3) };
-    let b = egui::Button::new(button_text(text, ink)).fill(fill).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(vec2(0.0, CONTROL_H));
+    let ink = if enabled { ON_LIME } else { INK3 };
+    let b = egui::Button::new(button_text(text, ink)).fill(Color32::TRANSPARENT).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(vec2(0.0, CONTROL_H));
     let r = ui.add(b);
-    if r.hovered() && enabled {
-        ui.painter().rect_stroke(r.rect, RADIUS, Stroke::new(1.0, INK), egui::StrokeKind::Inside);
-    }
+    // Pressed answers at once; release eases back.
+    let down = r.is_pointer_button_down_on();
+    let t = ease(ui, r.id.with("press"), down, if down { 0.0 } else { FAST });
+    let fill = if enabled { mix(LIME, LIME_PRESSED, t) } else { RAISED };
+    ui.painter().rect_filled(r.rect, RADIUS, fill);
+    paint_label(ui.painter(), r.rect, text, ink);
     focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -1123,18 +1164,25 @@ fn secondary(ui: &mut Ui, text: &str) -> egui::Response {
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-// Top-bar tab, drawn like the VR menu's tabs: mono word, ink3, ink and a lime bar on the bar's bottom edge when active.
+// Top-bar tab, drawn like the VR menu's tabs: mono word, ink2, ink and a rounded lime bar on the bar's bottom edge
+// when active. The bar grows from the word's middle as a tab becomes active and shrinks on the one it leaves.
 fn nav(ui: &mut Ui, text: &str, active: bool) -> egui::Response {
     let old = std::mem::replace(&mut ui.spacing_mut().button_padding, vec2(0.0, 0.0));
-    let word = RichText::new(text.to_uppercase()).font(mono(LABEL)).color(if active { INK } else { INK3 }).extra_letter_spacing(TRACK);
+    let word = RichText::new(text.to_uppercase()).font(mono(SMALL)).color(if active { INK } else { INK2 }).extra_letter_spacing(TRACK);
     let r = ui.add(egui::Button::new(word).frame(false).min_size(vec2(0.0, CONTROL_H)));
     ui.spacing_mut().button_padding = old;
-    // The bar's bottom margin is 16: the marker sits on its hairline, like the VR tab underline.
-    let bar = |h: f32| Rect::from_min_max(pos2(r.rect.left(), r.rect.bottom() + 16.0 - h), pos2(r.rect.right(), r.rect.bottom() + 16.0));
-    if active {
-        ui.painter().rect_filled(bar(3.0), 0.0, LIME);
-    } else if r.hovered() {
-        ui.painter().rect_filled(bar(1.0), 0.0, INK2);
+    // The bar's bottom margin is 16: the marker sits on its bottom edge, like the VR tab underline.
+    let t = ease(ui, r.id.with("tab"), active, 0.28);
+    let hover = ease(ui, r.id.with("hover"), r.hovered() && !active, FAST);
+    let bar = |h: f32, k: f32| {
+        let half = r.rect.width() * 0.5 * k;
+        Rect::from_min_max(pos2(r.rect.center().x - half, r.rect.bottom() + 16.0 - h), pos2(r.rect.center().x + half, r.rect.bottom() + 16.0))
+    };
+    if t > 0.01 {
+        ui.painter().rect_filled(bar(4.0, t), 2.0, LIME);
+    }
+    if hover > 0.01 {
+        ui.painter().rect_filled(bar(2.0, 1.0), 1.0, INK2.gamma_multiply(hover));
     }
     focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -1166,38 +1214,56 @@ fn small_link(ui: &mut Ui, text: &str) -> egui::Response {
 }
 
 fn destructive(ui: &mut Ui, text: &str, armed: bool) -> egui::Response {
-    let mut b = egui::Button::new(button_text(text, if armed { ON_LIME } else { INK })).corner_radius(RADIUS).min_size(vec2(0.0, CONTROL_H));
-    if armed {
-        b = b.fill(DANGER);
-    }
+    let mut b = egui::Button::new(button_text(text, if armed { ON_LIME } else { DANGER_INK })).corner_radius(RADIUS).min_size(vec2(0.0, CONTROL_H));
+    b = b.fill(if armed { DANGER } else { DANGER_BG });
     let r = ui.add(b);
     focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-// Cells side by side, the selected one filled lime; a selected `neutral` value (a toggle's Off) gets an ink outline
-// instead, so lime always means on.
-fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T, neutral: Option<T>) -> Option<T> {
+// Cells side by side in a rounded track, the chosen one filled ink (DesktopVR's segment). `lime` fills the chosen
+// one lime instead, for the library's status filter. The fill eases from the old choice to the new one.
+fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T, lime: bool) -> Option<T> {
     let mut picked = None;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        for &(value, label) in options {
-            let on = value == current;
-            let lit = on && Some(value) != neutral;
-            let mut b = egui::Button::new(button_text(label, if lit { ON_LIME } else if on { INK } else { INK2 })).corner_radius(0).min_size(vec2(0.0, CONTROL_H));
-            if lit {
-                b = b.fill(LIME).stroke(Stroke::new(1.0, LIME));
-            } else if on {
-                b = b.fill(RAISED).stroke(Stroke::new(1.0, INK));
+    let frame = egui::Frame::new().fill(RAISED).corner_radius(RADIUS + 2).inner_margin(Margin::same(4));
+    frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for &(value, label) in options {
+                let on = value == current;
+                // Sized from the label itself: an unframed button has no padding of its own.
+                let w = label_width(ui, label) + 32.0;
+                let (_, r) = ui.allocate_exact_size(vec2(w, CONTROL_H - 4.0), Sense::click());
+                r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, label));
+                let t = ease(ui, r.id.with("on"), on, FAST);
+                let hover = ease(ui, r.id.with("hover"), r.hovered() && !on, FAST);
+                let chosen = if lime { LIME } else { INK };
+                let fill = mix(mix(RAISED, LINE, hover), chosen, t);
+                ui.painter().rect_filled(r.rect, CELL_RADIUS, fill);
+                let ink = mix(INK2, ON_LIME, t);
+                paint_label(ui.painter(), r.rect, label, ink);
+                focus_ring(ui, &r);
+                if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                    picked = Some(value);
+                }
             }
-            let r = ui.add(b);
-            focus_ring(ui, &r);
-            if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                picked = Some(value);
-            }
-        }
+        });
     });
     picked
+}
+
+fn label_width(ui: &Ui, text: &str) -> f32 {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&text.to_uppercase(), 0.0, egui::TextFormat { font_id: body(SMALL), extra_letter_spacing: TRACK, ..Default::default() });
+    ui.painter().layout_job(job).size().x
+}
+
+// A button's label painted centred in `rect`: upper case with the button tracking.
+fn paint_label(p: &Painter, rect: Rect, text: &str, color: Color32) {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&text.to_uppercase(), 0.0, egui::TextFormat { font_id: body(SMALL), color, extra_letter_spacing: TRACK, ..Default::default() });
+    let galley = p.layout_job(job);
+    p.galley(rect.center() - galley.size() / 2.0, galley, color);
 }
 
 #[derive(Clone, Copy)]
@@ -1222,25 +1288,18 @@ fn chip_kind(g: &Game) -> ChipKind {
 // Mono label with a status dot; the word always says the state, colour only reinforces it.
 fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
     let (dot, ink, fill) = match kind {
-        ChipKind::Plain => (None, INK2, None),
-        // Strongest to weakest: VR added (filled), installed (lime dot), not on this PC (grey, no dot).
-        ChipKind::VrAdded => (None, ON_LIME, Some(LIME)),
-        ChipKind::Installed => (Some(LIME), INK2, None),
-        ChipKind::NotInstalled => (None, INK3, None),
-        ChipKind::Blocked => (Some(DANGER), INK2, None),
-        ChipKind::Unsupported => (Some(INK3), INK3, None),
+        ChipKind::Plain => (None, INK2, RAISED),
+        // Strongest to weakest: VR added (lime), installed (lime dot), not on this PC (grey, no dot).
+        ChipKind::VrAdded => (None, ON_LIME, LIME),
+        ChipKind::Installed => (Some(LIME), INK2, RAISED),
+        ChipKind::NotInstalled => (None, INK3, RAISED),
+        ChipKind::Blocked => (Some(DANGER), DANGER_INK, DANGER_BG),
+        ChipKind::Unsupported => (Some(INK3), INK3, RAISED),
     };
     let galley = p.layout_no_wrap(text.to_uppercase(), mono(LABEL), ink);
     let pad = if dot.is_some() { 22.0 } else { 10.0 };
-    let rect = Rect::from_min_size(at, vec2(galley.size().x + pad + 10.0, 24.0));
-    match fill {
-        Some(f) => {
-            p.rect_filled(rect, RADIUS, f);
-        }
-        None => {
-            p.rect_stroke(rect, RADIUS, Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
-        }
-    }
+    let rect = Rect::from_min_size(at, vec2(galley.size().x + pad + 10.0, 26.0));
+    p.rect_filled(rect, 8, fill);
     if let Some(c) = dot {
         p.circle_filled(pos2(rect.left() + 12.0, rect.center().y), 3.0, c);
     }
@@ -1250,7 +1309,7 @@ fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
 
 fn chip(ui: &mut Ui, text: &str, kind: ChipKind) {
     let width = ui.painter().layout_no_wrap(text.to_uppercase(), mono(LABEL), INK).size().x + if matches!(kind, ChipKind::Plain | ChipKind::VrAdded | ChipKind::NotInstalled) { 20.0 } else { 32.0 };
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 24.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     paint_chip(ui.painter(), rect.min, text, kind);
 }
 
@@ -1309,10 +1368,7 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &g.name));
     let image = Rect::from_min_size(rect.min, vec2(w, h));
     cover(ui, g, image);
-    if resp.hovered() {
-        glow(&ui.painter_at(image), image.right_bottom(), 0.6);
-        ui.painter().rect_stroke(image, RADIUS, Stroke::new(1.0, LIME), egui::StrokeKind::Outside);
-    }
+    hover_card(ui, &resp, image);
     let mut job = egui::text::LayoutJob::simple_singleline(g.name.clone(), body(BODY), INK);
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
@@ -1321,6 +1377,15 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), g.badge(), chip_kind(g));
     focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+// Under the pointer a card's corner light comes up and a lime ring fades in around it.
+fn hover_card(ui: &Ui, resp: &egui::Response, image: Rect) {
+    let t = ease(ui, resp.id.with("hover"), resp.hovered(), FAST);
+    if t > 0.01 {
+        glow(&ui.painter_at(image), image.right_bottom(), 0.6 * t);
+        ui.painter().rect_stroke(image, RADIUS, Stroke::new(2.0, LIME.gamma_multiply(t)), egui::StrokeKind::Outside);
+    }
 }
 
 // Faint lime light in one corner, the references' "glow": a radial gradient drawn as a fan mesh whose vertex colours
@@ -1354,10 +1419,7 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     cover_image(ui, &o.cover, &o.name, image);
     // Dimmed: not on this PC yet.
     ui.painter_at(image).rect_filled(image, RADIUS, Color32::from_black_alpha(110));
-    if resp.hovered() {
-        glow(&ui.painter_at(image), image.right_bottom(), 0.6);
-        ui.painter().rect_stroke(image, RADIUS, Stroke::new(1.0, LIME), egui::StrokeKind::Outside);
-    }
+    hover_card(ui, &resp, image);
     let mut job = egui::text::LayoutJob::simple_singleline(o.name.clone(), body(BODY), INK);
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
@@ -1393,11 +1455,10 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
         }
         None => {
             let p = ui.painter_at(rect);
-            p.rect_filled(rect, RADIUS, SURFACE);
-            p.rect_stroke(rect, RADIUS, Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
+            p.rect_filled(rect, RADIUS, RAISED);
             glow(&p, rect.right_bottom(), 1.0);
             let initial = name.chars().next().unwrap_or('?').to_uppercase().to_string();
-            p.text(rect.left_top() + vec2(16.0, 12.0), Align2::LEFT_TOP, initial, display(rect.width() * 0.4), LINE);
+            p.text(rect.left_top() + vec2(18.0, 14.0), Align2::LEFT_TOP, initial, display(rect.width() * 0.35), PLACEHOLDER);
         }
     }
 }
@@ -1480,17 +1541,20 @@ fn version(s: &str) -> Vec<u32> {
 
 // ---- style ------------------------------------------------------------------------------------------------------
 
-// Display: Anton (bundled, SIL OFL). Body: Segoe UI. Labels: Cascadia Mono, else Consolas. All but Anton ship with
-// Windows; egui's own fonts are the fallback (and the fonts on Linux).
+// Display: Anton (bundled, SIL OFL). Body: Barlow (bundled, SIL OFL). Labels: Cascadia Mono, else
+// Consolas, which ship with Windows; egui's own fonts are the fallback (and the fonts on Linux).
 fn style(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let dir = PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into())).join("Fonts");
     let fallback = fonts.families[&FontFamily::Proportional].clone();
     fonts.font_data.insert("display".into(), Arc::new(egui::FontData::from_static(include_bytes!("../assets/Anton-Regular.ttf"))));
     fonts.families.insert(FontFamily::Name("display".into()), [vec!["display".to_string()], fallback.clone()].concat());
+    fonts.font_data.insert("body".into(), Arc::new(egui::FontData::from_static(include_bytes!("../assets/Barlow-Regular.ttf"))));
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "body".into());
+    // Arrows Barlow lacks (↗); Segoe UI, which ships with Windows, fills them in.
     if let Ok(bytes) = fs::read(dir.join("segoeui.ttf")) {
-        fonts.font_data.insert("body".into(), Arc::new(egui::FontData::from_owned(bytes)));
-        fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "body".into());
+        fonts.font_data.insert("symbols".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "symbols".into());
     }
     let mut mono_family = Vec::new();
     if let Some(bytes) = ["CascadiaMono.ttf", "consola.ttf"].iter().find_map(|f| fs::read(dir.join(f)).ok()) {
@@ -1498,6 +1562,9 @@ fn style(ctx: &egui::Context) {
         mono_family.push("mono".to_string());
     }
     let monospace = fonts.families[&FontFamily::Monospace].clone();
+    if fonts.font_data.contains_key("symbols") {
+        mono_family.push("symbols".to_string());
+    }
     fonts.families.insert(FontFamily::Name("mono".into()), [mono_family, monospace].concat());
     ctx.set_fonts(fonts);
 
@@ -1506,32 +1573,35 @@ fn style(ctx: &egui::Context) {
         let v = &mut s.visuals;
         v.panel_fill = BG;
         v.window_fill = SURFACE;
-        v.extreme_bg_color = SURFACE;
+        v.extreme_bg_color = RAISED;
         v.override_text_color = Some(INK);
         v.hyperlink_color = LIME;
-        v.selection.bg_fill = LIME.gamma_multiply(0.35);
-        v.selection.stroke = Stroke::new(1.0, LIME);
+        // Lime selection with dark text on it; also the slider's filled part.
+        v.selection.bg_fill = LIME;
+        v.selection.stroke = Stroke::new(1.0, ON_LIME);
         v.slider_trailing_fill = true;
         v.window_shadow = egui::Shadow::NONE;
         v.popup_shadow = egui::Shadow::NONE;
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
         v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, INK2);
+        // Filled cells, no outlines: a lighter fill under the pointer, lighter still while pressed.
         let states = [
-            (&mut v.widgets.inactive, SURFACE, Color32::TRANSPARENT, EDGE),
-            (&mut v.widgets.hovered, RAISED, RAISED, INK2),
-            (&mut v.widgets.active, RAISED, RAISED, LIME),
-            (&mut v.widgets.open, RAISED, RAISED, LINE),
+            (&mut v.widgets.inactive, RAISED, RAISED),
+            (&mut v.widgets.hovered, LINE, LINE),
+            (&mut v.widgets.active, PRESSED, PRESSED),
+            (&mut v.widgets.open, LINE, LINE),
         ];
-        for (w, fill, weak, stroke) in states {
+        for (w, fill, weak) in states {
             w.bg_fill = fill;
             w.weak_bg_fill = weak;
-            w.bg_stroke = Stroke::new(1.0, stroke);
+            w.bg_stroke = Stroke::NONE;
             w.fg_stroke = Stroke::new(1.0, INK);
             w.corner_radius = egui::CornerRadius::same(RADIUS);
             w.expansion = 0.0;
         }
         s.spacing.item_spacing = vec2(8.0, 8.0);
-        s.spacing.button_padding = vec2(16.0, 8.0);
+        s.spacing.button_padding = vec2(18.0, 8.0);
+        s.animation_time = motion(FAST);
         s.spacing.slider_width = 260.0;
         s.spacing.scroll = egui::style::ScrollStyle::solid();
         s.spacing.interact_size.y = CONTROL_H;

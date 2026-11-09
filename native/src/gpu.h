@@ -8,8 +8,9 @@ struct Overlay {
     float vignette = 0;
     float beam[4] = {};
     float beamWidth = 0;
-    // Watch face: centre (u, v), radius in UV of the image height (0 draws none), lit 0 or 1.
+    // Watch face: centre (u, v), radius in UV of the image height (0 draws none), lit 0..1; and how much it shows.
     float watch[4] = {};
+    float watchAlpha = 1;
     // Near-black pixels made see-through (UI panel whose alpha the game filled in).
     float key = 0;
     float keep[4] = {};  // UV rect left unkeyed
@@ -69,6 +70,7 @@ struct BlitParams {
     float keep[4];
     float aim[4];
     float hole[4];
+    float watchLook[4];  // x: the watch's opacity
 };
 void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,

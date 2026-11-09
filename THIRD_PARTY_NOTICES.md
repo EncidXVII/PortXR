@@ -140,3 +140,8 @@ Bundled in Parallax.exe as the headline face. SIL Open Font License 1.1.
     DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
     FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
     OTHER DEALINGS IN THE FONT SOFTWARE.
+
+## Barlow font
+Bundled in Parallax.exe as the body face. SIL Open Font License 1.1, text as under Anton above.
+
+    Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)

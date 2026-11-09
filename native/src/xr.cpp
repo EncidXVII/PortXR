@@ -124,7 +124,7 @@ bool watch_uv(const PrxFrame& f, int e, float out[4]) {
     float depth;
     if (!point_uv(f, e, f.watchAt, out, depth)) return false;
     out[2] = f.watchRadius / depth / (std::tan(f.eyeFov[e].up) - std::tan(f.eyeFov[e].down));
-    out[3] = f.watchLit ? 1.f : 0.f;
+    out[3] = f.watchLit;
     return true;
 }
 
@@ -366,7 +366,10 @@ void do_submit(int slot) {
             over[e].vignette = f.vignette;
             // About 4 mm wide at arm's length on a typical 100 degree view.
             if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
-            if (f.watch) watch_uv(f, e, over[e].watch);
+            if (f.watch) {
+                watch_uv(f, e, over[e].watch);
+                over[e].watchAlpha = f.watchAlpha;
+            }
             for (int i = 0; i < 3; ++i) over[e].aim[i] = f.aimReticle[e][i];
         }
         if (f.window && f.windowLayer[0].texture && f.windowLayer[1].texture &&

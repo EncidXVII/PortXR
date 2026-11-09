@@ -67,6 +67,9 @@ namespace Parallax
         bool glancing, glanceTrigger, watchShown;
         Vector3 watchAt;
         const float WatchRadius = 0.022f;
+        // How much the watch shows (it fades in as you look at it, like DesktopVR's clock) and how lit it is, both eased.
+        float watchFade, watchGlow;
+        const float WatchFadeS = 0.06f, WatchGlowS = 0.1f;
         // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
         bool snapArmed = true, snapping;
         // The view turns with the body yaw: it follows the game camera's heading, except under head aim, where the game
@@ -665,7 +668,7 @@ namespace Parallax
             bool window = eyesRendered && windowShown, stereo = eyesRendered && !window;
             // The theater screen and the Parallax window still need eye images for the hand menu and the beam:
             // transparent ones, drawn over the screen.
-            bool layered = stereo || window || ((watchShown || beamOn) && !VideoWatch.Playing());
+            bool layered = stereo || window || ((watchShown || watchFade > 0 || beamOn) && !VideoWatch.Playing());
             var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo || window ? 1 : 0 };
             if (window)
             {
@@ -718,8 +721,9 @@ namespace Parallax
             // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
             f.fromX = beamFrom.x; f.fromY = beamFrom.y; f.fromZ = -beamFrom.z;
             f.toX = beamTo.x; f.toY = beamTo.y; f.toZ = -beamTo.z;
-            f.watch = layered && watchShown ? 1 : 0;
-            f.watchLit = glancing ? 1 : 0;
+            f.watch = layered && watchFade > 0.004f ? 1 : 0;
+            f.watchLit = watchGlow;
+            f.watchAlpha = watchFade;
             f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
             f.watchRadius = WatchRadius;
             f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;
@@ -1369,25 +1373,43 @@ namespace Parallax
             }
         }
 
-        // Watch check: the left controller close to the face with the back of the hand (its outer, -X side) turned
-        // up toward the eyes.
-        // The watch face sits there too, on the back of the wrist behind the controller.
+        // Watch check, as DesktopVR's clock: the left controller close to the face with the back of the hand (its outer,
+        // -X side) turned toward the eyes, and the eyes on it. The face fades in with both, so it is out of sight while
+        // you play; glanced at (face turned within 45 degrees, mostly shown) it lights and the trigger opens the menu.
+        // The right hand pointing at a shown watch counts as a glance too.
         bool WristGlance()
         {
             watchShown = Settings.WristMenu.Value && controllers.aimValidL != 0 && State == XrState.Running && !Menu.Open;
-            if (!watchShown) return false;
-            var hand = Xr.Rotation(controllers.aimL);
-            watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
-            var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
-            if (toHead.magnitude > 0.7f) return false;
-            if (Xr.Angle(hand * Vector3.left, toHead) < 45f) return true;
-            // Or the right hand points at it: its ray passes within 6 cm of the face.
-            if (controllers.aimValidR == 0) return false;
-            var from = Xr.Position(controllers.aimR);
-            var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
-            var to = watchAt - from;
-            float along = Vector3.Dot(to, dir);
-            return along > 0 && along < 0.6f && (to - dir * along).magnitude < 0.06f;
+            float show = 0;
+            bool glance = false;
+            if (watchShown)
+            {
+                var hand = Xr.Rotation(controllers.aimL);
+                watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
+                var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
+                float dist = toHead.magnitude;
+                if (dist <= 0.7f && dist > 1e-4f)
+                {
+                    var toEye = toHead / dist;
+                    float facing = Vector3.Dot(hand * Vector3.left, toEye);
+                    float looking = Vector3.Dot(Xr.Rotation(Views[0]) * Vector3.forward, -toEye);
+                    // Test runs hold the wrist up without turning the null headset's view to it.
+                    show = Motion.Smooth(0.55f, 0.7f, facing) * (Test?.Wrist == true ? 1f : Motion.Smooth(0.8f, 0.9f, looking));
+                    glance = show > 0.5f && facing > 0.7071f;
+                    if (!glance && show > 0.5f && controllers.aimValidR != 0)
+                    {
+                        var from = Xr.Position(controllers.aimR);
+                        var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
+                        var to = watchAt - from;
+                        float along = Vector3.Dot(to, dir);
+                        glance = along > 0 && along < 0.6f && (to - dir * along).magnitude < 0.06f;
+                    }
+                }
+            }
+            float dt = Time.unscaledDeltaTime;
+            watchFade = Motion.Follow(watchFade, show, WatchFadeS, dt);
+            watchGlow = Motion.Follow(watchGlow, glance ? 1f : 0f, WatchGlowS, dt);
+            return glance;
         }
 
         static int BitCount(int v)

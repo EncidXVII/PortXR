@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Look and motion
+- In line with DesktopVR: neutral graphite greys, filled cells with soft corners instead of outlines, a chosen
+  option filled ink (lime stays for the active tab, the main action and the library's status filter). Same screens,
+  same controls.
+- App: Barlow for body text (bundled; Anton stays for titles), text one step bigger, rounded covers, chips and
+  buttons, a white slider knob.
+- VR menu: the same tabs and rows, restyled; Barlow where installed, else Segoe UI; Cascadia Mono labels.
+  Rounded corners in Mono games; IL2CPP games keep square cells (their engine build has no way to make the texture).
+- Motion, following Windows' "Animation effects": the VR menu fades in, the tab bar and a row's choice slide, hovers
+  ease, presses show on trigger-down; in the app the tab bar grows into place and covers light up on hover.
+
+### In VR
+- The screen in Theater and Parallax is locked while you play: its handles show only after **Screen: Unlocked** in
+  the VR menu's Quick tab, and it locks again when the menu closes.
+- The wrist watch fades in as you look at it, like DesktopVR's clock, and is out of sight otherwise; glanced at, its
+  rim and glyph turn lime as before. A grey rim and round-ended bars replace the white rim.
+
 ## 0.2.0 (first public release)
 
 ### Games
