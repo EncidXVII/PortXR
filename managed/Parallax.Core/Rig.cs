@@ -68,8 +68,13 @@ namespace Parallax
         Vector3 watchAt;
         const float WatchRadius = 0.022f;
         // How much the watch shows (it fades in as you look at it, like DesktopVR's clock) and how lit it is, both eased.
-        float watchFade, watchGlow;
-        const float WatchFadeS = 0.06f, WatchGlowS = 0.1f;
+        float watchFade, watchGlow, watchHeld;
+        bool watchLooked;
+        // The watch shows when looked at, as on DesktopVR: wide to show (face within ~66 degrees of the eyes, watch
+        // within ~45 degrees of where the head looks), wider to stay (~81 and ~63), held at least WatchHoldS, so
+        // tremor and head bob at the edge never make it blink. Fades are linear: in quickly, out a little slower.
+        const float ShowFacing = 0.4f, ShowLooking = 0.7f, KeepFacing = 0.15f, KeepLooking = 0.45f, WatchHoldS = 0.3f;
+        const float WatchShowS = 0.08f, WatchHideS = 0.18f, WatchGlowS = 0.1f;
         // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
         bool snapArmed = true, snapping;
         // The view turns with the body yaw: it follows the game camera's heading, except under head aim, where the game
@@ -1380,8 +1385,9 @@ namespace Parallax
         bool WristGlance()
         {
             watchShown = Settings.WristMenu.Value && controllers.aimValidL != 0 && State == XrState.Running && !Menu.Open;
-            float show = 0;
+            bool looked = false;
             bool glance = false;
+            float dt = Time.unscaledDeltaTime;
             if (watchShown)
             {
                 var hand = Xr.Rotation(controllers.aimL);
@@ -1394,9 +1400,11 @@ namespace Parallax
                     float facing = Vector3.Dot(hand * Vector3.left, toEye);
                     float looking = Vector3.Dot(Xr.Rotation(Views[0]) * Vector3.forward, -toEye);
                     // Test runs hold the wrist up without turning the null headset's view to it.
-                    show = Motion.Smooth(0.55f, 0.7f, facing) * (Test?.Wrist == true ? 1f : Motion.Smooth(0.8f, 0.9f, looking));
-                    glance = show > 0.5f && facing > 0.7071f;
-                    if (!glance && show > 0.5f && controllers.aimValidR != 0)
+                    if (Test?.Wrist == true) looking = 1f;
+                    looked = watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
+                    // Lit (a trigger pull opens the menu) when turned toward the eyes, or under the laser.
+                    glance = looked && facing > 0.6f;
+                    if (!glance && looked && controllers.aimValidR != 0)
                     {
                         var from = Xr.Position(controllers.aimR);
                         var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
@@ -1406,8 +1414,16 @@ namespace Parallax
                     }
                 }
             }
-            float dt = Time.unscaledDeltaTime;
-            watchFade = Motion.Follow(watchFade, show, WatchFadeS, dt);
+            watchHeld += dt;
+            if (looked != watchLooked && (looked || watchHeld >= WatchHoldS))
+            {
+                watchLooked = looked;
+                watchHeld = 0;
+            }
+            float target = watchShown && watchLooked ? 1f : 0f;
+            watchFade = !Motion.On ? target
+                : target > watchFade ? Mathf.Min(target, watchFade + dt / WatchShowS)
+                : Mathf.Max(target, watchFade - dt / WatchHideS);
             watchGlow = Motion.Follow(watchGlow, glance ? 1f : 0f, WatchGlowS, dt);
             return glance;
         }

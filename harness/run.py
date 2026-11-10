@@ -63,7 +63,19 @@ class Game:
         env = dict(os.environ, PARALLAX_TEST_PORT=str(PORT), FIXTURE_LOG=self.log, XR_RUNTIME_JSON=steamvr.runtime_json())
         self.proc = subprocess.Popen([self.exe, "-screen-fullscreen", "0"] + self.window_args, env=env)
 
+    def drain(self):
+        # Replies to a resent command can arrive late and would be read as the answer to the next one.
+        self.sock.setblocking(False)
+        try:
+            while True:
+                self.sock.recv(65536)
+        except OSError:  # nothing waiting (or, before the first send, not bound yet)
+            pass
+        finally:
+            self.sock.settimeout(1.0)
+
     def cmd(self, line, tries=20):
+        self.drain()
         for _ in range(tries):
             self.sock.sendto(line.encode(), ("127.0.0.1", PORT))
             try:

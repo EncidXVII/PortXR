@@ -37,7 +37,7 @@ const FAST: f32 = 0.16;
 // Widest a page's column grows on a big window, so rows and their links stay together.
 const PAGE_W: f32 = 1040.0;
 const TRACK: f32 = 1.2;
-// Type scale, nothing in between: Anton titles, Barlow body and small text, mono labels.
+// Type scale, nothing in between: Anton titles, Barlow body and small text, Barlow SemiBold capital labels.
 const TITLE: f32 = 52.0;
 const HEADING: f32 = 32.0;
 const BRAND: f32 = 30.0;
@@ -136,8 +136,14 @@ fn display(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("display".into()))
 }
 
+// Spaced capital labels (nav, filters, chips, small buttons): Barlow SemiBold.
 fn mono(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("mono".into()))
+}
+
+// File paths and names, where every character counts: a monospaced face.
+fn code(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("code".into()))
 }
 
 fn body(size: f32) -> FontId {
@@ -520,7 +526,7 @@ impl App {
                     chip(ui, g.badge(), chip_kind(&g));
                 });
                 ui.add_space(8.0);
-                ui.add(egui::Label::new(RichText::new(g.dir.display().to_string()).font(mono(LABEL)).color(INK3)).wrap());
+                ui.add(egui::Label::new(RichText::new(g.dir.display().to_string()).font(code(LABEL)).color(INK3)).wrap());
                 ui.add_space(24.0);
                 ui.horizontal_wrapped(|ui| self.actions(ui, &g));
                 self.follow_launch(ui.ctx(), &g);
@@ -761,7 +767,7 @@ impl App {
         let mut remove = None;
         for path in &list {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).font(mono(BODY)).color(INK));
+                ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).font(code(BODY)).color(INK));
                 ui.spacing_mut().item_spacing.x = 24.0;
                 if tertiary(ui, "Edit").clicked() {
                     let _ = games::edit(path);
@@ -1541,7 +1547,7 @@ fn version(s: &str) -> Vec<u32> {
 
 // ---- style ------------------------------------------------------------------------------------------------------
 
-// Display: Anton (bundled, SIL OFL). Body: Barlow (bundled, SIL OFL). Labels: Cascadia Mono, else
+// Display: Anton. Body: Barlow; labels: Barlow SemiBold (all bundled, SIL OFL). File paths: Cascadia Mono, else
 // Consolas, which ship with Windows; egui's own fonts are the fallback (and the fonts on Linux).
 fn style(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -1556,16 +1562,21 @@ fn style(ctx: &egui::Context) {
         fonts.font_data.insert("symbols".into(), Arc::new(egui::FontData::from_owned(bytes)));
         fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "symbols".into());
     }
-    let mut mono_family = Vec::new();
+    // Labels: Barlow SemiBold (bundled), Segoe UI for arrows it lacks.
+    fonts.font_data.insert("label".into(), Arc::new(egui::FontData::from_static(include_bytes!("../assets/Barlow-SemiBold.ttf"))));
+    let mut labels = vec!["label".to_string()];
+    let mut code_family = Vec::new();
     if let Some(bytes) = ["CascadiaMono.ttf", "consola.ttf"].iter().find_map(|f| fs::read(dir.join(f)).ok()) {
-        fonts.font_data.insert("mono".into(), Arc::new(egui::FontData::from_owned(bytes)));
-        mono_family.push("mono".to_string());
+        fonts.font_data.insert("code".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        code_family.push("code".to_string());
+    }
+    if fonts.font_data.contains_key("symbols") {
+        labels.push("symbols".to_string());
+        code_family.push("symbols".to_string());
     }
     let monospace = fonts.families[&FontFamily::Monospace].clone();
-    if fonts.font_data.contains_key("symbols") {
-        mono_family.push("symbols".to_string());
-    }
-    fonts.families.insert(FontFamily::Name("mono".into()), [mono_family, monospace].concat());
+    fonts.families.insert(FontFamily::Name("mono".into()), [labels, fallback.clone()].concat());
+    fonts.families.insert(FontFamily::Name("code".into()), [code_family, monospace].concat());
     ctx.set_fonts(fonts);
 
     ctx.all_styles_mut(|s| {

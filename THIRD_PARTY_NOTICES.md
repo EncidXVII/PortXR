@@ -142,6 +142,6 @@ Bundled in Parallax.exe as the headline face. SIL Open Font License 1.1.
     OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ## Barlow font
-Bundled in Parallax.exe as the body face. SIL Open Font License 1.1, text as under Anton above.
+Bundled in Parallax.exe as the body and label faces (Regular and SemiBold). SIL Open Font License 1.1, text as under Anton above.
 
     Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)

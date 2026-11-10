@@ -8,7 +8,7 @@ namespace Parallax
     // Drawn with IMGUI onto the screen, so it reaches the headset through the UI capture and the laser pointer.
     // Only engine members that survive IL2CPP stripping in typical games are used: no texture creation outside an
     // Optional guard, no style copies, layout options always passed as arrays (Il2CppInterop has no params).
-    // Look: "Night Lime" in DesktopVR's graphite greys (one lime accent, filled rounded cells, mono labels), the same tokens
+    // Look: "Night Lime" in DesktopVR's graphite greys (one lime accent, filled rounded cells, spaced capital labels), the same tokens
     // as the desktop app. Motion as in DesktopVR (see Motion): the menu fades in, the tab bar and a row's choice slide,
     // hovers ease, presses answer on trigger-down.
     internal class Menu
@@ -952,14 +952,16 @@ namespace Parallax
             muted = Style(TextAnchor.MiddleLeft, Ink2, Small, bodyFont, false);
             warn = Style(TextAnchor.MiddleLeft, DangerInk, Small, bodyFont, false);
             label.wordWrap = muted.wordWrap = warn.wordWrap = true;
-            value = Style(TextAnchor.MiddleCenter, Ink, Body, monoFont, false);
+            // Labels, tabs and values in the body face like the app (one family throughout); mono only for diagnostics.
+            value = Style(TextAnchor.MiddleCenter, Ink, Body, bodyFont, false);
             data = Style(TextAnchor.MiddleLeft, Ink, Body, monoFont, false);
             display = Style(TextAnchor.MiddleLeft, Ink, Display, displayFont, false);
-            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, Small, monoFont, false);
-            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, Small, monoFont, false);
-            tabStyle = Style(TextAnchor.MiddleLeft, Ink2, 26, monoFont, false);
+            eyebrow = Style(TextAnchor.MiddleLeft, Ink3, Small, bodyFont, false);
+            eyebrowWord = Style(TextAnchor.MiddleLeft, Lime, Small, bodyFont, false);
+            eyebrow.fontStyle = eyebrowWord.fontStyle = FontStyle.Bold;
+            tabStyle = Style(TextAnchor.MiddleLeft, Ink2, 26, bodyFont, false);
             tabStyle.hover.textColor = Ink;
-            tabOn = Style(TextAnchor.MiddleLeft, Ink, 26, monoFont, false);
+            tabOn = Style(TextAnchor.MiddleLeft, Ink, 26, bodyFont, false);
             tabOn.fontStyle = FontStyle.Bold;
             imageStyle = new GUIStyle { imagePosition = ImagePosition.ImageOnly, alignment = TextAnchor.MiddleCenter };
         }
