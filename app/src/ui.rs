@@ -159,6 +159,7 @@ struct App {
     store: Option<&'static str>,
     sort: Sort,
     confirm_uninstall: bool,
+    confirm_anyway: bool,
     advanced: bool,
     buttons: bool,
     scroll_to_buttons: bool,
@@ -195,6 +196,7 @@ fn filter_of(g: &Game) -> Filter {
     match (g.compat(), g.installed()) {
         (Compat::Supported, true) => Filter::VrAdded,
         (Compat::Supported, false) => Filter::Installed,
+        (_, true) if g.usable() => Filter::VrAdded,
         _ => Filter::Unsupported,
     }
 }
@@ -240,6 +242,7 @@ impl App {
             store: None,
             sort: Sort::Recent,
             confirm_uninstall: false,
+            confirm_anyway: false,
             advanced: false,
             buttons: false,
             scroll_to_buttons: false,
@@ -278,6 +281,7 @@ impl App {
                 // Taken out of games that gained anti-cheat, brought up to this build in the rest.
                 let _ = installer::update_checked(g);
             }
+            games::write_vr_list(&found);
             *slot.lock().unwrap() = Some(found);
             ctx.request_repaint();
         });
@@ -339,6 +343,7 @@ impl App {
         self.page = Page::Game(i);
         self.status = (String::new(), Tone::Info);
         self.confirm_uninstall = false;
+        self.confirm_anyway = false;
         self.cfg = load_cfg(&self.games[i]);
     }
 
@@ -575,7 +580,7 @@ impl App {
                 let (text, tone) = if self.status.0.is_empty() { warning(&g) } else { self.status.clone() };
                 if !text.is_empty() {
                     status_line(ui, &text, tone);
-                } else if g.compat() == Compat::Supported {
+                } else if g.usable() {
                     // Checked before Play: without a runtime the game just starts flat.
                     let last = games::last_vr(&g).map(|t| format!(" Last played in VR {}.", ago(t))).unwrap_or_default();
                     match games::openxr_runtime() {
@@ -585,7 +590,7 @@ impl App {
                 }
             });
         });
-        if g.compat() != Compat::Supported {
+        if !g.usable() {
             return;
         }
         section_break(ui);
@@ -742,7 +747,7 @@ impl App {
 
     fn actions(&mut self, ui: &mut Ui, g: &Game) {
         ui.spacing_mut().item_spacing.x = 8.0;
-        let playable = g.compat() == Compat::Supported;
+        let playable = g.usable();
         if playable && primary(ui, "Play in VR ↗").clicked() {
             let started = play(g, &self.defaults);
             self.launched = started.is_ok().then(|| (g.dir.clone(), std::time::SystemTime::now()));
@@ -757,6 +762,21 @@ impl App {
         if playable && !g.installed() && secondary(ui, "Add VR").clicked() {
             self.report(install(g, &self.defaults));
             self.cfg = load_cfg(g);
+            games::write_vr_list(&self.games);
+        }
+        // A game Parallax would leave alone, for players who want to try anyway: the caution first, then a confirm.
+        if let Some(caution) = g.caution().filter(|_| !g.installed()) {
+            let label = if self.confirm_anyway { "Confirm: add VR anyway" } else { "Add VR anyway" };
+            if destructive(ui, label, self.confirm_anyway).clicked() {
+                if self.confirm_anyway {
+                    self.report(install_anyway(g, &self.defaults));
+                    self.cfg = load_cfg(g);
+                    games::write_vr_list(&self.games);
+                } else {
+                    self.status = (format!("{caution} Press again to add VR anyway."), Tone::Bad);
+                }
+                self.confirm_anyway = !self.confirm_anyway;
+            }
         }
         if g.installed() {
             let label = if self.confirm_uninstall { "Confirm: remove VR" } else { "Remove VR" };
@@ -764,6 +784,7 @@ impl App {
                 if self.confirm_uninstall {
                     self.report(uninstall(g));
                     self.cfg = load_cfg(g);
+                    games::write_vr_list(&self.games);
                 }
                 self.confirm_uninstall = !self.confirm_uninstall;
             }
@@ -893,9 +914,11 @@ impl App {
             let global = settings::global(&self.defaults, d);
             if game { settings::get(&self.cfg, d.section, d.key).unwrap_or(global) } else { global }
         };
-        let (parallax, aim, hand) = (value("Display") == "Parallax", value("HeadAim") != "Off", value("AimWith") == "Hand");
+        let (parallax, screen) = (value("Display") == "Parallax", value("Display") != "Stereo");
+        let (aim, hand) = (value("HeadAim") != "Off", value("AimWith") == "Hand");
         let relevant = |d: &Def| match d.key {
             "Depth" => parallax,
+            "Background" => screen,
             "AimWith" | "Crosshair" => aim,
             "WeaponInHand" => aim && hand,
             _ => true,
@@ -998,14 +1021,17 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
 }
 
 fn warning(g: &Game) -> (String, Tone) {
+    if let Some(caution) = g.caution().filter(|_| g.installed()) {
+        return (format!("VR was added anyway. {caution}"), Tone::Bad);
+    }
     match (g.compat(), g.other_loader) {
-        (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode. Parallax is for offline single-player games: online play risks a ban, so this game is refused.".into(), Tone::Bad),
+        (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode was found, so Parallax leaves it alone: online play with mods can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
-        (Compat::NativeVr, _) => ("Already runs in VR on its own: start it in VR from Steam or its launcher. Parallax stays out of anything that already supports VR.".into(), Tone::Info),
+        (Compat::NativeVr, _) => ("Already runs in VR on its own: start it in VR from Steam or its launcher. To try Parallax instead, Add VR anyway.".into(), Tone::Info),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
         (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
-        (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet.".into(), Tone::Info),
+        (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet; Add VR anyway to try.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
         _ => (String::new(), Tone::Info),
     }
@@ -1553,11 +1579,22 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
 
 fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install(&g.dir)?;
+    configure(g, defaults)?;
+    Ok("VR added. Start the game from here or from Steam with your headset on.".into())
+}
+
+fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
+    installer::install_anyway(&g.dir)?;
+    configure(g, defaults)?;
+    Ok("VR added anyway. If it doesn't work, Remove VR puts the game folder back.".into())
+}
+
+fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
     // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the plugin;
     // everything else comes from the all-games values.
     let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
     write(&g.file(installer::CONFIG), settings::fill(&saved, defaults).as_bytes())?;
-    Ok("VR added. Start the game from here or from Steam with your headset on.".into())
+    Ok(())
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {

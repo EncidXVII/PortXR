@@ -1,5 +1,6 @@
 """SteamVR null-driver session: headless HMD for automated runs, user settings restored afterwards."""
 import contextlib
+import glob
 import json
 import os
 import shutil
@@ -85,6 +86,24 @@ def null_driver(window=None):
             shutil.move(chaperone_backup, chaperone)
         elif os.path.exists(chaperone):
             os.remove(chaperone)
+    # Overlay apps set to start with SteamVR (a desktop or fitness overlay) would start again with every test session,
+    # and some show an "already running" dialog. Autolaunch is off for the session and put back after it.
+    apps = os.path.join(steam_root(), "config", "vrappconfig")
+    for left in glob.glob(os.path.join(apps, "*.vrappconfig.parallax-backup")):
+        shutil.move(left, left[: -len(".parallax-backup")])
+    paused = []
+    for app in glob.glob(os.path.join(apps, "*.vrappconfig")):
+        try:
+            with open(app, encoding="utf-8") as f:
+                conf = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if conf.get("autolaunch"):
+            shutil.copy2(app, app + ".parallax-backup")
+            conf["autolaunch"] = False
+            with open(app, "w", encoding="utf-8") as f:
+                json.dump(conf, f, indent=3)
+            paused.append(app)
     had_chaperone = os.path.exists(chaperone)
     if had_chaperone:
         shutil.copy2(chaperone, chaperone_backup)
@@ -99,6 +118,9 @@ def null_driver(window=None):
             "requireHmd": True,
             "showMirrorView": False,
         })
+        # SteamVR reopens the desktop windows that were open when it last closed (its Settings window covered the
+        # test headset's view); the test session starts with none.
+        settings.pop("DesktopUI", None)
         settings.setdefault("driver_null", {}).update({"enable": True, "displayFrequency": 90.0})
         if window:
             x, y, w, h = window
@@ -125,6 +147,8 @@ def null_driver(window=None):
                 break
         shutil.copy2(backup, path)
         os.remove(backup)
+        for app in paused:
+            shutil.move(app + ".parallax-backup", app)
         if had_chaperone:
             shutil.move(chaperone_backup, chaperone)
         elif os.path.exists(chaperone):

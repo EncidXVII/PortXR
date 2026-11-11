@@ -292,8 +292,85 @@ void poll_events() {
     }
 }
 
+// Passthrough around the Theater and Parallax screen (PrxFrame::passthrough): the runtime's alpha-blend mode where it
+// offers one, else Meta's passthrough layer (XR_FB_passthrough). SteamVR has neither.
+bool g_alphaBlend, g_fbPassthrough;
+XrEnvironmentBlendMode g_blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+struct {
+    XrPassthroughFB feature = XR_NULL_HANDLE;
+    XrPassthroughLayerFB layer = XR_NULL_HANDLE;
+    bool running = false, failed = false;
+    PFN_xrCreatePassthroughFB create;
+    PFN_xrDestroyPassthroughFB destroy;
+    PFN_xrPassthroughStartFB start;
+    PFN_xrPassthroughPauseFB pause;
+    PFN_xrCreatePassthroughLayerFB createLayer;
+    PFN_xrDestroyPassthroughLayerFB destroyLayer;
+    PFN_xrPassthroughLayerResumeFB resumeLayer;
+    PFN_xrPassthroughLayerPauseFB pauseLayer;
+} g_pt;
+
+void destroy_passthrough() {
+    if (g_pt.layer) g_pt.destroyLayer(g_pt.layer);
+    if (g_pt.feature) g_pt.destroy(g_pt.feature);
+    g_pt.layer = XR_NULL_HANDLE;
+    g_pt.feature = XR_NULL_HANDLE;
+    g_pt.running = g_pt.failed = false;
+}
+
+#define PT_LOAD(field, name) g_pt.field = load<std::remove_pointer_t<PFN_##name>>(#name)
+
+// Sets this frame's blend mode; returns the passthrough layer to draw under everything, or null.
+const XrCompositionLayerBaseHeader* passthrough_layer(bool wanted) {
+    static XrCompositionLayerPassthroughFB layer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
+    g_blend = wanted && g_alphaBlend ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if (g_alphaBlend || !g_fbPassthrough || g_pt.failed) return nullptr;
+    if (wanted && !g_pt.layer) {
+        PT_LOAD(create, xrCreatePassthroughFB);
+        PT_LOAD(destroy, xrDestroyPassthroughFB);
+        PT_LOAD(start, xrPassthroughStartFB);
+        PT_LOAD(pause, xrPassthroughPauseFB);
+        PT_LOAD(createLayer, xrCreatePassthroughLayerFB);
+        PT_LOAD(destroyLayer, xrDestroyPassthroughLayerFB);
+        PT_LOAD(resumeLayer, xrPassthroughLayerResumeFB);
+        PT_LOAD(pauseLayer, xrPassthroughLayerPauseFB);
+        XrPassthroughCreateInfoFB ci{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB, nullptr, XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB};
+        bool ok = g_pt.create && g_pt.destroy && g_pt.start && g_pt.pause && g_pt.createLayer && g_pt.destroyLayer &&
+                  g_pt.resumeLayer && g_pt.pauseLayer &&
+                  xr_ok(g_pt.create(g_xr.session, &ci, &g_pt.feature), "xrCreatePassthroughFB");
+        XrPassthroughLayerCreateInfoFB li{XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB, nullptr, g_pt.feature,
+                                          XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB,
+                                          XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB};
+        ok = ok && xr_ok(g_pt.createLayer(g_xr.session, &li, &g_pt.layer), "xrCreatePassthroughLayerFB");
+        if (!ok) {
+            if (g_pt.destroy) destroy_passthrough();
+            g_pt.failed = true;
+            prx_log("passthrough unavailable; the screen stays on black");
+            return nullptr;
+        }
+        g_pt.running = true;
+        prx_log("passthrough on (XR_FB_passthrough)");
+    }
+    if (!g_pt.layer) return nullptr;
+    if (wanted != g_pt.running) {
+        if (wanted) {
+            g_pt.start(g_pt.feature);
+            g_pt.resumeLayer(g_pt.layer);
+        } else {
+            g_pt.pauseLayer(g_pt.layer);
+            g_pt.pause(g_pt.feature);
+        }
+        g_pt.running = wanted;
+    }
+    if (!wanted) return nullptr;
+    layer.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    layer.space = XR_NULL_HANDLE;
+    layer.layerHandle = g_pt.layer;
+    return (const XrCompositionLayerBaseHeader*)&layer;
+}
+
 void end_frame(const XrCompositionLayerBaseHeader* const* layers, uint32_t count) {
-    XrFrameEndInfo ei{XR_TYPE_FRAME_END_INFO, nullptr, g_displayTime, XR_ENVIRONMENT_BLEND_MODE_OPAQUE, count, layers};
+    XrFrameEndInfo ei{XR_TYPE_FRAME_END_INFO, nullptr, g_displayTime, g_blend, count, layers};
     xr_ok(xrEndFrame(g_xr.session, &ei), "xrEndFrame");
     g_frameBegun = false;
     std::lock_guard lock(g_statsMutex);
@@ -356,11 +433,12 @@ void do_submit(int slot) {
     XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
     // The flat panel's middle on its own at the aim point: see PrxFrame::aimPatch.
     XrCompositionLayerQuad patch{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    const XrCompositionLayerBaseHeader* layers[6];
+    const XrCompositionLayerBaseHeader* layers[7];
     const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr, *patchLayer = nullptr;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
     if (g_shouldRender) {
+        if (auto* room = passthrough_layer(f.passthrough != 0)) layers[count++] = room;
         Overlay over[2];
         for (int e = 0; e < 2; ++e) {
             over[e].vignette = f.vignette;
@@ -484,6 +562,9 @@ void do_shutdown() {
         destroy_swapchain(g_window[1]);
     }
     input_shutdown();
+    if (g_pt.destroy) destroy_passthrough();
+    g_alphaBlend = g_fbPassthrough = false;
+    g_blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     if (g_xr.local) xrDestroySpace(g_xr.local);
     if (g_xr.session) xrDestroySession(g_xr.session);
     if (g_xr.instance) xrDestroyInstance(g_xr.instance);
@@ -540,13 +621,18 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
         return strcmp(e.extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME) == 0;
     });
     if (!g_cylinder) prx_log("runtime lacks curved layers; the theater screen is flat");
-    const char* enabled[] = {extension, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME};
+    g_fbPassthrough = std::any_of(exts.begin(), exts.end(), [](auto& e) {
+        return strcmp(e.extensionName, XR_FB_PASSTHROUGH_EXTENSION_NAME) == 0;
+    });
+    std::vector<const char*> enabled{extension};
+    if (g_cylinder) enabled.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
+    if (g_fbPassthrough) enabled.push_back(XR_FB_PASSTHROUGH_EXTENSION_NAME);
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strncpy_s(ici.applicationInfo.applicationName, appName, _TRUNCATE);
     strcpy_s(ici.applicationInfo.engineName, "Parallax");
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-    ici.enabledExtensionCount = g_cylinder ? 2 : 1;
-    ici.enabledExtensionNames = enabled;
+    ici.enabledExtensionCount = (uint32_t)enabled.size();
+    ici.enabledExtensionNames = enabled.data();
     if (!xr_ok(xrCreateInstance(&ici, &g_xr.instance), "xrCreateInstance")) return fail("instance creation failed");
     if (!load_functions()) return fail("runtime is missing core functions");
 
@@ -556,6 +642,13 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
     if (!xr_ok(xrEnumerateViewConfigurationViews(g_xr.instance, g_xr.system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
                                                  2, &count, vc), "view configuration"))
         return fail("no stereo view configuration");
+    uint32_t modes = 0;
+    XrEnvironmentBlendMode blend[8];
+    if (xr_ok(xrEnumerateEnvironmentBlendModes(g_xr.instance, g_xr.system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 8,
+                                               &modes, blend), "blend modes"))
+        g_alphaBlend = std::find(blend, blend + modes, XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) != blend + modes;
+    if (g_alphaBlend || g_fbPassthrough)
+        prx_log("passthrough available (%s)", g_alphaBlend ? "alpha blend" : "XR_FB_passthrough");
     *recommendedWidth = (int32_t)vc[0].recommendedImageRectWidth;
     *recommendedHeight = (int32_t)vc[0].recommendedImageRectHeight;
     if (!input_create_actions()) prx_log("controller actions unavailable");
@@ -568,6 +661,8 @@ PRX_API int32_t prx_state() { return g_xr.state; }
 
 // Whether Auto keying found the UI panel opaque in this scene.
 PRX_API int32_t prx_ui_keyed() { return g_uiKeyed ? 1 : 0; }
+
+PRX_API int32_t prx_passthrough() { return g_alphaBlend || g_fbPassthrough ? 1 : 0; }
 
 PRX_API void* prx_render_event_func() { return (void*)&on_render_event; }
 

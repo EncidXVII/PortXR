@@ -96,7 +96,9 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - The Theater and Parallax screen is locked while you play. To move it, open the VR menu and set **Screen** to **Unlocked** in Quick; it locks again when you close the menu. Unlocked, it has handles: faint corner brackets and a bar under the middle, lime under the laser. Drag the bar with the trigger to put the screen anywhere around you (up over a bed, off to one side), drag a corner to resize it; while dragging, the right stick pushes it away or pulls it in (up, down) and sizes it (right, left). **RESET** beside the bar brings back 3 m ahead. Each game keeps its screen. A screen raised or lowered past about 12° shows flat, since the curve wraps around you at eye level.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
-- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them.
+- The VR menu's Library tab quits the game, or starts another game with VR added without taking the headset off.
+- Theater and Parallax can show your room around the screen instead of black (**Around the screen: Your room**), on headset software that shares its passthrough with apps; SteamVR does not.
+- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them. Multiplayer-only games without anti-cheat, games with their own VR mode and trimmed games have **Add VR anyway**, after a caution.
 - See [COMPAT.md](COMPAT.md).
 
 ## FAQ

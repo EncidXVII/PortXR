@@ -13,8 +13,8 @@ namespace Parallax
     // hovers ease, presses answer on trigger-down.
     internal class Menu
     {
-        static readonly string[] Tabs = { "Quick", "View", "Controls", "Game", "Diagnostics" };
-        const int QuickTab = 0, ViewTab = 1, ControlsTab = 2, GameTab = 3;
+        static readonly string[] Tabs = { "Quick", "View", "Controls", "Game", "Library", "Diagnostics" };
+        const int QuickTab = 0, ViewTab = 1, ControlsTab = 2, GameTab = 3, LibraryTab = 4;
         const float RefHeight = 1080f, Width = 1100f, Height = 800f, Row = 64f, Pad = 48f;
         const int ThumbW = 304, ThumbH = 171, History = 120;
         static readonly Color Bg = Rgb(0x0B0B0C), Surface = Rgb(0x1D1D20), Line = Rgb(0x2A2A2E);
@@ -89,12 +89,14 @@ namespace Parallax
         {
             Open = !Open;
             picking = -1;
+            confirming = NoConfirm;
             press = false;
             if (Open)
             {
                 savedLock = Cursor.lockState;
                 savedVisible = Cursor.visible;
                 openedAt = Time.unscaledTime;
+                if (tab == LibraryTab) LoadLibrary();
             }
             else
             {
@@ -261,6 +263,7 @@ namespace Parallax
             else if (tab == ViewTab) DrawView();
             else if (tab == ControlsTab) DrawControls();
             else if (tab == GameTab) DrawGame();
+            else if (tab == LibraryTab) DrawLibrary();
             else DrawDiagnostics(rig.GetStats());
         }
 
@@ -318,6 +321,8 @@ namespace Parallax
             tab = i;
             picking = -1;
             camPage = 0;
+            confirming = NoConfirm;
+            if (i == LibraryTab) LoadLibrary();
         }
 
         // The player's settings for all games, kept by Parallax.exe in the same "[Section]" / "Key = Value" format;
@@ -345,7 +350,7 @@ namespace Parallax
         void ResetTab()
         {
             ConfigEntryBase[] entries;
-            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim, Settings.AimWith };
+            if (tab == QuickTab) entries = new ConfigEntryBase[] { Settings.Display, Settings.Depth, Settings.Background, Settings.ScreenYaw, Settings.ScreenPitch, Settings.ScreenDistance, Settings.ScreenWidth, Settings.WorldScale, Settings.Turning, Settings.Vignette, Settings.Input, Settings.HeadAim, Settings.AimWith };
             else if (tab == ViewTab)
                 entries = new ConfigEntryBase[] { Settings.Height, Settings.RenderScale, Settings.AutoRenderScale, Settings.UiDistance, Settings.UiWidth, Settings.Pointer, Settings.WristMenu, Settings.UiBlack };
             else if (tab == ControlsTab) entries = Bindings.Entries.SelectMany(g => g).Where(e => e != null).ToArray();
@@ -378,6 +383,10 @@ namespace Parallax
                     : "Locked while you play. Unlock it to move or resize the screen.", muted, 0, 40);
                 ui.EndRow();
                 ui.Gap(12);
+                // Only where the headset software shares its passthrough (alpha blend or XR_FB_passthrough).
+                if (Native.prx_passthrough() != 0)
+                    Options("Around the screen", Settings.Background, new[] { ScreenBackground.Dark, ScreenBackground.Passthrough },
+                        new[] { "Dark", "Your room" }, null);
             }
 
             ui.BeginRow();
@@ -589,6 +598,117 @@ namespace Parallax
         {
             Settings.CameraName.Value = name;
             rig.ReleaseCamera();
+        }
+
+        // Library: quit this game, or start another game with VR added. Both ask twice, since the game's unsaved
+        // progress goes. The list is the one Parallax.exe keeps (games.rs write_vr_list); starting goes through
+        // Parallax.exe, which waits for this game to quit, updates the plugin and launches the next one as Play does.
+        const int NoConfirm = -2, QuitConfirm = -1, LibraryRows = 5;
+        int confirming = NoConfirm, libPage;
+        string appPath;
+        readonly List<KeyValuePair<string, string>> others = new List<KeyValuePair<string, string>>();
+        readonly Optional library = new Optional("Library");
+
+        void LoadLibrary()
+        {
+            appPath = null;
+            others.Clear();
+            libPage = 0;
+            library.Run(() =>
+            {
+                string file = System.IO.Path.Combine(System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "Parallax"), "vr-games.txt");
+                if (!System.IO.File.Exists(file)) return;
+                string here = Folder(System.IO.Path.GetDirectoryName(Application.dataPath));
+                foreach (var line in System.IO.File.ReadAllLines(file))
+                {
+                    int t = line.IndexOf('\t');
+                    if (t <= 0) continue;
+                    string a = line.Substring(0, t), b = line.Substring(t + 1);
+                    if (a == "app") appPath = b.EndsWith(".exe", System.StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(b) ? b : null;
+                    else if (Folder(b) != here) others.Add(new KeyValuePair<string, string>(a, b));
+                }
+            });
+        }
+
+        static string Folder(string path) => System.IO.Path.GetFullPath(path).TrimEnd('\\', '/').ToLowerInvariant();
+
+        void DrawLibrary()
+        {
+            ui.BeginRow();
+            Label(Application.productName, label, 600);
+            ui.Flex();
+            if (confirming == QuitConfirm ? Confirm("Confirm: quit", 300) : Button("Quit game", false, 300))
+            {
+                if (confirming == QuitConfirm) Leave(null);
+                else confirming = QuitConfirm;
+            }
+            ui.EndRow();
+            ui.Gap(8);
+            Label(confirming == QuitConfirm ? "Press again to quit. Progress the game has not saved is lost." : "Closes the game. Unsaved progress is lost.", muted, 0);
+            ui.Gap(32);
+            if (appPath == null)
+            {
+                Label("Start Parallax.exe once on this PC to switch games from here.", muted, 0);
+                return;
+            }
+            if (others.Count == 0)
+            {
+                Label("No other game has VR added yet. Add VR to one in Parallax.exe.", muted, 0);
+                return;
+            }
+            int pages = (others.Count + LibraryRows - 1) / LibraryRows;
+            libPage %= pages;
+            ui.BeginRow();
+            Label("Other games with VR", muted, 0);
+            ui.Flex();
+            if (pages > 1 && Button($"More games {libPage + 1}/{pages}", false, 320))
+            {
+                libPage = (libPage + 1) % pages;
+                confirming = NoConfirm;
+            }
+            ui.EndRow();
+            ui.Gap(8);
+            for (int i = libPage * LibraryRows; i < Mathf.Min((libPage + 1) * LibraryRows, others.Count); i++)
+            {
+                ui.BeginRow();
+                Label(others[i].Key, label, 600);
+                ui.Flex();
+                if (confirming == i ? Confirm("Quit and start", 300) : Button("Start", false, 300))
+                {
+                    if (confirming == i) Leave(others[i].Value);
+                    else confirming = i;
+                }
+                ui.EndRow();
+                ui.Gap(8);
+            }
+        }
+
+        // The confirming press of a two-step action: a danger fill, so it never reads as a choice that is on.
+        bool Confirm(string text, float width)
+        {
+            var r = ui.Take(width, Row);
+            return Cell(r, text.ToUpperInvariant(), cellOn, Danger, true);
+        }
+
+        // Quits the game; with `next`, Parallax.exe starts that game folder once this process has ended.
+        void Leave(string next)
+        {
+            confirming = NoConfirm;
+            if (next != null)
+            {
+                bool started = false;
+                library.Run(() =>
+                {
+                    int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+                    var psi = new System.Diagnostics.ProcessStartInfo(appPath, $"play \"{next.TrimEnd('\\', '/')}\" {pid}") { UseShellExecute = false, CreateNoWindow = true };
+                    System.Diagnostics.Process.Start(psi);
+                    started = true;
+                });
+                if (!started) return;
+                Plugin.Log.LogInfo($"Switching to {next} from the VR menu");
+            }
+            else Plugin.Log.LogInfo("Quit from the VR menu");
+            Application.Quit();
         }
 
         void DrawDiagnostics(Stats s)

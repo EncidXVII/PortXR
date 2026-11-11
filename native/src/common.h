@@ -60,6 +60,8 @@ struct PrxFrame {
     float aimSize[2];
     // Theme accent (sRGB 0..1) for the beam, the aim reticle and the lit watch.
     float accent[3];
+    // Theater and Parallax: the room around the screen instead of black, where the runtime shares its passthrough.
+    int32_t passthrough;
 };
 
 enum PrxButton : uint32_t {
@@ -144,7 +146,8 @@ extern XrGlobals g_xr;
     X(xrWaitSwapchainImage) X(xrReleaseSwapchainImage) X(xrStringToPath) X(xrCreateActionSet) \
     X(xrCreateAction) X(xrSuggestInteractionProfileBindings) X(xrAttachSessionActionSets) \
     X(xrSyncActions) X(xrGetActionStateBoolean) X(xrGetActionStateFloat) X(xrGetActionStateVector2f) \
-    X(xrCreateActionSpace) X(xrApplyHapticFeedback) X(xrStopHapticFeedback) X(xrResultToString)
+    X(xrCreateActionSpace) X(xrApplyHapticFeedback) X(xrStopHapticFeedback) X(xrResultToString) \
+    X(xrEnumerateEnvironmentBlendModes)
 
 #define XR_DECLARE(name) extern PFN_##name name;
 XR_FUNCS(XR_DECLARE)

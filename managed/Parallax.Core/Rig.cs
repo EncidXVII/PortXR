@@ -731,6 +731,7 @@ namespace Parallax
             f.watchAlpha = watchFade;
             var accent = Menu.Lime;
             f.accentR = accent.r; f.accentG = accent.g; f.accentB = accent.b;
+            f.passthrough = Settings.Display.Value != DisplayMode.Stereo && Settings.Background.Value == ScreenBackground.Passthrough ? 1 : 0;
             f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
             f.watchRadius = WatchRadius;
             f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;

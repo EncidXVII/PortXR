@@ -32,6 +32,7 @@ const fn slider(lo: f32, hi: f32, step: f32, unit: &'static str) -> Kind {
 // Names, ranges, steps and order match the VR menu, so a setting reads the same in both places.
 pub const QUICK: &[Def] = &[
     def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Stereo"), ("Parallax", "Parallax"), ("Theater", "Theater")]), "Stereo: you stand in the game. Parallax: the game in 3D inside a big screen, played as on a monitor. Theater: the flat game on a big screen."),
+    def("View", "Background", "Around the screen", "Dark", Kind::Choice(&[("Dark", "Dark"), ("Passthrough", "Your room")]), "Theater and Parallax. Your room: passthrough, where the headset software shares it with apps (Meta, Virtual Desktop and others; not SteamVR). Elsewhere it stays dark."),
     def("View", "Depth", "3D depth", "1", slider(0.0, 1.0, 0.25, "×"), "Parallax only: how strong the 3D is inside the screen. 1× is the most that stays comfortable."),
     def("View", "WorldScale", "World scale", "1", slider(0.5, 3.0, 0.1, "×"), "Above 1 you feel bigger and the world smaller."),
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),

@@ -23,6 +23,21 @@
 - The wrist watch fades in as you look at it, like DesktopVR's clock, and is out of sight otherwise; glanced at, its
   rim and glyph turn lime as before. It shows at a wide glance and holds once shown, so it never flickers at the
   edge. A grey rim and round-ended bars replace the white rim.
+- **Library** tab in the VR menu: **Quit game**, or **Start** another game with VR added (Parallax.exe waits for this
+  game to close, updates the plugin and launches the next one). Both ask twice, since unsaved progress is lost.
+- **Around the screen: Your room** (Quick tab, Theater and Parallax): passthrough around the screen instead of black, where the
+  headset software shares it with apps (alpha-blend passthrough or Meta's passthrough extension); the row only shows
+  there. SteamVR has neither.
+
+### App
+- **Add VR anyway** for games Parallax would leave alone but could run in: multiplayer-only games without
+  anti-cheat, games with their own VR mode, and Mono games built with code trimming. The page says what to expect
+  first and asks again. Anti-cheat, 32-bit and Linux-build games stay refused.
+- Settings: **Around the screen** (Dark or Your room) for Theater and Parallax.
+
+### Tests
+- Test sessions turn off SteamVR's startup overlay apps and leftover desktop windows (no "already running" dialogs,
+  no Settings window over the test headset); the player's settings come back after.
 
 ## 0.2.0 (first public release)
 

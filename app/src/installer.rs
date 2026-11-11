@@ -18,6 +18,9 @@ struct Receipt {
     loader_preexisting: bool,
     created_dirs: Vec<String>,
     files: Vec<ReceiptFile>,
+    /// Added anyway, after the app's caution (Game::caution): updates keep it instead of refusing the game.
+    #[serde(default)]
+    forced: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,11 +57,23 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
 // Uninstall must leave the game folder byte-identical: every overwritten file is backed up, and a loader folder we
 // created is removed whole because the loader writes logs, caches and configs into it at runtime.
 pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let game = checked(game_dir)?;
-    if game.native_vr {
+    install_with(game_dir, false)
+}
+
+/// For a game the app cautions about (Game::caution): the player read why and chose to try.
+pub fn install_anyway(game_dir: &Path) -> Result<(), Box<dyn Error>> {
+    install_with(game_dir, true)
+}
+
+fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
+    let game = checked(game_dir, force)?;
+    if force && game.caution().is_none() {
+        return Err("Parallax can't run in this game, so it can't be added anyway.".into());
+    }
+    if game.native_vr && !force {
         return Err("Already runs in VR on its own: start it in VR from Steam or its launcher. Parallax stays out of anything that already supports VR.".into());
     }
-    if game.stripped {
+    if game.stripped && !force {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
     }
     if game.x86 {
@@ -100,7 +115,7 @@ pub fn install(game_dir: &Path) -> Result<(), Box<dyn Error>> {
         let sha256 = Sha256::digest(fs::read(games::native(&payload, rel))?).iter().map(|b| format!("{b:02x}")).collect();
         files.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
     }
-    let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting, created_dirs, files };
+    let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting, created_dirs, files, forced: force };
     write_durable(&receipt_path(game_dir), &serde_json::to_vec(&receipt)?)?;
     for rel in &sources {
         let target = games::native(game_dir, rel);
@@ -124,12 +139,17 @@ fn write_durable(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// Brings an installed game's plugin files up to this build, in place: the loader, its caches (IL2CPP interop takes
 /// minutes to regenerate) and the settings stay. Returns whether anything changed.
 pub fn update(game_dir: &Path) -> Result<bool, Box<dyn Error>> {
-    update_checked(&checked(game_dir)?)
+    update_checked(&checked(game_dir, forced(game_dir))?)
+}
+
+/// VR was added to this game anyway (install_anyway).
+pub fn forced(game_dir: &Path) -> bool {
+    fs::read(receipt_path(game_dir)).ok().and_then(|b| serde_json::from_slice::<Receipt>(&b).ok()).is_some_and(|r| r.forced)
 }
 
 /// `update` for a game the caller has just checked (the library scan checks every game).
 pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
-    if game.blocker.is_some() {
+    if game.blocker.is_some() && !(game.caution().is_some() && forced(&game.dir)) {
         uninstall(&game.dir)?;
         return Err("blocked".into());
     }
@@ -164,9 +184,13 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
 
 /// The game, unless it has anti-cheat or is online-only: then Parallax is taken out of it (a game update may have
 /// added anti-cheat since the install) and it is refused. Install, every update and every Play pass through here.
-fn checked(game_dir: &Path) -> Result<games::Game, Box<dyn Error>> {
+// Anti-cheat is refused whatever the player chose; a multiplayer-only game only when it was not added anyway.
+fn checked(game_dir: &Path, force: bool) -> Result<games::Game, Box<dyn Error>> {
     let game = games::inspect(game_dir).ok_or("No Unity game found in this folder.")?;
     let Some(b) = game.blocker else { return Ok(game) };
+    if force && game.caution().is_some() {
+        return Ok(game);
+    }
     let removed = receipt_path(game_dir).exists() && uninstall(game_dir).is_ok();
     let why = if b == "Multiplayer only" { "No single-player mode: online play risks a ban".to_string() } else { format!("{b} found: injecting risks a ban") };
     Err(format!("{why}, so this game is refused{}.", if removed { " and Parallax was removed from it" } else { "" }).into())

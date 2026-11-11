@@ -77,6 +77,24 @@ impl Game {
         }
     }
 
+    /// Why a game Parallax would normally leave alone can still get VR if the player insists, and what to expect;
+    /// None for games that are fine, and for those it must never touch (anti-cheat, 32-bit, the Linux build).
+    pub fn caution(&self) -> Option<&'static str> {
+        match self.compat() {
+            Compat::Blocked if self.blocker == Some("Multiplayer only") => Some(
+                "No single-player mode was found. Play only offline or in private modes: online play with mods can get accounts banned.",
+            ),
+            Compat::NativeVr => Some("This game has its own VR mode, which is usually better. If you try Parallax, start the game flat (not in VR mode) or the two may clash."),
+            Compat::Stripped => Some("Built with Unity's code trimming: the mod loader most likely cannot start, and the game then runs flat. Remove VR puts the folder back."),
+            _ => None,
+        }
+    }
+
+    /// Parallax runs in it: supported, or VR added anyway after the caution.
+    pub fn usable(&self) -> bool {
+        self.compat() == Compat::Supported || (self.caution().is_some() && self.installed())
+    }
+
     pub fn backend(&self) -> &'static str {
         if self.il2cpp { "IL2CPP" } else { "Mono" }
     }
@@ -502,6 +520,23 @@ fn played_list() -> PathBuf {
 /// When VR last started in this game: the plugin notes its first frame sent to the headset beside itself.
 pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
     fs::metadata(g.file(r"BepInEx\plugins\Parallax\played.txt")).and_then(|m| m.modified()).ok()
+}
+
+/// The games with VR added, for the VR menu's Library tab: the app's path on the first line ("app<TAB><exe>"), then
+/// one "name<TAB>folder" line per game, most recently played first. Written on every scan and change; a running game reads it when the tab opens.
+pub fn write_vr_list(games: &[Game]) {
+    let mut text = format!("app\t{}\n", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
+    let mut vr: Vec<&Game> = games.iter().filter(|g| g.installed() && g.usable()).collect();
+    vr.sort_by(|a, b| b.last_played.cmp(&a.last_played).then_with(|| a.name.cmp(&b.name)));
+    for g in vr {
+        text += &format!("{}\t{}\n", g.name.replace('\t', " "), g.dir.display());
+    }
+    let path = dirs::config_dir().unwrap_or_default().join("Parallax").join("vr-games.txt");
+    if fs::read_to_string(&path).is_ok_and(|old| old == text) {
+        return;
+    }
+    let _ = fs::create_dir_all(path.parent().unwrap());
+    let _ = fs::write(path, text);
 }
 
 pub fn mark_played(dir: &Path) {

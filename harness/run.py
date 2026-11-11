@@ -670,6 +670,7 @@ def gate_beam(g):
         else:
             with open(theme, "w", encoding="utf-8") as fh:
                 fh.write(kept)
+        time.sleep(3.5)  # later gates (the lit watch) see the player's theme again, not Sky
     check("15 laser beam", lime(on) > lime(before) + 1000,
           f"lime pixels {lime(before)} -> {lime(on)}, pointer {hovering}")
     blue = int(mask(sky, (92, 200, 255), 45).sum())

@@ -8,6 +8,7 @@ using UnityEngine.Rendering;
 namespace Parallax
 {
     public enum DisplayMode { Stereo, Parallax, Theater }
+    public enum ScreenBackground { Dark, Passthrough }
 
     public enum InputMode { Gamepad, KeyboardMouse, Off, Auto }
     public enum PointerMode { Auto, MenuOnly }
@@ -52,6 +53,7 @@ namespace Parallax
         public static ConfigEntry<CrosshairMode> Crosshair;
         public static ConfigEntry<bool> WeaponInHand;
         public static ConfigEntry<UiBackground> UiBlack;
+        public static ConfigEntry<ScreenBackground> Background;
         public static ConfigEntry<string> CameraName, Hidden;
         public static ConfigEntry<int> MenuKey;
 
@@ -74,6 +76,8 @@ namespace Parallax
             ScreenPitch = cfg.Bind("View", "ScreenPitch", 0f, "Theater and Parallax screen: degrees above eye level.");
             ScreenDistance = cfg.Bind("View", "ScreenDistance", 3f, "Theater and Parallax screen: distance in metres.");
             ScreenWidth = cfg.Bind("View", "ScreenWidth", 3.2f, "Theater and Parallax screen: width in metres.");
+            Background = cfg.Bind("View", "Background", ScreenBackground.Dark,
+                "Theater and Parallax: around the screen. Passthrough: your room, on headset software that shares its passthrough with apps (not SteamVR).");
             UiDistance = cfg.Bind("View", "UiDistance", 1.2f, "Distance of the game UI panel in metres.");
             UiWidth = cfg.Bind("View", "UiWidth", 1.6f, "Width of the game UI panel in metres.");
             UiBlack = cfg.Bind("View", "UiBlack", UiBackground.Auto,
