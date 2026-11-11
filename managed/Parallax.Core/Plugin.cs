@@ -96,7 +96,7 @@ namespace Parallax
                 "With hand aim, move the weapon the game hangs under its camera (arms and gun) into the right hand while the eyes render.");
             Crosshair = cfg.Bind("Controls", "Crosshair", CrosshairMode.Game,
                 "While aiming, the game's crosshair sits on the flat UI panel and misses. Game: the middle of the UI (crosshair, grab and use " +
-                "icons, prompts, hit markers) moves to what the camera aims at, at its depth. Lime: a lime crosshair there instead. Off: as the game draws it.");
+                "icons, prompts, hit markers) moves to what the camera aims at, at its depth. Lime: Parallax's own crosshair there instead, in the theme colour. Off: as the game draws it.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
             FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");

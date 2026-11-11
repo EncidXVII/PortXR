@@ -58,6 +58,8 @@ struct PrxFrame {
     int32_t aimPatchShown;
     PrxPose aimPose;
     float aimSize[2];
+    // Theme accent (sRGB 0..1) for the beam, the aim reticle and the lit watch.
+    float accent[3];
 };
 
 enum PrxButton : uint32_t {

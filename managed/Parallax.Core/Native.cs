@@ -45,6 +45,7 @@ namespace Parallax
         public int patchShown;
         public Pose aimPose;
         public float aimW, aimH;
+        public float accentR, accentG, accentB;
     }
 
     [Flags]

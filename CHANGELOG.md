@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Look and motion
+- Themes: Lime, Mint, Aqua, Sky, Violet, Pink, Amber or White as the accent, the same eight as DesktopVR and
+  FitnessVR. Pick it in the app (Settings > Look) or the VR menu (View > Theme); one choice for every game and the
+  app, and a running game picks up a change from the app within seconds. The laser beam, aim crosshair and lit
+  watch follow it too. The crosshair choice "Lime" now reads "Parallax's" (same setting).
 - In line with DesktopVR: neutral graphite greys, filled cells with soft corners instead of outlines, a chosen
   option filled ink (lime stays for the active tab, the main action and the library's status filter). Same screens,
   same controls.

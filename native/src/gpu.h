@@ -20,6 +20,8 @@ struct Overlay {
     float hole[4] = {};
     // UV rect of the source, as displayed, drawn over the whole target; all zero draws the whole source.
     float crop[4] = {};
+    // Theme accent (sRGB) for the beam, reticle and lit watch.
+    float accent[3] = {0.776f, 1.f, 0.102f};
     // Copy the drawn image for an opacity measurement, read back without stalling on a later draw.
     bool probe = false;
 };
@@ -70,7 +72,7 @@ struct BlitParams {
     float keep[4];
     float aim[4];
     float hole[4];
-    float watchLook[4];  // x: the watch's opacity
+    float watchLook[4];  // x: the watch's opacity; yzw: the theme accent (sRGB)
 };
 void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 // Format to sample `f` with; `linear` reports whether sampled values are linear light (sRGB views decode in hardware,

@@ -21,8 +21,11 @@ namespace Parallax
         // Cells: Surface at rest, HoverFill under the laser, PressFill while the trigger is held on them.
         static readonly Color HoverFill = Rgb(0x2A2A2E), PressFill = Rgb(0x36363B);
         static readonly Color Ink = Rgb(0xF5F5F7), Ink2 = Rgb(0xA8A8AF), Ink3 = Rgb(0x88888F);
-        internal static readonly Color Lime = Rgb(0xC6FF1A), OnLime = Rgb(0x0B0B0C);
-        static readonly Color LimePressed = Rgb(0xA9DB12), Danger = Rgb(0xFF5A3C), DangerInk = Rgb(0xFF8A6E);
+        // The accent follows the theme (Theme.cs); dark text on it works for all eight.
+        internal static Color Lime => Theme.Accent;
+        internal static readonly Color OnLime = Rgb(0x0B0B0C);
+        static Color LimePressed => Theme.Pressed;
+        static readonly Color Danger = Rgb(0xFF5A3C), DangerInk = Rgb(0xFF8A6E);
         // Corner radii (px at the 1080 reference height): the panel, cells, a segment's inner cell.
         const float PanelRadius = 24, CellRadius = 14, InnerRadius = 12;
 
@@ -419,6 +422,37 @@ namespace Parallax
             Toggle("Wrist glance menu", Settings.WristMenu);
             Options("UI black", Settings.UiBlack, new[] { UiBackground.Auto, UiBackground.SeeThrough, UiBackground.Keep },
                 new[] { "Auto", "See-through", "Keep" }, null);
+            ThemeRow();
+        }
+
+        // Accent colour for every game and the app: one dot per theme, the chosen one ringed and named.
+        void ThemeRow()
+        {
+            ui.BeginRow();
+            int current = Theme.Index;
+            Label("Theme", label, 200);
+            Label(Theme.Names[current], muted, 160);
+            for (int i = 0; i < Theme.Names.Length; i++)
+            {
+                var r = ui.Take(Row + 6, Row);
+                var cellRect = new Rect(r.x + 7, r.y + 4, Row - 8, Row - 8);
+                var dot = new Rect(cellRect.x + 9, cellRect.y + 9, cellRect.width - 18, cellRect.height - 18);
+                if (Repainting)
+                {
+                    bool over = cellRect.Contains(Mouse);
+                    if (i == current) Ring(cellRect, Ink, cellRect.width / 2);
+                    else if (Eased(cellRect, over) > 0.01f) Ring(cellRect, Ink3, cellRect.width / 2);
+                    Round(dot, Theme.Of(i), dot.width / 2);
+                    Hover(cellRect);
+                }
+                if (Clicked(cellRect) && i != current)
+                {
+                    Theme.Set(i);
+                    Native.prx_haptic_pulse(1, 0.35f, 0.02f);
+                }
+            }
+            ui.EndRow();
+            ui.Gap(12);
         }
 
         void DrawControls()
@@ -547,7 +581,7 @@ namespace Parallax
             // How this game's weapon and crosshair come along when you aim: they depend on how the game draws them.
             if (Settings.HeadAim.Value == AimMode.Off) return;
             ui.Gap(24);
-            Options("Crosshair", Settings.Crosshair, new[] { CrosshairMode.Game, CrosshairMode.Lime, CrosshairMode.Off }, new[] { "Game's", "Lime", "Off" }, CrosshairMode.Off);
+            Options("Crosshair", Settings.Crosshair, new[] { CrosshairMode.Game, CrosshairMode.Lime, CrosshairMode.Off }, new[] { "Game's", "Parallax's", "Off" }, CrosshairMode.Off);
             if (Settings.AimWith.Value == AimHand.Hand) Toggle("Weapon in hand", Settings.WeaponInHand);
         }
 
@@ -931,7 +965,12 @@ namespace Parallax
 
         void EnsureStyles()
         {
-            if (cell != null) return;
+            if (cell != null)
+            {
+                // Styles keep their colour; the accent one follows a theme change.
+                eyebrowWord.normal.textColor = eyebrowWord.hover.textColor = eyebrowWord.active.textColor = Lime;
+                return;
+            }
             Font displayFont = null, monoFont = null, bodyFont = null;
             // OS fonts: the app's Barlow where installed, else what every Windows has (Segoe UI, Cascadia
             // Mono or Consolas); Anton, else Impact (heavy condensed, like it) for headlines. The IMGUI default otherwise.

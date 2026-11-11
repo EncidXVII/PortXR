@@ -52,7 +52,7 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "Pointer", "Laser pointer", "Auto", Kind::Choice(&[("Auto", "With game cursor"), ("MenuOnly", "Menu only")]), ""),
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
     def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
-    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Lime"), ("Off", "Off")]), "While aiming, the middle of the game's UI (crosshair, grab and use icons, prompts) moves to what you aim at, at its depth. Lime: a lime crosshair there instead."),
+    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "While aiming, the middle of the game's UI (crosshair, grab and use icons, prompts) moves to what you aim at, at its depth. Parallax's: its own crosshair there instead, in the theme colour."),
     def("Game", "CameraName", "Game camera", "", Kind::Text, "The camera your view follows. Pick one in the VR menu's Game tab, which shows each with a live preview."),
 ];
 

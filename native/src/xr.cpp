@@ -364,6 +364,9 @@ void do_submit(int slot) {
         Overlay over[2];
         for (int e = 0; e < 2; ++e) {
             over[e].vignette = f.vignette;
+            // A frame from an older managed side leaves it zero: keep lime.
+            if (f.accent[0] + f.accent[1] + f.accent[2] > 0)
+                for (int i = 0; i < 3; ++i) over[e].accent[i] = f.accent[i];
             // About 4 mm wide at arm's length on a typical 100 degree view.
             if (f.beam && beam_uv(f, e, over[e].beam)) over[e].beamWidth = 0.004f;
             if (f.watch) {

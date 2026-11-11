@@ -642,19 +642,38 @@ def gate_beam(g):
     image (and only then)."""
     def lime(img):
         return int(mask(img, (198, 255, 26), 45).sum())
+    # The theme is one file for every game and the app; the run puts back whatever the player had.
+    theme = os.path.join(os.environ["APPDATA"], "Parallax", "theme.txt")
+    kept = open(theme, encoding="utf-8").read() if os.path.exists(theme) else None
     g.cmd("menu 1")
     try:
+        if kept is not None:
+            os.remove(theme)
+            time.sleep(3.5)  # the plugin reads the file every 3 s
         time.sleep(0.3)
         (before,) = g.capture("beam-off", ["left.bmp"])
         g.cmd("aim 0.25 -0.35 0.1")
         time.sleep(0.3)
         (on,) = g.capture("beam-on", ["left.bmp"])
         hovering = g.stats().get("pointer")
+        # Another theme recolours the beam: the accent reaches the shader.
+        with open(theme, "w", encoding="utf-8") as fh:
+            fh.write("Sky")
+        time.sleep(3.5)
+        (sky,) = g.capture("beam-sky", ["left.bmp"])
     finally:
         g.cmd("aim off")
         g.cmd("menu 0")
+        if kept is None:
+            if os.path.exists(theme):
+                os.remove(theme)
+        else:
+            with open(theme, "w", encoding="utf-8") as fh:
+                fh.write(kept)
     check("15 laser beam", lime(on) > lime(before) + 1000,
           f"lime pixels {lime(before)} -> {lime(on)}, pointer {hovering}")
+    blue = int(mask(sky, (92, 200, 255), 45).sum())
+    check("15b theme colour", blue > 1000 and lime(sky) < lime(on) // 4, f"sky pixels {blue}, lime {lime(sky)}")
 
 
 def gate_wrist(g):

@@ -21,8 +21,49 @@ const PLACEHOLDER: Color32 = Color32::from_rgb(56, 56, 61);
 const INK: Color32 = Color32::from_rgb(245, 245, 247);
 const INK2: Color32 = Color32::from_rgb(168, 168, 175);
 const INK3: Color32 = Color32::from_rgb(136, 136, 143);
-const LIME: Color32 = Color32::from_rgb(198, 255, 26);
-const LIME_PRESSED: Color32 = Color32::from_rgb(169, 219, 18);
+// The accent follows the theme (Parallax/theme.txt in %APPDATA%, shared with the VR menu); dark text on it works for all.
+const THEMES: [(&str, u32); 8] = [
+    ("Lime", 0xC6FF1A),
+    ("Mint", 0x5CF2A0),
+    ("Aqua", 0x3DF2E0),
+    ("Sky", 0x5CC8FF),
+    ("Violet", 0xB49AFF),
+    ("Pink", 0xFF7ADB),
+    ("Amber", 0xFFB627),
+    ("White", 0xF5F5F7),
+];
+static THEME: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn rgb(v: u32) -> Color32 {
+    Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+fn lime() -> Color32 {
+    rgb(THEMES[THEME.load(std::sync::atomic::Ordering::Relaxed)].1)
+}
+
+// Pressed fill: the accent a step darker.
+fn lime_pressed() -> Color32 {
+    let c = lime();
+    let d = |v: u8| (f32::from(v) * 0.86) as u8;
+    Color32::from_rgb(d(c.r()), d(c.g()), d(c.b()))
+}
+
+fn theme_path() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("theme.txt")
+}
+
+fn load_theme() {
+    let name = fs::read_to_string(theme_path()).unwrap_or_default();
+    let i = THEMES.iter().position(|(n, _)| n.eq_ignore_ascii_case(name.trim())).unwrap_or(0);
+    THEME.store(i, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn set_theme(ctx: &egui::Context, i: usize) -> std::io::Result<()> {
+    THEME.store(i.min(THEMES.len() - 1), std::sync::atomic::Ordering::Relaxed);
+    style(ctx);
+    write(&theme_path(), THEMES[i].0.as_bytes())
+}
 const ON_LIME: Color32 = Color32::from_rgb(11, 11, 12);
 const DANGER: Color32 = Color32::from_rgb(255, 90, 60);
 const DANGER_BG: Color32 = Color32::from_rgb(43, 23, 18);
@@ -165,6 +206,7 @@ fn owned_filter(o: &games::Owned) -> Filter {
 impl App {
     fn new(cc: &eframe::CreationContext, open: Option<PathBuf>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        load_theme();
         style(&cc.egui_ctx);
         let update = Arc::new(Mutex::new(None));
         let (slot, ctx) = (update.clone(), cc.egui_ctx.clone());
@@ -611,6 +653,15 @@ impl App {
         self.settings(ui, settings::QUICK, false);
         self.advanced_section(ui, false);
         self.buttons_section(ui, false);
+        section_break(ui);
+        eyebrow(ui, "04", "Look");
+        ui.label(RichText::new("The accent colour, here and in the VR menu of every game.").color(INK2));
+        ui.add_space(16.0);
+        if let Some(i) = theme_picker(ui)
+            && let Err(e) = set_theme(ui.ctx(), i)
+        {
+            self.report(Err(e.into()));
+        }
         // Who made this and where to go when something is wrong.
         section_break(ui);
         ui.horizontal(|ui| {
@@ -983,7 +1034,7 @@ impl eframe::App for App {
                         self.add_game();
                     }
                     if let Some(r) = self.update.lock().unwrap().clone() {
-                        let text = RichText::new(format!("UPDATE {} ↗", r.tag_name.trim_start_matches('v'))).font(mono(LABEL)).color(LIME);
+                        let text = RichText::new(format!("UPDATE {} ↗", r.tag_name.trim_start_matches('v'))).font(mono(LABEL)).color(lime());
                         ui.hyperlink_to(text, r.html_url);
                     }
                 });
@@ -1071,7 +1122,7 @@ impl App {
 fn tone_color(tone: Tone) -> Color32 {
     match tone {
         Tone::Info => INK2,
-        Tone::Good => LIME,
+        Tone::Good => lime(),
         Tone::Bad => DANGER,
     }
 }
@@ -1079,7 +1130,7 @@ fn tone_color(tone: Tone) -> Color32 {
 // Keyboard focus is always visible: a lime ring just outside the control.
 fn focus_ring(ui: &Ui, r: &egui::Response) {
     if r.has_focus() {
-        ui.painter().rect_stroke(r.rect.expand(3.0), RADIUS, Stroke::new(2.0, LIME), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(r.rect.expand(3.0), RADIUS, Stroke::new(2.0, lime()), egui::StrokeKind::Outside);
     }
 }
 
@@ -1091,7 +1142,7 @@ fn label_format(color: Color32) -> egui::TextFormat {
 fn eyebrow_text(number: &str, word: &str) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     job.append(&format!("{number} // "), 0.0, label_format(INK3));
-    job.append(&word.to_uppercase(), 0.0, label_format(LIME));
+    job.append(&word.to_uppercase(), 0.0, label_format(lime()));
     job
 }
 
@@ -1157,7 +1208,7 @@ fn primary(ui: &mut Ui, text: &str) -> egui::Response {
     // Pressed answers at once; release eases back.
     let down = r.is_pointer_button_down_on();
     let t = ease(ui, r.id.with("press"), down, if down { 0.0 } else { FAST });
-    let fill = if enabled { mix(LIME, LIME_PRESSED, t) } else { RAISED };
+    let fill = if enabled { mix(lime(), lime_pressed(), t) } else { RAISED };
     ui.painter().rect_filled(r.rect, RADIUS, fill);
     paint_label(ui.painter(), r.rect, text, ink);
     focus_ring(ui, &r);
@@ -1185,7 +1236,7 @@ fn nav(ui: &mut Ui, text: &str, active: bool) -> egui::Response {
         Rect::from_min_max(pos2(r.rect.center().x - half, r.rect.bottom() + 16.0 - h), pos2(r.rect.center().x + half, r.rect.bottom() + 16.0))
     };
     if t > 0.01 {
-        ui.painter().rect_filled(bar(4.0, t), 2.0, LIME);
+        ui.painter().rect_filled(bar(4.0, t), 2.0, lime());
     }
     if hover > 0.01 {
         ui.painter().rect_filled(bar(2.0, 1.0), 1.0, INK2.gamma_multiply(hover));
@@ -1243,7 +1294,7 @@ fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T
                 r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, label));
                 let t = ease(ui, r.id.with("on"), on, FAST);
                 let hover = ease(ui, r.id.with("hover"), r.hovered() && !on, FAST);
-                let chosen = if lime { LIME } else { INK };
+                let chosen = if lime { self::lime() } else { INK };
                 let fill = mix(mix(RAISED, LINE, hover), chosen, t);
                 ui.painter().rect_filled(r.rect, CELL_RADIUS, fill);
                 let ink = mix(INK2, ON_LIME, t);
@@ -1254,6 +1305,35 @@ fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T
                 }
             }
         });
+    });
+    picked
+}
+
+// One dot per theme, the chosen one ringed, its name beside them; returns a newly picked one.
+fn theme_picker(ui: &mut Ui) -> Option<usize> {
+    let current = THEME.load(std::sync::atomic::Ordering::Relaxed);
+    let mut picked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (i, &(name, c)) in THEMES.iter().enumerate() {
+            let on = i == current;
+            let (rect, r) = ui.allocate_exact_size(vec2(CONTROL_H, CONTROL_H), Sense::click());
+            r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, name));
+            let hover = ease(ui, r.id.with("hover"), r.hovered() && !on, FAST);
+            let ring = CONTROL_H / 2.0 - 2.0;
+            if on {
+                ui.painter().circle_stroke(rect.center(), ring, Stroke::new(2.0, INK));
+            } else if hover > 0.01 {
+                ui.painter().circle_stroke(rect.center(), ring, Stroke::new(2.0, mix(RAISED, INK3, hover)));
+            }
+            ui.painter().circle_filled(rect.center(), CONTROL_H / 2.0 - 9.0, rgb(c));
+            focus_ring(ui, &r);
+            if r.on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                picked = Some(i);
+            }
+        }
+        ui.add_space(8.0);
+        ui.label(RichText::new(THEMES[current].0).color(INK2));
     });
     picked
 }
@@ -1296,8 +1376,8 @@ fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
     let (dot, ink, fill) = match kind {
         ChipKind::Plain => (None, INK2, RAISED),
         // Strongest to weakest: VR added (lime), installed (lime dot), not on this PC (grey, no dot).
-        ChipKind::VrAdded => (None, ON_LIME, LIME),
-        ChipKind::Installed => (Some(LIME), INK2, RAISED),
+        ChipKind::VrAdded => (None, ON_LIME, lime()),
+        ChipKind::Installed => (Some(lime()), INK2, RAISED),
         ChipKind::NotInstalled => (None, INK3, RAISED),
         ChipKind::Blocked => (Some(DANGER), DANGER_INK, DANGER_BG),
         ChipKind::Unsupported => (Some(INK3), INK3, RAISED),
@@ -1364,7 +1444,7 @@ fn sweep(ui: &mut Ui, rect: Rect) {
     let x = rect.left() - w + (rect.width() + w) * t;
     let seg = Rect::from_x_y_ranges(x.max(rect.left())..=(x + w).min(rect.right()), rect.y_range());
     ui.painter().rect_filled(rect, 0.0, LINE);
-    ui.painter().rect_filled(seg, 0.0, LIME);
+    ui.painter().rect_filled(seg, 0.0, lime());
     ui.ctx().request_repaint();
 }
 
@@ -1390,7 +1470,7 @@ fn hover_card(ui: &Ui, resp: &egui::Response, image: Rect) {
     let t = ease(ui, resp.id.with("hover"), resp.hovered(), FAST);
     if t > 0.01 {
         glow(&ui.painter_at(image), image.right_bottom(), 0.6 * t);
-        ui.painter().rect_stroke(image, RADIUS, Stroke::new(2.0, LIME.gamma_multiply(t)), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(image, RADIUS, Stroke::new(2.0, lime().gamma_multiply(t)), egui::StrokeKind::Outside);
     }
 }
 
@@ -1586,9 +1666,9 @@ fn style(ctx: &egui::Context) {
         v.window_fill = SURFACE;
         v.extreme_bg_color = RAISED;
         v.override_text_color = Some(INK);
-        v.hyperlink_color = LIME;
+        v.hyperlink_color = lime();
         // Lime selection with dark text on it; also the slider's filled part.
-        v.selection.bg_fill = LIME;
+        v.selection.bg_fill = lime();
         v.selection.stroke = Stroke::new(1.0, ON_LIME);
         v.slider_trailing_fill = true;
         v.window_shadow = egui::Shadow::NONE;

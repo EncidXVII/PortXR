@@ -48,7 +48,7 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float2 k = float2(aspect, 1), a = beam.xy * k, b = beam.zw * k, q = at * k;
         float t = saturate(dot(q - a, b - a) / max(dot(b - a, b - a), 1e-8));
         float edge = 1 - smoothstep(beamWidth * 0.5, beamWidth, length(q - lerp(a, b, t)));
-        float3 lime = float3(0.776, 1, 0.102);
+        float3 lime = watchLook.yzw;
         float k2 = edge * lerp(0.25, 0.9, t);
         c.rgb = lerp(c.rgb, dstLinear > 0.5 ? toLinear(lime) : lime, k2);
         c.a = max(c.a, k2);
@@ -64,7 +64,7 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float d = length((at - aim.xy) * float2(aspect, 1)) / aim.z, aa = 0.08;
         float ring = 1 - smoothstep(0.16, 0.16 + aa, abs(d - 0.8)), pip = 1 - smoothstep(0.18, 0.18 + aa, d);
         float halo = 1 - smoothstep(0.32, 0.32 + aa, min(abs(d - 0.8), d));
-        float3 lime = float3(0.776, 1, 0.102), col = lime * saturate(ring + pip);
+        float3 lime = watchLook.yzw, col = lime * saturate(ring + pip);
         if (dstLinear > 0.5) col = toLinear(col);
         float a = max(halo * 0.6, saturate(ring + pip));
         c.rgb = lerp(c.rgb, col, a);
@@ -76,7 +76,7 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float2 k = float2(aspect, 1), q = (at - watch.xy) * k / watch.z;
         float d = length(q), aa = 0.06;
         if (d < 1 + aa) {
-            float3 lime = float3(0.776, 1, 0.102), rest = float3(0.29, 0.29, 0.314), bar = float3(0.659, 0.659, 0.686);
+            float3 lime = watchLook.yzw, rest = float3(0.29, 0.29, 0.314), bar = float3(0.659, 0.659, 0.686);
             float3 black = float3(0.043, 0.043, 0.047);
             float lit = saturate(watch.w);
             float face = 1 - smoothstep(1 - aa, 1, d);
@@ -138,6 +138,7 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     p.beamWidth = o.beamWidth;
     for (int i = 0; i < 4; ++i) p.watch[i] = o.watch[i];
     p.watchLook[0] = o.watchAlpha;
+    for (int i = 0; i < 3; ++i) p.watchLook[1 + i] = o.accent[i];
     p.key = o.key;
     for (int i = 0; i < 4; ++i) p.keep[i] = o.keep[i];
     for (int i = 0; i < 4; ++i) p.aim[i] = o.aim[i];
