@@ -88,14 +88,19 @@ const LABEL: f32 = 13.0;
 const REPO: &str = "EncidXVII/Parallax";
 const LOG: &str = r"BepInEx\LogOutput.log";
 
+/// The app icon for the window and taskbar (the same one the exe carries, see build.rs).
+fn window_icon() -> Option<egui::IconData> {
+    let img = image::load_from_memory(include_bytes!("../assets/brand/parallax-256.png")).ok()?.to_rgba8();
+    Some(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() })
+}
+
 pub fn run(open: Option<PathBuf>) -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Parallax")
-            .with_inner_size([1120.0, 720.0])
-            .with_min_inner_size([960.0, 560.0]),
-        ..Default::default()
-    };
+    let mut viewport =
+        egui::ViewportBuilder::default().with_title("Parallax").with_inner_size([1120.0, 720.0]).with_min_inner_size([960.0, 560.0]);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native("Parallax", options, Box::new(|cc| Ok(Box::new(App::new(cc, open)))))
 }
 
@@ -1042,7 +1047,10 @@ impl eframe::App for App {
         let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(40, 16));
         egui::Panel::top("top").frame(bar).show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Brand, then the places (tabs, left); the one action of the page sits alone on the right.
+                // Brand (the mark in the theme accent, then the name), then the places (tabs, left); the one action
+                // of the page sits alone on the right.
+                ui.add(egui::Image::new(egui::include_image!("../assets/brand/parallax-mark-white.png")).tint(lime()).fit_to_exact_size(egui::vec2(BRAND * 1.15, BRAND * 1.15)));
+                ui.add_space(10.0);
                 ui.label(RichText::new("PARALLAX").font(display(BRAND)).color(INK));
                 ui.add_space(32.0);
                 ui.spacing_mut().item_spacing.x = 24.0;
