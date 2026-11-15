@@ -26,6 +26,8 @@ struct GameFrame {
     bool menuOpen = false;    // the VR menu takes the controllers
     float uiAspect = 16.f / 9.f;  // the game's UI (width / height): the panel's shape
     bool pointerAuto = true;      // Laser pointer: with the game's cursor (Auto) or the menu only
+    Pose menuPose;                // the open VR menu in tracking space (its quad), and its size in metres
+    float menuWidth = 0, menuHeight = 0;
 };
 
 // The laser pointer on the UI panel: where (UV, top-left origin, eased against hand tremor) and the trigger.
@@ -34,6 +36,7 @@ struct Pointer {
     float u = 0, v = 0;
     bool down = false;
     bool entered = false;  // just arrived on the panel this frame
+    bool onMenu = false;   // on the open VR menu instead (u, v on the menu)
 };
 
 struct Watch {

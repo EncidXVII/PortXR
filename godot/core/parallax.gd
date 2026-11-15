@@ -15,6 +15,7 @@ var _cams: Array[Camera3D] = []
 var _attached := false
 var _placed := false
 var _frames := 0
+var _eye_size := Vector2i.ZERO
 var _last_report := 0
 var _game: Camera3D
 var _searched_at := -10000
@@ -26,6 +27,9 @@ var _pad_game := false
 var _pad_sent := {}
 var _aiming := false
 var _udp: PacketPeerUDP
+var _menu_open := false
+var _picked_camera := ""
+var _camera_names: Array[String] = []
 var _pointer := Vector2(-1, -1)
 var _pointer_down := false
 # XInput button bits to Godot's pad buttons.
@@ -49,6 +53,7 @@ func _ready() -> void:
 	core = ClassDB.instantiate("ParallaxCore")
 	core.open_settings(dir.path_join("parallax.cfg"))
 	var info: Dictionary = core.start(ProjectSettings.get_setting("application/config/name", "Godot game"))
+	_eye_size = Vector2i(info["width"], info["height"])
 	_log()
 	if not info["ok"]:
 		core = null
@@ -101,7 +106,9 @@ func _process(_delta: float) -> void:
 	var result: Dictionary = core.frame(game) if _attached else {}
 	var eyes: Array = result.get("eyes", [])
 	_aiming = result.get("aiming", false)
+	_menu_open = result.get("menu_open", false)
 	_placed = eyes.size() == 2
+	_menu_requests(result)
 	_send_pad()
 	_send_pointer(result)
 	if _placed:
@@ -151,14 +158,30 @@ func _log() -> void:
 # hidden SubViewports (3D icons in menus) are not the game's view, nor one shown inside another SubViewport (a gun or
 # arms layer). The scene is searched every two seconds, in one pass: every frame froze a big scene.
 func _game_camera(root: Window) -> Camera3D:
+	var now := Time.get_ticks_msec()
+	var searching := now - _searched_at > 2000
+	if searching:
+		_searched_at = now
+		_camera_names.clear()
+		for c in root.find_children("*", "Camera3D", true, false):
+			if not _cams.has(c) and not _camera_names.has(str(c.name)):
+				_camera_names.append(str(c.name))
+	# A camera picked in the VR menu's Game tab, by name, wherever it is.
+	if _picked_camera != "":
+		var picked := root.find_child(_picked_camera, true, false) as Camera3D
+		if picked != null and not _cams.has(picked):
+			if searching:
+				_offer_menu()
+			return picked
 	var cam := root.get_camera_3d()
 	if cam != null:
 		_view = null
+		if searching:
+			_offer_menu()
 		return cam
-	var now := Time.get_ticks_msec()
-	if now - _searched_at > 2000:
-		_searched_at = now
+	if searching:
 		_search(root)
+		_offer_menu()
 	if _view == null or not is_instance_valid(_view) or not is_instance_valid(_view_picture):
 		_view = null
 		return null
@@ -200,6 +223,30 @@ func _show_picture(picture: CanvasItem) -> void:
 		_hidden_alpha = picture.self_modulate.a
 		picture.self_modulate.a = 0
 		print(LOG, "the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel")
+
+
+# What the VR menu asks of the game: quit, follow another camera, new eye resolution.
+func _menu_requests(result: Dictionary) -> void:
+	if result.get("quit", false):
+		print(LOG, "quit from the VR menu")
+		get_tree().quit()
+	if result.has("camera_picked"):
+		_picked_camera = result["camera_picked"]
+		_searched_at = -10000
+	if result.get("render_scale", false):
+		var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
+		for v in _views:
+			v.size = Vector2i(int(_eye_size.x * scale), int(_eye_size.y * scale))
+
+
+# The menu's Game tab: the game's cameras and folder, every two seconds with the camera search.
+func _offer_menu() -> void:
+	core.set_menu_host({
+		"product": ProjectSettings.get_setting("application/config/name", "Godot game"),
+		"game_dir": OS.get_executable_path().get_base_dir(),
+		"cameras": _camera_names, "current_camera": str(_game.name) if _game else "",
+		"eye_width": _views[0].size.x, "eye_height": _views[0].size.y,
+	})
 
 
 func _ui_aspect(root: Window) -> float:
@@ -331,7 +378,7 @@ func _command(cmd: String) -> Variant:
 				var f := -_game.global_basis.z
 				yaw = rad_to_deg(atan2(f.x, -f.z))
 			return {"state": core.state(), "camera": str(_game.get_path()) if _game else "", "aiming": _aiming,
-				"pointer": [_pointer.x, _pointer.y], "pointer_down": _pointer_down,
+				"pointer": [_pointer.x, _pointer.y], "pointer_down": _pointer_down, "menu_open": _menu_open,
 				"heading": yaw, "frames": _frames, "pad_game": _pad_game, "game": get_tree().root.get_meta("g1", {})}
 		"set":
 			var kv := parts[1].split(" ", false, 1)
@@ -345,6 +392,15 @@ func _command(cmd: String) -> Variant:
 			var uv := parts[1].split(" ")
 			core.test_point(float(uv[0]), float(uv[1]))
 			return {"ok": true}
+		"menu":
+			core.toggle_menu()
+			return {"ok": true}
+		"capture":
+			core.capture(parts[1])
+			return {"ok": true}
+		"setting":
+			var key := parts[1].split("/")
+			return {"value": core.setting(key[0], key[1], "")}
 		"recenter":
 			core.recenter()
 			return {"ok": true}

@@ -54,6 +54,9 @@ protected:
         ClassDB::bind_method(D_METHOD("pad"), &ParallaxCore::pad);
         ClassDB::bind_method(D_METHOD("test_controllers", "controllers"), &ParallaxCore::test_controllers);
         ClassDB::bind_method(D_METHOD("test_point", "u", "v"), &ParallaxCore::test_point);
+        ClassDB::bind_method(D_METHOD("set_menu_host", "host"), &ParallaxCore::set_menu_host);
+        ClassDB::bind_method(D_METHOD("toggle_menu"), &ParallaxCore::toggle_menu);
+        ClassDB::bind_method(D_METHOD("capture", "dir"), &ParallaxCore::capture);
         ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &ParallaxCore::submit_view);
     }
 
@@ -167,6 +170,10 @@ public:
         out["eyes"] = eyes;
         out["aiming"] = f.aiming;
         out["menu_toggle"] = (f.events & 1) != 0;
+        out["menu_open"] = f.menuOpen;
+        if (f.quit) out["quit"] = true;
+        if (f.renderScale) out["render_scale"] = true;
+        if (f.cameraPicked) out["camera_picked"] = String::utf8(f.camera.c_str());
         if (f.pointer) {
             out["pointer"] = Vector2(f.pointerU, f.pointerV);
             out["pointer_down"] = f.pointerDown;
@@ -181,6 +188,22 @@ public:
     }
 
     void test_point(float u, float v) { bridge::test_point(u, v); }
+
+    void toggle_menu() { bridge::toggle_menu(); }
+    void capture(const String& dir) { bridge::capture(std::wstring((const wchar_t*)dir.utf16().get_data())); }
+
+    // What the game offers the VR menu: {product, game_dir, cameras: [names], current_camera, eye_width, eye_height}.
+    void set_menu_host(const Dictionary& h) {
+        bridge::MenuHost m;
+        m.product = String(h.get("product", "")).utf8().get_data();
+        m.gameDir = std::wstring((const wchar_t*)String(h.get("game_dir", "")).utf16().get_data());
+        Array cams = h.get("cameras", Array());
+        for (int i = 0; i < cams.size(); ++i) m.cameras.push_back(String(cams[i]).utf8().get_data());
+        m.currentCamera = String(h.get("current_camera", "")).utf8().get_data();
+        m.eyeWidth = (int)(int64_t)h.get("eye_width", 0);
+        m.eyeHeight = (int)(int64_t)h.get("eye_height", 0);
+        bridge::set_menu_host(m);
+    }
 
     void set_window(int64_t hwnd) { bridge::set_window((void*)hwnd); }
 

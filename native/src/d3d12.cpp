@@ -139,7 +139,7 @@ public:
         if (!queue_) return;
         auto& img = images_[swapchain][index];
         auto* src = (ID3D12Resource*)texture;
-        auto srcState = src == uiCopy_.Get() ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE : kUnityState;
+        auto srcState = src == uiCopy_.Get() || own_.count(src) ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE : kUnityState;
         auto* list = begin();
         auto desc = img.texture->GetDesc();
         blit(list, 0, src, srcState, img.texture, img.format, D3D12_RESOURCE_STATE_RENDER_TARGET, (UINT)desc.Width,
@@ -168,6 +168,67 @@ public:
         uint64_t done = submit();
         if (probing) probeDone_ = done;
         if (readback) save_bmp(readback.Get(), fp, img.format, done, capture);
+    }
+
+    // Our own textures rest in PIXEL_SHADER_RESOURCE; each has an upload buffer reused once the GPU has read it.
+    void* upload(void* texture, const void* rgba, int w, int h) override {
+        std::lock_guard lock(mutex_);
+        if (!queue_) return nullptr;
+        auto it = own_.find((ID3D12Resource*)texture);
+        if (it != own_.end()) {
+            auto d = it->second.tex->GetDesc();
+            if ((int)d.Width != w || (int)d.Height != h) {
+                wait_idle();
+                own_.erase(it);
+                it = own_.end();
+            }
+        }
+        if (it == own_.end()) {
+            D3D12_RESOURCE_DESC d{};
+            d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            d.Width = (UINT64)w, d.Height = (UINT)h, d.DepthOrArraySize = d.MipLevels = 1;
+            d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            d.SampleDesc = {1, 0};
+            D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_DEFAULT};
+            ComPtr<ID3D12Resource> tex;
+            if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                                        nullptr, IID_PPV_ARGS(&tex))))
+                return nullptr;
+            it = own_.emplace(tex.Get(), Own{tex}).first;
+        }
+        Own& o = it->second;
+        auto td = o.tex->GetDesc();
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
+        UINT64 total = 0;
+        device_->GetCopyableFootprints(&td, 0, 1, 0, &fp, nullptr, nullptr, &total);
+        wait_for(o.done);
+        if (!o.upload) {
+            D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_UPLOAD};
+            D3D12_RESOURCE_DESC bd{};
+            bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bd.Width = total;
+            bd.Height = bd.DepthOrArraySize = bd.MipLevels = 1;
+            bd.SampleDesc = {1, 0};
+            bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                        nullptr, IID_PPV_ARGS(&o.upload))))
+                return nullptr;
+        }
+        uint8_t* data = nullptr;
+        if (FAILED(o.upload->Map(0, nullptr, (void**)&data))) return nullptr;
+        for (int y = 0; y < h; ++y)
+            memcpy(data + fp.Offset + (size_t)y * fp.Footprint.RowPitch, (const uint8_t*)rgba + (size_t)y * w * 4, (size_t)w * 4);
+        o.upload->Unmap(0, nullptr);
+        auto* list = begin();
+        barrier(list, o.tex.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION dst{o.tex.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+        dst.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION src{o.upload.Get(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+        src.PlacedFootprint = fp;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        barrier(list, o.tex.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        o.done = submit();
+        return o.tex.Get();
     }
 
     float opaque_fraction() override {
@@ -421,6 +482,11 @@ private:
     Cmd ring_[kRing];
     int next_ = 0;
     ComPtr<ID3D12Resource> uiCopy_;
+    struct Own {
+        ComPtr<ID3D12Resource> tex, upload;
+        uint64_t done = 0;
+    };
+    std::map<ID3D12Resource*, Own> own_;
     std::map<XrSwapchain, std::vector<Image>> images_;
     std::atomic<void*> mirror_{nullptr};
     // Present can run on a different thread from the render-thread events.

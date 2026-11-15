@@ -73,7 +73,7 @@ def main():
         shutil.copy2(os.path.join(ROOT, "godot", "core", f), PACK)
     # This game's settings, as the app writes them on Add VR; the tests change them through the core.
     with open(os.path.join(PACK, "parallax.cfg"), "w") as f:
-        f.write("[Controls]\nMode = Gamepad\nHeadAim = Off\nAimWith = Head\n\n[Comfort]\nTurning = Smooth\n")
+        f.write("[Controls]\nMode = Gamepad\nHeadAim = Off\nAimWith = Head\n\n[Comfort]\nTurning = Smooth\n\n[Menu]\nFirstRun = false\n")
     if not os.path.isdir(os.path.join(G1, ".godot")):
         subprocess.run([GODOT, "--headless", "--path", G1, "--editor", "--quit"], capture_output=True, timeout=300)
     with open(os.path.join(G1, "override.cfg"), "w") as f:
@@ -143,6 +143,38 @@ def main():
                 ch.cmd('controllers {}')
                 s = ch.wait(lambda s: abs(abs(angle(before, s["heading"])) - 30) < 3, 6, "a 30 degree snap")
                 check("snap turn", True, f"one flick turned the camera {angle(before, s['heading']):+.1f} deg")
+
+                # The VR menu, drawn by the core: opens over the panel, the laser picks Theater in Quick's Display row
+                # (written to this game's settings), captured as the headset gets it.
+                ch.cmd("menu")
+                s = ch.wait(lambda s: s["menu_open"], 5, "the menu open")
+                time.sleep(0.5)
+                cap = os.path.join(OUT, "menu")
+                os.makedirs(cap, exist_ok=True)
+                ch.cmd("capture " + cap)
+                time.sleep(1)
+                from run import load_bmp
+                shot = os.path.join(cap, "menu.bmp")
+                if os.path.exists(shot):
+                    m = load_bmp(shot)
+                    dark = float(((m[..., 3] > 200) & (m[..., :3].max(axis=2) < 30)).mean())
+                    ink = int((m[..., :3].min(axis=2) > 200).sum())
+                    check("menu drawn", dark > 0.5 and ink > 2000, f"menu layer {m.shape[1]}x{m.shape[0]}: {dark:.0%} panel, {ink} ink pixels of text")
+                else:
+                    check("menu drawn", False, "no menu.bmp captured")
+                ch.cmd('controllers {"rt": 0.0}')
+                ch.cmd("point 0.823 0.182")
+                time.sleep(0.4)
+                ch.cmd('controllers {"rt": 1.0}')
+                time.sleep(0.3)
+                ch.cmd('controllers {"rt": 0.0}')
+                time.sleep(0.5)
+                v = ch.cmd("setting View/Display")["value"]
+                check("menu click", v == "Theater", f"the laser on Display > Theater set View/Display = {v!r} in the game's settings")
+                ch.cmd("set View/Display Stereo")
+                ch.cmd("point -1 0")
+                ch.cmd('controllers {}')
+                ch.cmd("menu")
             finally:
                 game.terminate()
                 game.wait(20)

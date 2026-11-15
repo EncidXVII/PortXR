@@ -51,6 +51,10 @@ public:
     virtual void present(IDXGISwapChain* swapchain) = 0;
     // Share of opaque pixels in the latest probed image that finished reading back, else -1; each result once.
     virtual float opaque_fraction() = 0;
+    // A texture of the core's own (the VR menu) filled from CPU pixels: RGBA8, sRGB-encoded, premultiplied, rows of
+    // w * 4 bytes. `texture` is the one returned last time (null at first); a new one comes back when the size
+    // changes. Drawn from like any other texture; render thread only.
+    virtual void* upload(void* texture, const void* rgba, int w, int h) = 0;
 };
 
 // A zero runtime LUID (SteamVR null driver) accepts any adapter; a mismatch is logged.

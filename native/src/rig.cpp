@@ -302,7 +302,11 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const V3& center, c
     bool wanted = g.menuOpen || (g.pointerAuto && g.cursorFree);
     float u = -1, v = -1;
     V3 at, from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]);
-    bool on = c.aimValid[1] && hit_panel(from, dir, center, rot, w, h, u, v, at);
+    // With the VR menu open the laser works the menu, not the game's UI.
+    V3 target = g.menuOpen ? g.menuPose.p : center;
+    Q targetRot = g.menuOpen ? g.menuPose.q : rot;
+    float tw = g.menuOpen ? g.menuWidth : w, th = g.menuOpen ? g.menuHeight : h;
+    bool on = c.aimValid[1] && hit_panel(from, dir, target, targetRot, tw, th, u, v, at);
     if (on && g_pointerOn && wanted) {
         float d = std::sqrt((u - g_pointerU) * (u - g_pointerU) + (v - g_pointerV) * (v - g_pointerV));
         float follow = std::clamp(d * 60.f, c.rTrigger > 0.15f ? 0.04f : 0.15f, 1.f);
@@ -317,13 +321,14 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const V3& center, c
     g_pointerOn = active;
     g_pointerDown = active && (g_pointerDown ? c.rTrigger > 0.4f : c.rTrigger > 0.6f);
     r.pointer.active = active;
+    r.pointer.onMenu = active && g.menuOpen;
     r.pointer.u = g_pointerU, r.pointer.v = g_pointerV;
     r.pointer.down = g_pointerDown;
     r.beam = wanted && c.aimValid[1];
     if (r.beam) {
         r.beamFrom = from;
         // The beam ends on the panel at the eased point, else a metre out.
-        r.beamTo = active ? center + rot * V3{(g_pointerU - 0.5f) * w, (0.5f - g_pointerV) * h, 0} : from + dir;
+        r.beamTo = active ? target + targetRot * V3{(g_pointerU - 0.5f) * tw, (0.5f - g_pointerV) * th, 0} : from + dir;
     }
 }
 
@@ -468,6 +473,7 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
         float pw = 1;
         Pose p = panel(pw);
         float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
+        if (game.menuOpen) p = game.menuPose, pw = game.menuWidth, ph = game.menuHeight;
         V3 target = p.p + p.q * V3{(g_testPointU - 0.5f) * pw, (0.5f - g_testPointV) * ph, 0};
         V3 from = (v_of(views[0]) + v_of(views[1])) * 0.5f, d = target - from;
         Q q = look(d * (1 / d.length()));

@@ -14,7 +14,19 @@ FetchContent_Declare(openxr_sdk
 FetchContent_Declare(minhook
     GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
     GIT_TAG v1.3.4)
-FetchContent_MakeAvailable(openxr_sdk minhook)
+# stb_truetype and stb_image (public domain / MIT) for the VR menu's text and cover art; pinned to a reviewed commit.
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG 9600522de53973336fa033a289858a4354cbb04c)
+FetchContent_MakeAvailable(openxr_sdk minhook stb)
+
+# The app's fonts, embedded in the core for the VR menu.
+include(${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake)
+set(assets ${CMAKE_CURRENT_SOURCE_DIR}/../app/assets)
+embed_files(${CMAKE_CURRENT_BINARY_DIR}/fonts.cpp
+    kBarlowRegular ${assets}/Barlow-Regular.ttf
+    kBarlowSemiBold ${assets}/Barlow-SemiBold.ttf
+    kAnton ${assets}/Anton-Regular.ttf)
 
 # The VR core, shared by every engine: the Unity plugin's parallax_xr.dll and the Godot extension.
 add_library(parallax_core OBJECT
@@ -25,9 +37,12 @@ add_library(parallax_core OBJECT
     src/d3d12.cpp
     src/input.cpp
     src/settings.cpp
-    src/rig.cpp)
+    src/rig.cpp
+    src/canvas.cpp
+    src/menu.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/fonts.cpp)
 add_library(parallax_core_deps INTERFACE)
-target_include_directories(parallax_core_deps INTERFACE ${openxr_sdk_SOURCE_DIR}/include)
+target_include_directories(parallax_core_deps INTERFACE ${openxr_sdk_SOURCE_DIR}/include ${stb_SOURCE_DIR})
 target_compile_definitions(parallax_core_deps INTERFACE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_USE_GRAPHICS_API_D3D12 WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(parallax_core_deps INTERFACE minhook d3d11 d3d12 dxgi d3dcompiler)
 target_link_libraries(parallax_core PRIVATE parallax_core_deps)

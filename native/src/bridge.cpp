@@ -2,6 +2,7 @@
 #include "common.h"
 #include "settings.h"
 #include "rig.h"
+#include "menu.h"
 #include <Xinput.h>
 
 extern "C" {
@@ -14,6 +15,9 @@ PRX_API int32_t prx_locate(PrxPose* poses, PrxFov* fovs);
 PRX_API int32_t prx_poll_log(char* out, int32_t capacity);
 PRX_API void prx_set_game_window(HWND hwnd);
 PRX_API int32_t prx_pad_state(XINPUT_GAMEPAD* out);
+PRX_API int32_t prx_key_down(int32_t vk);
+PRX_API void prx_capture(const wchar_t* dir);
+PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM);
 }
 
 namespace {
@@ -27,6 +31,8 @@ float g_accent[3];
 bool g_accentRead;
 float g_vignette;
 rig::Result g_rig;
+LARGE_INTEGER g_menuTick{};
+bool g_menuKeyDown, g_welcomed;
 PrxPose pose(const bridge::Pose& p) { return {p.p[0], p.p[1], p.p[2], p.q[0], p.q[1], p.q[2], p.q[3]}; }
 void submit(PrxFrame& f) {
     f.accent[0] = 0.776f, f.accent[1] = 1.f, f.accent[2] = 0.102f;
@@ -111,8 +117,15 @@ bool frame(const Game& game, Frame& out) {
     g.cursorFree = game.cursorFree;
     g.padGame = game.padGame;
     g.carried = game.carried;
-    g.menuOpen = game.menuOpen;
+    g.menuOpen = menu::is_open();
     g.uiAspect = game.uiAspect;
+    // The menu stands where the UI panel is, a little in front, as tall as Menu.cs draws it on the screen.
+    float pw = 1;
+    rig::Pose panel = rig::panel(pw);
+    float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
+    g.menuHeight = ph * 840.f / 1080.f;
+    g.menuWidth = g.menuHeight * menu::aspect();
+    g.menuPose = {panel.p + panel.q * mathx::V3{0, 0, 0.02f}, panel.q};
     g.pointerAuto = settings::get("Controls", "Pointer", "Auto") != "MenuOnly";
     rig::Result r = rig::frame(g, g_views);
     g_rig = r;
@@ -122,7 +135,37 @@ bool frame(const Game& game, Frame& out) {
     }
     out.aiming = r.aiming;
     out.events = r.events;
-    out.pointer = r.pointer.active;
+    // The VR menu: a double tap on the menu button or the watch (from the rig), or F11 with the game in front.
+    LARGE_INTEGER tick, freq;
+    QueryPerformanceCounter(&tick);
+    QueryPerformanceFrequency(&freq);
+    float dt = g_menuTick.QuadPart ? std::min(0.1f, (float)(tick.QuadPart - g_menuTick.QuadPart) / freq.QuadPart) : 1 / 90.f;
+    g_menuTick = tick;
+    bool key = prx_key_down((int)settings::getf("Controls", "MenuKey", 0x7A, 1, 255)) != 0;
+    if ((r.events & EvMenuToggle) || (key && !g_menuKeyDown)) menu::toggle();
+    g_menuKeyDown = key;
+    // The welcome card the first time VR runs in a game.
+    if (!g_welcomed && settings::getb("Menu", "FirstRun", true)) menu::show_welcome();
+    g_welcomed = true;
+    menu::Requests req = menu::frame(r.pointer.onMenu, r.pointer.u, r.pointer.v, r.controllers.rTrigger, dt);
+    if (req.recenter) rig::recenter();
+    if (menu::is_open()) {
+        int w = 0, h = 0;
+        bool changed = false;
+        const uint8_t* px = menu::pixels(w, h, changed);
+        PrxPose pose{g.menuPose.p.x, g.menuPose.p.y, g.menuPose.p.z, g.menuPose.q.x, g.menuPose.q.y, g.menuPose.q.z, g.menuPose.q.w};
+        prx_set_menu(changed ? px : nullptr, w, h, &pose, g.menuWidth, g.menuHeight);
+    } else {
+        prx_set_menu(nullptr, 0, 0, nullptr, 0, 0);
+    }
+    out.menuOpen = menu::is_open();
+    out.quit = req.quit;
+    out.renderScale = req.renderScale;
+    out.cameraPicked = req.cameraPicked;
+    out.camera = req.camera;
+    out.hideObjects = req.hideObjects;
+    out.showHidden = req.showHidden;
+    out.pointer = r.pointer.active && !r.pointer.onMenu;
     out.pointerDown = r.pointer.down;
     out.pointerU = r.pointer.u;
     out.pointerV = r.pointer.v;
@@ -138,6 +181,24 @@ void test_controllers(bool on, float lx, float ly, float rx, float ry, float lt,
 }
 
 void test_point(float u, float v) { rig::set_test_point(u, v); }
+
+void toggle_menu() { menu::toggle(); }
+void capture(const std::wstring& dir) { prx_capture(dir.c_str()); }
+
+void set_menu_host(const MenuHost& h) {
+    menu::Host m;
+    m.product = h.product;
+    m.gameDir = h.gameDir;
+    m.cameras = h.cameras;
+    m.currentCamera = h.currentCamera;
+    m.hideObjects = h.hideObjects;
+    m.aimExtras = h.aimExtras;
+    m.uiBlack = h.uiBlack;
+    m.hidden = h.hidden;
+    m.eyeWidth = h.eyeWidth;
+    m.eyeHeight = h.eyeHeight;
+    menu::set_host(m);
+}
 
 void set_window(void* hwnd) { prx_set_game_window((HWND)hwnd); }
 

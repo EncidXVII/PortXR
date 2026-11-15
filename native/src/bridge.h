@@ -3,6 +3,7 @@
 // Godot extension). Poses are OpenXR tracking space: metres, Y up, -Z forward; quaternions x y z w.
 #include <cstdint>
 #include <string>
+#include <vector>
 
 
 namespace bridge {
@@ -43,10 +44,27 @@ struct Frame {
     bool aiming = false;
     uint32_t events = 0;  // 1: the VR menu was asked for (double tap on the menu button, or the wrist watch)
     // The laser pointer on the UI panel: the adapter moves the game's cursor to (u, v) (top-left origin) and clicks
-    // with `down`, through the engine's own input.
+    // with `down`, through the engine's own input. Not while the VR menu has it.
     bool pointer = false, pointerDown = false;
     float pointerU = 0, pointerV = 0;
+    // The VR menu (the core's): whether it is open, and what it asks of the engine this frame.
+    bool menuOpen = false;
+    bool quit = false, renderScale = false, cameraPicked = false, hideObjects = false, showHidden = false;
+    std::string camera;
 };
+// What the engine offers the VR menu: the game's name and folder, the cameras the view can follow.
+struct MenuHost {
+    std::string product;
+    std::wstring gameDir;
+    std::vector<std::string> cameras;
+    std::string currentCamera;
+    bool hideObjects = false, aimExtras = false, uiBlack = false;
+    int hidden = 0, eyeWidth = 0, eyeHeight = 0;
+};
+void set_menu_host(const MenuHost& host);
+void toggle_menu();
+// Tests: write the next frame's layers (left.bmp, right.bmp, quad.bmp, menu.bmp) into `dir`.
+void capture(const std::wstring& dir);
 // After begin(): locates the headset, runs the controllers (aim, snap turning, keyboard & mouse or gamepad) and places
 // the eyes. False while the headset has no pose.
 bool frame(const Game& game, Frame& out);

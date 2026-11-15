@@ -52,6 +52,30 @@ public:
 
     bool ready() override { return true; }
 
+    void* upload(void* texture, const void* rgba, int w, int h) override {
+        auto it = own_.find(texture);
+        if (it != own_.end()) {
+            D3D11_TEXTURE2D_DESC d;
+            it->second->GetDesc(&d);
+            if ((int)d.Width != w || (int)d.Height != h) {
+                own_.erase(it);
+                it = own_.end();
+            }
+        }
+        if (it == own_.end()) {
+            D3D11_TEXTURE2D_DESC td{};
+            td.Width = (UINT)w, td.Height = (UINT)h, td.MipLevels = td.ArraySize = 1;
+            td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            td.SampleDesc.Count = 1;
+            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            ComPtr<ID3D11Texture2D> tex;
+            if (FAILED(device_->CreateTexture2D(&td, nullptr, &tex))) return nullptr;
+            it = own_.emplace(tex.Get(), tex).first;
+        }
+        ctx_->UpdateSubresource(it->second.Get(), 0, nullptr, rgba, (UINT)w * 4, 0);
+        return it->first;
+    }
+
     bool create_session(XrSession* session) override {
         XrGraphicsRequirementsD3D11KHR req{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
         if (!xr_ok(xrGetD3D11GraphicsRequirementsKHR(g_xr.instance, g_xr.system, &req), "graphics requirements"))
@@ -276,6 +300,7 @@ private:
         ctx_->Unmap(staging.Get(), 0);
     }
 
+    std::map<void*, ComPtr<ID3D11Texture2D>> own_;
     ComPtr<ID3D11Device> device_;
     ComPtr<ID3D11DeviceContext> ctx_;
     ComPtr<ID3D11VertexShader> vs_;

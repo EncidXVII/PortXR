@@ -32,7 +32,18 @@ std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 // g_patch: the UI panel's middle on its own, for its layer at the aim point. Every layer shows a whole swapchain
 // image: some runtimes draw sub-rectangles of a shared image wrong (Virtual Desktop showed them solid white).
-Swapchain g_eyes[2], g_quad, g_patch, g_window[2];
+Swapchain g_eyes[2], g_quad, g_patch, g_window[2], g_menu;
+
+// The VR menu: CPU pixels from the core's menu (prx_set_menu), uploaded to a texture of our own when they change and
+// shown as the top layer at a pose in tracking space.
+std::mutex g_menuMutex;
+std::vector<uint8_t> g_menuPixels;
+int g_menuW, g_menuH;
+uint64_t g_menuVersion, g_menuUploaded;
+bool g_menuShown;
+PrxPose g_menuPose;
+float g_menuSize[2];
+void* g_menuTexture;
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -443,7 +454,8 @@ void do_submit(int slot) {
     XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
     // The flat panel's middle on its own at the aim point: see PrxFrame::aimPatch.
     XrCompositionLayerQuad patch{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    const XrCompositionLayerBaseHeader* layers[7];
+    XrCompositionLayerQuad menu{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    const XrCompositionLayerBaseHeader* layers[8];
     const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr, *patchLayer = nullptr;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
@@ -549,6 +561,25 @@ void do_submit(int slot) {
     for (auto* l : order)
         if (l) layers[count++] = l;
     if (patchLayer) layers[count++] = patchLayer;
+    // The VR menu over everything, with its own alpha.
+    if (g_shouldRender) {
+        std::lock_guard lock(g_menuMutex);
+        if (g_menuShown && !g_menuPixels.empty()) {
+            if (g_menuUploaded != g_menuVersion || !g_menuTexture) {
+                g_menuTexture = g_gpu->upload(g_menuTexture, g_menuPixels.data(), g_menuW, g_menuH);
+                g_menuUploaded = g_menuVersion;
+            }
+            if (g_menuTexture && copy_layer(g_menu, {g_menuTexture, 0}, path(L"menu.bmp"))) {
+                menu.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                menu.space = g_xr.local;
+                menu.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                menu.subImage = {g_menu.handle, {{0, 0}, {g_menu.width, g_menu.height}}, 0};
+                menu.pose = to_xr(g_menuPose);
+                menu.size = {g_menuSize[0], g_menuSize[1]};
+                layers[count++] = (XrCompositionLayerBaseHeader*)&menu;
+            }
+        }
+    }
     g_gpu->set_mirror(!f.mirror ? nullptr : f.window ? f.windowLayer[0].texture : stereo ? f.eye[0].texture : nullptr);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
@@ -571,6 +602,9 @@ void do_shutdown() {
         destroy_swapchain(g_patch);
         destroy_swapchain(g_window[0]);
         destroy_swapchain(g_window[1]);
+        destroy_swapchain(g_menu);
+        g_menuTexture = nullptr;
+        g_menuUploaded = 0;
     }
     input_shutdown();
     if (g_pt.destroy) destroy_passthrough();
@@ -682,6 +716,22 @@ PRX_API void prx_set_init_texture(void* texture) { g_initTexture = texture; }
 PRX_API void prx_set_frame(int32_t slot, const PrxFrame* frame) {
     std::lock_guard lock(g_slotMutex);
     g_slots[slot % kSlots] = *frame;
+}
+
+// The VR menu's image (RGBA8, sRGB-encoded, premultiplied) at `pose` (tracking space), widthM x heightM metres; null
+// pixels hide it. Pass pixels only when they changed: each call is uploaded again.
+PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM) {
+    std::lock_guard lock(g_menuMutex);
+    g_menuShown = pose != nullptr;
+    if (pose) {
+        g_menuPose = *pose;
+        g_menuSize[0] = widthM, g_menuSize[1] = heightM;
+    }
+    if (rgba && w > 0 && h > 0) {
+        g_menuPixels.assign(rgba, rgba + (size_t)w * h * 4);
+        g_menuW = w, g_menuH = h;
+        ++g_menuVersion;
+    }
 }
 
 PRX_API void prx_capture(const wchar_t* dir) {
