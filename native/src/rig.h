@@ -28,6 +28,20 @@ struct GameFrame {
     bool pointerAuto = true;      // Laser pointer: with the game's cursor (Auto) or the menu only
     Pose menuPose;                // the open VR menu in tracking space (its quad), and its size in metres
     float menuWidth = 0, menuHeight = 0;
+    bool screenUnlocked = false;  // the menu's Screen: Unlocked (Theater and Parallax): the handles show
+    float fovY = 1.f;             // the game camera's vertical field of view, radians (Parallax's window)
+    float nearClip = 0.05f;
+    float focus = 0;              // what sits at the middle of the view, metres along the camera (0: unknown)
+};
+
+enum Mode { Stereo = 0, Parallax = 1, Theater = 2 };
+
+// The Theater and Parallax screen in tracking space. Curved where the runtime has curved layers and the screen sits near
+// eye level: then `pose` is the cylinder's centre and `radius` its radius.
+struct Screen {
+    Pose pose;
+    float width = 3.2f, height = 1.8f, radius = 0;
+    Pose center;  // the middle of the screen's face (flat: the same as pose)
 };
 
 // The laser pointer on the UI panel: where (UV, top-left origin, eased against hand tremor) and the trigger.
@@ -55,13 +69,23 @@ struct Result {
     bool beam = false;
     mathx::V3 beamFrom, beamTo;  // tracking space
     Watch watch;
+    int mode = Stereo;
+    Screen screen;
+    // Parallax: each eye's window camera, from the game camera: an offset along its right (game units) and its frustum
+    // (tangents of left, right, up, down).
+    float windowOffset[2] = {};
+    PrxFov windowFov[2] = {};
+    // Screen handles (with the screen unlocked): shown, the one under the laser (1 bar, 2 corner, 3 reset), the drag.
+    bool handles = false;
+    int handle = 0, grab = 0;
+    float screenDistance = 3, screenWidth = 3.2f;
 };
 
 void recenter();
 // Tests: controller input to use instead of the headset's (null: the real controllers).
 void set_test_controllers(const PrxControllers* c);
 // Tests: the fake right hand at the head, pointing at (u, v) on the UI panel; u < 0 stops pointing.
-void set_test_point(float u, float v);
+void set_test_point(float u, float v, bool screen = false);
 // views: this frame's eye poses in tracking space (prx_locate). Runs input (prx_input_update) and places the eyes.
 Result frame(const GameFrame& game, const PrxPose views[2]);
 // The UI panel in tracking space; width in metres (height follows the UI's aspect).

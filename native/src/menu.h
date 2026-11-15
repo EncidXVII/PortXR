@@ -32,6 +32,8 @@ struct Requests {
 
 void set_host(const Host& host);
 bool is_open();
+// The Quick tab's Screen: Unlocked (Theater and Parallax): the screen's handles show while the menu is open.
+bool screen_unlocked();
 void toggle();
 // The first-run card instead of the tabs.
 void show_welcome();

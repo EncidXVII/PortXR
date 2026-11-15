@@ -37,6 +37,8 @@ struct Game {
     std::string cameraKey;  // scene and camera name
     bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
     float uiAspect = 16.f / 9.f;  // the game's UI, width / height
+    float fovY = 1.f, nearClip = 0.05f;  // the game camera's vertical field of view (radians) and near plane
+    float focus = 0;                     // Parallax: distance to what sits at the middle of the view (0: unknown)
 };
 struct Frame {
     Pose eyes[2];  // where to render the eyes, in the game world
@@ -51,6 +53,12 @@ struct Frame {
     bool menuOpen = false;
     bool quit = false, renderScale = false, cameraPicked = false, hideObjects = false, showHidden = false;
     std::string camera;
+    // Display: 0 Stereo (render `eyes`), 1 Parallax (render the window eyes: from the game camera, `windowOffset` game
+    // units along its right, with `windowFov`), 2 Theater (render nothing: submit the game's flat picture as the UI).
+    int mode = 0;
+    bool handles = false;  // the screen's handles are shown (menu open, screen unlocked)
+    float windowOffset[2] = {};
+    Fov windowFov[2] = {};
 };
 // What the engine offers the VR menu: the game's name and folder, the cameras the view can follow.
 struct MenuHost {
@@ -77,7 +85,7 @@ bool pad(Pad& out);
 // Tests: sticks (lx ly rx ry), triggers and buttons (PrxButton bits) instead of the controllers; off restores them.
 void test_controllers(bool on, float lx, float ly, float rx, float ry, float lt, float rt, uint32_t buttons);
 // Tests: the fake right hand points at (u, v) on the UI panel (u < 0: not pointing).
-void test_point(float u, float v);
+void test_point(float u, float v, bool screen = false);
 // End of frame: the eyes rendered at those poses, and the game's UI (straight alpha, uiAspect = width / height) on the
 // panel in front.
 void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY);

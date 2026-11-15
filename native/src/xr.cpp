@@ -32,18 +32,27 @@ std::atomic<void*> g_initTexture;
 DXGI_FORMAT g_format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 // g_patch: the UI panel's middle on its own, for its layer at the aim point. Every layer shows a whole swapchain
 // image: some runtimes draw sub-rectangles of a shared image wrong (Virtual Desktop showed them solid white).
-Swapchain g_eyes[2], g_quad, g_patch, g_window[2], g_menu;
+Swapchain g_eyes[2], g_quad, g_patch, g_window[2];
 
-// The VR menu: CPU pixels from the core's menu (prx_set_menu), uploaded to a texture of our own when they change and
-// shown as the top layer at a pose in tracking space.
-std::mutex g_menuMutex;
-std::vector<uint8_t> g_menuPixels;
-int g_menuW, g_menuH;
-uint64_t g_menuVersion, g_menuUploaded;
-bool g_menuShown;
-PrxPose g_menuPose;
-float g_menuSize[2];
-void* g_menuTexture;
+// Overlays drawn by the core on the CPU (0: the VR menu, 1: the screen's handles): uploaded to a texture of our own
+// when their pixels change, shown over everything at a pose in tracking space; curved around the pose (a cylinder's
+// centre) when a radius is given and the runtime has curved layers.
+constexpr int kOverlays = 2;
+struct Overlay2 {
+    Swapchain swapchain;
+    std::vector<uint8_t> pixels;
+    int w = 0, h = 0;
+    uint64_t version = 0, uploaded = 0;
+    bool shown = false;
+    PrxPose pose{};
+    float size[2]{}, radius = 0;
+    void* texture = nullptr;
+};
+std::mutex g_overlayMutex;
+Overlay2 g_overlays[kOverlays];
+// Transparent eye images of our own, for frames whose eyes carry only the beam and the watch (Theater).
+void* g_clearEye;
+int g_eyeSize[2];  // the headset's recommended eye image
 
 std::mutex g_slotMutex;
 PrxFrame g_slots[kSlots];
@@ -454,8 +463,18 @@ void do_submit(int slot) {
     XrCompositionLayerQuad window[2]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
     // The flat panel's middle on its own at the aim point: see PrxFrame::aimPatch.
     XrCompositionLayerQuad patch{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    XrCompositionLayerQuad menu{XR_TYPE_COMPOSITION_LAYER_QUAD};
-    const XrCompositionLayerBaseHeader* layers[8];
+    XrCompositionLayerQuad overlayQuad[kOverlays]{{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
+    XrCompositionLayerCylinderKHR overlayCurve[kOverlays]{{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR}, {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR}};
+    const XrCompositionLayerBaseHeader* layers[10];
+    // Eyes without images of their own (Theater): transparent ones, for the beam and the watch.
+    if (f.stereo && (!f.eye[0].texture || !f.eye[1].texture) && g_gpu) {
+        if (!g_clearEye && g_eyeSize[0] > 0) {
+            std::vector<uint8_t> zero((size_t)g_eyeSize[0] * g_eyeSize[1] * 4, 0);
+            g_clearEye = g_gpu->upload(nullptr, zero.data(), g_eyeSize[0], g_eyeSize[1]);
+        }
+        f.eye[0] = f.eye[1] = {g_clearEye, 0};
+        if (!g_clearEye) f.stereo = 0;
+    }
     const XrCompositionLayerBaseHeader *projLayer = nullptr, *uiLayer = nullptr, *patchLayer = nullptr;
     uint32_t count = 0;
     bool stereo = false, hasQuad = false, curved = false;
@@ -561,22 +580,38 @@ void do_submit(int slot) {
     for (auto* l : order)
         if (l) layers[count++] = l;
     if (patchLayer) layers[count++] = patchLayer;
-    // The VR menu over everything, with its own alpha.
+    // The core's overlays over everything, with their own alpha: the screen's handles, then the VR menu on top.
     if (g_shouldRender) {
-        std::lock_guard lock(g_menuMutex);
-        if (g_menuShown && !g_menuPixels.empty()) {
-            if (g_menuUploaded != g_menuVersion || !g_menuTexture) {
-                g_menuTexture = g_gpu->upload(g_menuTexture, g_menuPixels.data(), g_menuW, g_menuH);
-                g_menuUploaded = g_menuVersion;
+        std::lock_guard lock(g_overlayMutex);
+        for (int i = kOverlays - 1; i >= 0; --i) {
+            Overlay2& o = g_overlays[i];
+            if (!o.shown || o.pixels.empty()) continue;
+            if (o.uploaded != o.version || !o.texture) {
+                o.texture = g_gpu->upload(o.texture, o.pixels.data(), o.w, o.h);
+                o.uploaded = o.version;
             }
-            if (g_menuTexture && copy_layer(g_menu, {g_menuTexture, 0}, path(L"menu.bmp"))) {
-                menu.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-                menu.space = g_xr.local;
-                menu.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                menu.subImage = {g_menu.handle, {{0, 0}, {g_menu.width, g_menu.height}}, 0};
-                menu.pose = to_xr(g_menuPose);
-                menu.size = {g_menuSize[0], g_menuSize[1]};
-                layers[count++] = (XrCompositionLayerBaseHeader*)&menu;
+            if (!o.texture || !copy_layer(o.swapchain, {o.texture, 0}, path(i == 0 ? L"menu.bmp" : L"handles.bmp"))) continue;
+            XrSwapchainSubImage image{o.swapchain.handle, {{0, 0}, {o.swapchain.width, o.swapchain.height}}, 0};
+            if (o.radius > 0 && g_cylinder) {
+                auto& c = overlayCurve[i];
+                c.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                c.space = g_xr.local;
+                c.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                c.subImage = image;
+                c.pose = to_xr(o.pose);
+                c.radius = o.radius;
+                c.centralAngle = o.size[0] / o.radius;
+                c.aspectRatio = o.size[0] / o.size[1];
+                layers[count++] = (XrCompositionLayerBaseHeader*)&c;
+            } else {
+                auto& q = overlayQuad[i];
+                q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                q.space = g_xr.local;
+                q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                q.subImage = image;
+                q.pose = to_xr(o.pose);
+                q.size = {o.size[0], o.size[1]};
+                layers[count++] = (XrCompositionLayerBaseHeader*)&q;
             }
         }
     }
@@ -602,9 +637,12 @@ void do_shutdown() {
         destroy_swapchain(g_patch);
         destroy_swapchain(g_window[0]);
         destroy_swapchain(g_window[1]);
-        destroy_swapchain(g_menu);
-        g_menuTexture = nullptr;
-        g_menuUploaded = 0;
+        for (auto& o : g_overlays) {
+            destroy_swapchain(o.swapchain);
+            o.texture = nullptr;
+            o.uploaded = 0;
+        }
+        g_clearEye = nullptr;
     }
     input_shutdown();
     if (g_pt.destroy) destroy_passthrough();
@@ -695,6 +733,7 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
     if (g_alphaBlend || g_fbPassthrough)
         prx_log("passthrough available (%s)", g_alphaBlend ? "alpha blend" : "XR_FB_passthrough");
     *recommendedWidth = (int32_t)vc[0].recommendedImageRectWidth;
+    g_eyeSize[0] = (int)vc[0].recommendedImageRectWidth, g_eyeSize[1] = (int)vc[0].recommendedImageRectHeight;
     *recommendedHeight = (int32_t)vc[0].recommendedImageRectHeight;
     if (!input_create_actions()) prx_log("controller actions unavailable");
     g_xr.state = StateInstance;
@@ -720,18 +759,26 @@ PRX_API void prx_set_frame(int32_t slot, const PrxFrame* frame) {
 
 // The VR menu's image (RGBA8, sRGB-encoded, premultiplied) at `pose` (tracking space), widthM x heightM metres; null
 // pixels hide it. Pass pixels only when they changed: each call is uploaded again.
-PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM) {
-    std::lock_guard lock(g_menuMutex);
-    g_menuShown = pose != nullptr;
+PRX_API void prx_set_overlay(int32_t index, const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM,
+                             float heightM, float radius) {
+    if (index < 0 || index >= kOverlays) return;
+    std::lock_guard lock(g_overlayMutex);
+    Overlay2& o = g_overlays[index];
+    o.shown = pose != nullptr;
     if (pose) {
-        g_menuPose = *pose;
-        g_menuSize[0] = widthM, g_menuSize[1] = heightM;
+        o.pose = *pose;
+        o.size[0] = widthM, o.size[1] = heightM;
+        o.radius = radius;
     }
     if (rgba && w > 0 && h > 0) {
-        g_menuPixels.assign(rgba, rgba + (size_t)w * h * 4);
-        g_menuW = w, g_menuH = h;
-        ++g_menuVersion;
+        o.pixels.assign(rgba, rgba + (size_t)w * h * 4);
+        o.w = w, o.h = h;
+        ++o.version;
     }
+}
+
+PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM) {
+    prx_set_overlay(0, rgba, w, h, pose, widthM, heightM, 0);
 }
 
 PRX_API void prx_capture(const wchar_t* dir) {

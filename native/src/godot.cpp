@@ -53,7 +53,7 @@ protected:
         ClassDB::bind_method(D_METHOD("set_window", "hwnd"), &ParallaxCore::set_window);
         ClassDB::bind_method(D_METHOD("pad"), &ParallaxCore::pad);
         ClassDB::bind_method(D_METHOD("test_controllers", "controllers"), &ParallaxCore::test_controllers);
-        ClassDB::bind_method(D_METHOD("test_point", "u", "v"), &ParallaxCore::test_point);
+        ClassDB::bind_method(D_METHOD("test_point", "u", "v", "screen"), &ParallaxCore::test_point, DEFVAL(false));
         ClassDB::bind_method(D_METHOD("set_menu_host", "host"), &ParallaxCore::set_menu_host);
         ClassDB::bind_method(D_METHOD("toggle_menu"), &ParallaxCore::toggle_menu);
         ClassDB::bind_method(D_METHOD("capture", "dir"), &ParallaxCore::capture);
@@ -151,6 +151,9 @@ public:
         g.carried = game.get("carried", false);
         g.menuOpen = game.get("menu_open", false);
         g.uiAspect = (float)(double)game.get("ui_aspect", 16.0 / 9.0);
+        g.fovY = (float)(double)game.get("fov_y", 1.0);
+        g.nearClip = (float)(double)game.get("near", 0.05);
+        g.focus = (float)(double)game.get("focus", 0.0);
         bridge::Frame f;
         Dictionary out;
         if (!bridge::frame(g, f)) return out;
@@ -171,6 +174,23 @@ public:
         out["aiming"] = f.aiming;
         out["menu_toggle"] = (f.events & 1) != 0;
         out["menu_open"] = f.menuOpen;
+        out["mode"] = f.mode;
+        out["handles"] = f.handles;
+        if (f.mode == 1) {
+            Array window;
+            for (int e = 0; e < 2; ++e) {
+                Dictionary d;
+                d["offset"] = f.windowOffset[e];
+                Array fov;
+                fov.append(f.windowFov[e].left);
+                fov.append(f.windowFov[e].right);
+                fov.append(f.windowFov[e].up);
+                fov.append(f.windowFov[e].down);
+                d["fov"] = fov;
+                window.append(d);
+            }
+            out["window"] = window;
+        }
         if (f.quit) out["quit"] = true;
         if (f.renderScale) out["render_scale"] = true;
         if (f.cameraPicked) out["camera_picked"] = String::utf8(f.camera.c_str());
@@ -187,7 +207,7 @@ public:
                                  c.get("lt", 0.0), c.get("rt", 0.0), (uint32_t)(int64_t)c.get("buttons", 0));
     }
 
-    void test_point(float u, float v) { bridge::test_point(u, v); }
+    void test_point(float u, float v, bool screen) { bridge::test_point(u, v, screen); }
 
     void toggle_menu() { bridge::toggle_menu(); }
     void capture(const String& dir) { bridge::capture(std::wstring((const wchar_t*)dir.utf16().get_data())); }

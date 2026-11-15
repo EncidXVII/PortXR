@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "rig.h"
 #include "menu.h"
+#include "canvas.h"
 #include <Xinput.h>
 
 extern "C" {
@@ -18,6 +19,9 @@ PRX_API int32_t prx_pad_state(XINPUT_GAMEPAD* out);
 PRX_API int32_t prx_key_down(int32_t vk);
 PRX_API void prx_capture(const wchar_t* dir);
 PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM);
+PRX_API void prx_set_overlay(int32_t index, const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM,
+                             float heightM, float radius);
+PRX_API int32_t prx_passthrough();
 }
 
 namespace {
@@ -32,7 +36,48 @@ bool g_accentRead;
 float g_vignette;
 rig::Result g_rig;
 LARGE_INTEGER g_menuTick{};
+canvas::Canvas g_handlesCanvas;
+int g_handlesDrawn = -1;  // what the handles canvas shows: handle, grab and size, packed
+
+PrxPose prx_pose(const rig::Pose& p) { return {p.p.x, p.p.y, p.p.z, p.q.x, p.q.y, p.q.z, p.q.w}; }
+
+// The plugin's DrawHandles: faint rounded corner brackets (lime while resizing), a pill bar under the middle, a quiet
+// RESET beside it, and while dragging the distance and width with the stick's controls above the bar.
+void draw_handles(const rig::Result& r, float aspect) {
+    int ch = 720, cw = (int)(ch * aspect);
+    g_handlesCanvas.resize(cw, ch);
+    float W = (float)cw, H = (float)ch, t = std::max(3.f, H / 160), corner = H * 0.12f, arm = corner * 0.6f, inset = H * 0.02f;
+    canvas::Color faint{0.961f, 0.961f, 0.969f, 0.4f}, shade{0.043f, 0.043f, 0.047f, 0.55f};
+    float accentRgb[3];
+    settings::accent(accentRgb);
+    canvas::Color lime{accentRgb[0], accentRgb[1], accentRgb[2], 1};
+    bool sizing = r.handle == 2 || r.grab == 2;
+    float k = sizing ? 2.f : 1.f;
+    for (float x : {inset, W - inset})
+        for (float y : {inset, H - inset}) {
+            canvas::Color c = sizing ? lime : faint;
+            g_handlesCanvas.round({x < W / 2 ? x : x - arm, y < H / 2 ? y : y - t * k, arm, t * k}, c, t * k / 2);
+            g_handlesCanvas.round({x < W / 2 ? x : x - t * k, y < H / 2 ? y : y - arm, t * k, arm}, c, t * k / 2);
+        }
+    canvas::Rect bar{W / 2 - H * 0.16f, H * 0.935f, H * 0.32f, H * 0.065f};
+    g_handlesCanvas.round(bar, shade, bar.h / 2);
+    g_handlesCanvas.round({bar.x + bar.w * 0.2f, bar.cy() - t, bar.w * 0.6f, t * 2}, r.handle == 1 || r.grab == 1 ? lime : faint, t);
+    canvas::Rect reset{bar.x + bar.w + H * 0.02f, bar.y, H * 0.16f, bar.h};
+    g_handlesCanvas.round(reset, r.handle == 3 ? lime : shade, reset.h * 0.3f);
+    g_handlesCanvas.text(reset, "RESET", canvas::Bold, H / 40, r.handle == 3 ? canvas::rgb(0x0B0B0C) : faint, canvas::Center);
+    if (!r.grab) return;
+    canvas::Rect tip{W / 2 - H * 0.5f, bar.y - H * 0.1f, H, H * 0.08f};
+    g_handlesCanvas.round(tip, {0.043f, 0.043f, 0.047f, 0.85f}, tip.h * 0.25f);
+    char line[96];
+    snprintf(line, sizeof(line), "%.1f m away, %.1f m wide", r.screenDistance, r.screenWidth);
+    g_handlesCanvas.text({tip.x, tip.y, tip.w, tip.h / 2}, line, canvas::Body, H / 40, {1, 1, 1, 1}, canvas::Center);
+    g_handlesCanvas.text({tip.x, tip.cy(), tip.w, tip.h / 2}, "Right stick: up/down distance, left/right size", canvas::Body, H / 40,
+                         {1, 1, 1, 1}, canvas::Center);
+}
 bool g_menuKeyDown, g_welcomed;
+int g_lastMode;
+rig::Screen g_lastScreen;
+float g_aspect = 16.f / 9.f;
 PrxPose pose(const bridge::Pose& p) { return {p.p[0], p.p[1], p.p[2], p.q[0], p.q[1], p.q[2], p.q[3]}; }
 void submit(PrxFrame& f) {
     f.accent[0] = 0.776f, f.accent[1] = 1.f, f.accent[2] = 0.102f;
@@ -119,16 +164,53 @@ bool frame(const Game& game, Frame& out) {
     g.carried = game.carried;
     g.menuOpen = menu::is_open();
     g.uiAspect = game.uiAspect;
-    // The menu stands where the UI panel is, a little in front, as tall as Menu.cs draws it on the screen.
+    g.fovY = game.fovY;
+    g.nearClip = game.nearClip;
+    g.focus = game.focus;
+    g.screenUnlocked = menu::screen_unlocked();
+    // The menu stands where the game's picture is (the UI panel, or the middle of the Theater and Parallax screen), a
+    // little in front, as tall as Menu.cs draws it on the screen.
+    float aspect = game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f;
     float pw = 1;
-    rig::Pose panel = rig::panel(pw);
-    float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
+    rig::Pose at = rig::panel(pw);
+    float ph = pw / aspect;
+    if (g_lastMode != 0) {
+        at = g_lastScreen.center;
+        if (g_lastScreen.radius > 0) at.p = g_lastScreen.pose.p + g_lastScreen.pose.q * mathx::V3{0, 0, -g_lastScreen.radius};
+        ph = g_lastScreen.height;
+    }
     g.menuHeight = ph * 840.f / 1080.f;
     g.menuWidth = g.menuHeight * menu::aspect();
-    g.menuPose = {panel.p + panel.q * mathx::V3{0, 0, 0.02f}, panel.q};
+    g.menuPose = {at.p + at.q * mathx::V3{0, 0, g_lastMode != 0 ? 0.05f : 0.02f}, at.q};
     g.pointerAuto = settings::get("Controls", "Pointer", "Auto") != "MenuOnly";
     rig::Result r = rig::frame(g, g_views);
     g_rig = r;
+    g_lastMode = r.mode;
+    g_lastScreen = r.screen;
+    g_aspect = aspect;
+    out.mode = r.mode;
+    out.handles = r.handles;
+    for (int e = 0; e < 2; ++e) {
+        out.windowOffset[e] = r.windowOffset[e];
+        out.windowFov[e] = {r.windowFov[e].left, r.windowFov[e].right, r.windowFov[e].up, r.windowFov[e].down};
+    }
+    // The screen's handles, redrawn when what they show changes.
+    if (r.handles && r.mode != 0) {
+        int state = r.handle | (r.grab << 4) | ((int)(r.screenDistance * 10) << 8) | ((int)(r.screenWidth * 10) << 16);
+        bool changed = state != g_handlesDrawn;
+        if (changed) draw_handles(r, aspect), g_handlesDrawn = state;
+        PrxPose pose = prx_pose(r.screen.radius > 0 ? r.screen.pose : r.screen.center);
+        // A hair in front of the screen; the curved one a little inside its cylinder.
+        if (r.screen.radius <= 0) {
+            mathx::V3 n = r.screen.center.q * mathx::V3{0, 0, 0.01f};
+            pose.px += n.x, pose.py += n.y, pose.pz += n.z;
+        }
+        prx_set_overlay(1, changed ? g_handlesCanvas.pixels() : nullptr, g_handlesCanvas.width(), g_handlesCanvas.height(), &pose,
+                        r.screen.width, r.screen.height, r.screen.radius > 0 ? r.screen.radius - 0.01f : 0);
+    } else {
+        g_handlesDrawn = -1;
+        prx_set_overlay(1, nullptr, 0, 0, nullptr, 0, 0, 0);
+    }
     for (int e = 0; e < 2; ++e) {
         out.eyes[e] = {{r.eyes[e].p.x, r.eyes[e].p.y, r.eyes[e].p.z}, {r.eyes[e].q.x, r.eyes[e].q.y, r.eyes[e].q.z, r.eyes[e].q.w}};
         out.fovs[e] = {g_fovs[e].left, g_fovs[e].right, g_fovs[e].up, g_fovs[e].down};
@@ -180,7 +262,7 @@ void test_controllers(bool on, float lx, float ly, float rx, float ry, float lt,
     rig::set_test_controllers(&c);
 }
 
-void test_point(float u, float v) { rig::set_test_point(u, v); }
+void test_point(float u, float v, bool screen) { rig::set_test_point(u, v, screen); }
 
 void toggle_menu() { menu::toggle(); }
 void capture(const std::wstring& dir) { prx_capture(dir.c_str()); }
@@ -212,14 +294,36 @@ bool pad(Pad& out) {
 void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY) {
     if (!g_located) return;
     PrxFrame f{};
-    f.stereo = 1;
-    f.eye[0] = {left, flipY ? 1 : 0};
-    f.eye[1] = {right, flipY ? 1 : 0};
+    int mode = g_rig.mode;
+    // Stereo: the eyes. Theater and Parallax: transparent eyes of the core's own, for the beam and the watch over the
+    // screen; Parallax adds the window eyes on the screen.
+    f.stereo = mode == rig::Stereo || g_rig.beam || g_rig.watch.shown || mode == rig::Parallax ? 1 : 0;
+    if (mode == rig::Stereo) {
+        f.eye[0] = {left, flipY ? 1 : 0};
+        f.eye[1] = {right, flipY ? 1 : 0};
+    }
     for (int e = 0; e < 2; ++e) {
         f.eyePose[e] = g_views[e];
         f.eyeFov[e] = g_fovs[e];
     }
-    if (ui) {
+    if (mode == rig::Parallax && left && right) {
+        f.window = 1;
+        f.windowLayer[0] = {left, flipY ? 1 : 0};
+        f.windowLayer[1] = {right, flipY ? 1 : 0};
+    }
+    f.passthrough = mode != rig::Stereo && settings::get("View", "Background", "Dark") == "Passthrough" && prx_passthrough() ? 1 : 0;
+    if (ui && mode != rig::Stereo) {
+        // The game's picture (Theater) or its UI over the window (Parallax) on the screen, curved where it fits.
+        const rig::Screen& sc = g_rig.screen;
+        f.quad = 1;
+        f.quadAlpha = mode == rig::Parallax ? 1 : 0;
+        f.uiKey = 2;
+        f.quadLayer = {ui, flipY ? 1 : 0};
+        f.quadPose = prx_pose(mode == rig::Parallax ? sc.center : (sc.radius > 0 ? sc.pose : sc.center));
+        f.quadRadius = mode == rig::Theater ? sc.radius : 0;
+        f.quadWidth = sc.width;
+        f.quadHeight = sc.height;
+    } else if (ui) {
         float width = 1;
         rig::Pose at = rig::panel(width);
         f.quad = 1;

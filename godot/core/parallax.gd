@@ -28,6 +28,9 @@ var _pad_sent := {}
 var _aiming := false
 var _udp: PacketPeerUDP
 var _menu_open := false
+var _mode := 0  # the core's display: 0 Stereo, 1 Parallax, 2 Theater
+var _focus := 0.0
+var _handles := false
 var _picked_camera := ""
 var _camera_names: Array[String] = []
 var _pointer := Vector2(-1, -1)
@@ -93,13 +96,22 @@ func _process(_delta: float) -> void:
 		core.begin()
 	var root := get_tree().root
 	_game = _game_camera(root)
-	_show_picture(_view_picture if _view != null else null)
+	# Theater: the game draws its own flat picture, which the core puts on the screen; otherwise the window keeps only
+	# the 2D UI and the game's own 3D picture leaves it.
+	var theater := _mode == 2
+	root.disable_3d = not theater
+	root.transparent_bg = not theater
+	_show_picture(_view_picture if _view != null and not theater else null)
+	for v in _views:
+		v.render_target_update_mode = SubViewport.UPDATE_DISABLED if theater else SubViewport.UPDATE_ALWAYS
 	_serve_tests()
 	var game := {
 		"camera_key": (str(get_tree().current_scene.scene_file_path) if get_tree().current_scene else "") + "/" + (str(_game.name) if _game else ""),
 		"cursor_free": Input.mouse_mode == Input.MOUSE_MODE_VISIBLE or Input.mouse_mode == Input.MOUSE_MODE_CONFINED,
 		"pad_game": _pad_game, "carried": _carried(_game), "menu_open": false,
 		"ui_aspect": _ui_aspect(root),
+		"fov_y": deg_to_rad(_game.fov) if _game else 1.0, "near": _game.near if _game else 0.05,
+		"focus": _focus,
 	}
 	if _game != null:
 		game["camera"] = _game.global_transform.orthonormalized()
@@ -107,11 +119,15 @@ func _process(_delta: float) -> void:
 	var eyes: Array = result.get("eyes", [])
 	_aiming = result.get("aiming", false)
 	_menu_open = result.get("menu_open", false)
+	_mode = result.get("mode", 0)
+	_handles = result.get("handles", false)
 	_placed = eyes.size() == 2
 	_menu_requests(result)
 	_send_pad()
 	_send_pointer(result)
-	if _placed:
+	if _placed and _mode == 1 and _game != null and result.has("window"):
+		_window_eyes(result["window"], root)
+	elif _placed and _mode == 0:
 		var world := _game.get_world_3d() if _game != null else root.find_world_3d()
 		for e in 2:
 			var c := _cams[e]
@@ -142,6 +158,10 @@ func _after_draw() -> void:
 		return
 	if _placed:
 		var root := get_tree().root
+		if _mode == 0 and _views[0].size != _stereo_size():
+			for v in _views:
+				v.size = _stereo_size()
+			return
 		core.submit_view(left, _views[1].get_texture().get_rid(), root.get_texture().get_rid(), _ui_aspect(root))
 
 
@@ -223,6 +243,52 @@ func _show_picture(picture: CanvasItem) -> void:
 		_hidden_alpha = picture.self_modulate.a
 		picture.self_modulate.a = 0
 		print(LOG, "the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel")
+
+
+# Parallax: the two window cameras, from the game camera moved along its right, looking where it looks, through the
+# window's frustum (the core's), at a screen-shaped size a little under the eye height; and the focus the core eases
+# for the next frame: the median of five rays around the middle of the view.
+func _window_eyes(window: Array, root: Window) -> void:
+	var aspect := _ui_aspect(root)
+	var h := int(_eye_size.y * 0.8)
+	var size := Vector2i(int(h * aspect), h)
+	var basis := _game.global_basis.orthonormalized()
+	for e in 2:
+		var v := _views[e]
+		if v.size != size:
+			v.size = size
+		v.world_3d = _game.get_world_3d()
+		var c := _cams[e]
+		c.global_transform = Transform3D(basis, _game.global_position + basis.x * float(window[e]["offset"]))
+		var fov: Array = window[e]["fov"]
+		var n := maxf(_game.near, 0.02)
+		var l := tan(float(fov[0]))
+		var r := tan(float(fov[1]))
+		var u := tan(float(fov[2]))
+		var d := tan(float(fov[3]))
+		c.set_frustum(n * (u - d), Vector2(n * (r + l) / 2.0, n * (u + d) / 2.0), n, _game.far)
+		c.cull_mask = _game.cull_mask
+		c.environment = _game.environment
+		c.attributes = _game.attributes
+	var space := _game.get_world_3d().direct_space_state
+	var vp := _game.get_viewport()
+	var vs := vp.get_visible_rect().size
+	var hits: Array[float] = []
+	for at in [Vector2(0.5, 0.5), Vector2(0.4, 0.5), Vector2(0.6, 0.5), Vector2(0.5, 0.4), Vector2(0.5, 0.6)]:
+		var p: Vector2 = at * vs
+		var from := _game.project_ray_origin(p)
+		var to := from + _game.project_ray_normal(p) * _game.far
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, to))
+		if not hit.is_empty():
+			hits.append(from.distance_to(hit["position"]))
+	if not hits.is_empty():
+		hits.sort()
+		_focus = hits[hits.size() / 2]
+
+
+func _stereo_size() -> Vector2i:
+	var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
+	return Vector2i(int(_eye_size.x * scale), int(_eye_size.y * scale))
 
 
 # What the VR menu asks of the game: quit, follow another camera, new eye resolution.
@@ -378,7 +444,7 @@ func _command(cmd: String) -> Variant:
 				var f := -_game.global_basis.z
 				yaw = rad_to_deg(atan2(f.x, -f.z))
 			return {"state": core.state(), "camera": str(_game.get_path()) if _game else "", "aiming": _aiming,
-				"pointer": [_pointer.x, _pointer.y], "pointer_down": _pointer_down, "menu_open": _menu_open,
+				"pointer": [_pointer.x, _pointer.y], "pointer_down": _pointer_down, "menu_open": _menu_open, "mode": _mode, "handles": _handles,
 				"heading": yaw, "frames": _frames, "pad_game": _pad_game, "game": get_tree().root.get_meta("g1", {})}
 		"set":
 			var kv := parts[1].split(" ", false, 1)
@@ -388,9 +454,9 @@ func _command(cmd: String) -> Variant:
 		"controllers":
 			core.test_controllers(JSON.parse_string(parts[1]) if parts.size() > 1 else {})
 			return {"ok": true}
-		"point":
+		"point", "point_screen":
 			var uv := parts[1].split(" ")
-			core.test_point(float(uv[0]), float(uv[1]))
+			core.test_point(float(uv[0]), float(uv[1]), parts[0] == "point_screen")
 			return {"ok": true}
 		"menu":
 			core.toggle_menu()

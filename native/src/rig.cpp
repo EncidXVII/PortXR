@@ -1,11 +1,13 @@
 #include "rig.h"
 #include "settings.h"
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 #include <map>
 
 extern "C" PRX_API uint32_t prx_input_update(const PrxInputConfig* cfg, const PrxControllers* test, PrxControllers* out);
 extern "C" PRX_API void prx_haptic_pulse(int32_t hand, float amplitude, float seconds);
+extern "C" PRX_API void prx_get_stats(PrxStats* out);
 
 using namespace mathx;
 
@@ -49,6 +51,15 @@ float g_stepAt, g_stepLen = 0.02f, g_lastMoveAt;
 int g_stepMoved, g_stepStill, g_stepFrames;
 bool g_stepSmoothing;
 bool g_testOn;
+// The Theater and Parallax screen: a direction from the recenter point (degrees right, up), a distance and a width,
+// kept per game in the settings; `live` while a handle drags it (these lead, the settings follow on release).
+float g_screenYaw, g_screenPitch, g_screenDistance = 3, g_screenWidth = 3.2f;
+bool g_screenLive;
+int g_handle, g_grab;
+bool g_handlePull;
+Q g_grabFrom;
+float g_grabWidth, g_grabReach;
+float g_focus = 3;
 // Laser pointer and wrist watch.
 float g_pointerU, g_pointerV;
 bool g_pointerOn, g_pointerDown;
@@ -278,6 +289,37 @@ void update_vignette(bool hasCamera) {
     g_vignette = target > g_vignette ? std::min(target, g_vignette + rate) : std::max(target, g_vignette - rate);
 }
 
+struct Surface {
+    V3 center;  // the middle of the face (flat), or the cylinder's centre (curved)
+    Q rot;
+    float w, h, radius;  // radius 0: flat
+    V3 point(float u, float v) const {
+        if (radius <= 0) return center + rot * V3{(u - 0.5f) * w, (0.5f - v) * h, 0};
+        float a = (u - 0.5f) * w / radius;
+        return center + rot * V3{std::sin(a) * radius, (0.5f - v) * h, -std::cos(a) * radius};
+    }
+};
+
+bool hit_panel(const V3& from, const V3& dir, const V3& center, const Q& rot, float w, float h, float& u, float& v, V3& at);
+
+// Where a ray meets a surface: UV (top-left origin) and the point. On the curved screen the player stands inside the
+// cylinder, so the hit is where the ray leaves it (the plugin's HitCylinder).
+bool hit(const Surface& s, const V3& from, const V3& dir, float& u, float& v, V3& at) {
+    if (s.radius <= 0) return hit_panel(from, dir, s.center, s.rot, s.w, s.h, u, v, at);
+    Q inv = s.rot.inverse();
+    V3 p = inv * (from - s.center), d = inv * dir;
+    float a = d.x * d.x + d.z * d.z, b = 2 * (p.x * d.x + p.z * d.z), c = p.x * p.x + p.z * p.z - s.radius * s.radius;
+    float disc = b * b - 4 * a * c;
+    if (a < 1e-6f || disc < 0) return false;
+    float t = (-b + std::sqrt(disc)) / (2 * a);
+    if (t <= 0) return false;
+    V3 h = p + d * t;
+    u = std::atan2(h.x, -h.z) * s.radius / s.w + 0.5f;
+    v = 0.5f - h.y / s.h;
+    at = s.center + s.rot * h;
+    return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+}
+
 // Where a ray meets the UI panel (tracking space): UV with a top-left origin and the point; false when it misses.
 bool hit_panel(const V3& from, const V3& dir, const V3& center, const Q& rot, float w, float h, float& u, float& v, V3& at) {
     V3 n = rot * V3{0, 0, 1};
@@ -297,16 +339,14 @@ V3 aim_dir(const PrxPose& p) { return Q{p.qx, p.qy, p.qz, p.qw} * V3{0, 0, -1}; 
 
 // The pointer, as the plugin's UpdatePointer: wanted with the VR menu open, or (Laser pointer: with game cursor) while
 // the game shows a free cursor; small moves eased against tremor, more so while the trigger is being pulled.
-void update_pointer(const rig::GameFrame& g, rig::Result& r, const V3& center, const Q& rot, float w, float h) {
+void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surface) {
     const PrxControllers& c = g_controllers;
     bool wanted = g.menuOpen || (g.pointerAuto && g.cursorFree);
     float u = -1, v = -1;
     V3 at, from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]);
     // With the VR menu open the laser works the menu, not the game's UI.
-    V3 target = g.menuOpen ? g.menuPose.p : center;
-    Q targetRot = g.menuOpen ? g.menuPose.q : rot;
-    float tw = g.menuOpen ? g.menuWidth : w, th = g.menuOpen ? g.menuHeight : h;
-    bool on = c.aimValid[1] && hit_panel(from, dir, target, targetRot, tw, th, u, v, at);
+    Surface target = g.menuOpen ? Surface{g.menuPose.p, g.menuPose.q, g.menuWidth, g.menuHeight, 0} : surface;
+    bool on = c.aimValid[1] && hit(target, from, dir, u, v, at);
     if (on && g_pointerOn && wanted) {
         float d = std::sqrt((u - g_pointerU) * (u - g_pointerU) + (v - g_pointerV) * (v - g_pointerV));
         float follow = std::clamp(d * 60.f, c.rTrigger > 0.15f ? 0.04f : 0.15f, 1.f);
@@ -328,7 +368,7 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const V3& center, c
     if (r.beam) {
         r.beamFrom = from;
         // The beam ends on the panel at the eased point, else a metre out.
-        r.beamTo = active ? target + targetRot * V3{(g_pointerU - 0.5f) * tw, (0.5f - g_pointerV) * th, 0} : from + dir;
+        r.beamTo = active ? target.point(g_pointerU, g_pointerV) : from + dir;
     }
 }
 
@@ -382,6 +422,159 @@ bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2
     return open;
 }
 
+constexpr float kMinScreen = 0.8f, kMaxScreen = 20.f;
+Q pitch_q(float degrees) { return {std::sin(degrees * kRad / 2), 0, 0, std::cos(degrees * kRad / 2)}; }
+
+void screen_from_settings() {
+    if (g_screenLive) return;
+    g_screenYaw = settings::getf("View", "ScreenYaw", 0, -360, 360);
+    g_screenPitch = settings::getf("View", "ScreenPitch", 0, -60, 75);
+    g_screenDistance = settings::getf("View", "ScreenDistance", 3, kMinScreen, kMaxScreen);
+    g_screenWidth = settings::getf("View", "ScreenWidth", 3.2f, kMinScreen, kMaxScreen);
+}
+
+std::string number(float v, float step) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%g", std::round(v / step) * step);
+    return buf;
+}
+
+void save_screen() {
+    settings::set("View", "ScreenYaw", number(g_screenYaw, 0.1f));
+    settings::set("View", "ScreenPitch", number(g_screenPitch, 0.1f));
+    settings::set("View", "ScreenDistance", number(g_screenDistance, 0.01f));
+    settings::set("View", "ScreenWidth", number(g_screenWidth, 0.01f));
+}
+
+// The screen as the plugin's Placement and CurveCenter: turned from the recenter point; curved around it at eye level.
+bool g_curvedRuntime;
+rig::Screen place_screen(bool window, float aspect) {
+    screen_from_settings();
+    rig::Screen s;
+    bool curve = g_curvedRuntime && !window && std::fabs(g_screenPitch) < 12.f;
+    Q rot = g_originYaw * yaw(-g_screenYaw * kRad) * pitch_q(curve ? 0 : g_screenPitch);
+    s.width = g_screenWidth;
+    s.height = g_screenWidth / (aspect > 0 ? aspect : 16.f / 9.f);
+    if (curve) {
+        float radius = g_screenDistance * std::cos(g_screenPitch * kRad);
+        V3 c = g_originPos + V3{0, g_screenDistance * std::sin(g_screenPitch * kRad), 0};
+        s.pose = {c, rot};
+        s.radius = radius;
+        s.center = {c + rot * V3{0, 0, -radius}, rot};
+    } else {
+        s.pose = s.center = {g_originPos + rot * V3{0, 0, -g_screenDistance}, rot};
+    }
+    return s;
+}
+
+Surface surface_of(const rig::Screen& s) {
+    return s.radius > 0 ? Surface{s.pose.p, s.pose.q, s.width, s.height, s.radius} : Surface{s.center.p, s.center.q, s.width, s.height, 0};
+}
+
+// Handles on the screen, in its UV (the plugin's Bar, ResetRect and corners, in screen-height units).
+int handle_at(float u, float v, float aspect) {
+    float x = u * aspect, y = v, cw = aspect;  // x in screen heights
+    float barX = cw / 2 - 0.16f, barY = 0.935f, barW = 0.32f, barH = 0.065f;
+    if (x >= barX && x < barX + barW && y >= barY && y < barY + barH) return 1;
+    float rx = barX + barW + 0.02f;
+    if (x >= rx && x < rx + 0.16f && y >= barY && y < barY + barH) return 3;
+    float c = 0.12f;
+    return (x < c || x > cw - c) && (y < c || y > 1 - c) ? 2 : 0;
+}
+
+// How far from the screen's centre the ray crosses the screen's plane; -1 when it does not.
+float reach(const V3& from, const V3& dir, const rig::Pose& center) {
+    Q inv = center.q.inverse();
+    V3 p = inv * (from - center.p), d = inv * dir;
+    if (d.z > -1e-4f) return -1;
+    V3 h = p + d * (-p.z / d.z);
+    return std::sqrt(h.x * h.x + h.y * h.y);
+}
+
+// The plugin's UpdateHandles: takes the laser while it is on a handle or dragging one (true). The bar moves the screen
+// anywhere around the player, a corner resizes it, RESET brings back 3 m ahead; while dragging, the right stick pushes it
+// away or pulls it in (up, down) and sizes it (right, left).
+bool update_handles(bool shown, rig::Result& r, const Surface& s, float aspect) {
+    const PrxControllers& c = g_controllers;
+    bool pull = c.rTrigger > 0.6f, fresh = pull && !g_handlePull;
+    g_handlePull = pull;
+    r.handles = shown || g_grab != 0;
+    if (!r.handles || !c.aimValid[1]) {
+        if (g_grab) save_screen();
+        g_handle = g_grab = 0;
+        g_screenLive = false;
+        return false;
+    }
+    float u = -1, v = -1;
+    V3 at, from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]);
+    bool on = hit(s, from, dir, u, v, at);
+    int over = on ? handle_at(u, v, aspect) : 0;
+    if (!g_grab) {
+        if (over != g_handle && over) prx_haptic_pulse(1, 0.2f, 0.015f);
+        g_handle = over;
+    }
+    if (!g_handle) return false;
+    r.beam = true;
+    r.beamFrom = from;
+    rig::Pose center{s.radius > 0 ? s.point(0.5f, 0.5f) : s.center, s.rot};
+    if (fresh && !g_grab) {
+        prx_haptic_pulse(1, 0.3f, 0.03f);
+        if (g_handle == 3) {
+            settings::set("View", "ScreenYaw", "0");
+            settings::set("View", "ScreenPitch", "0");
+            settings::set("View", "ScreenDistance", "3");
+            settings::set("View", "ScreenWidth", "3.2");
+            g_screenLive = false;
+            screen_from_settings();
+        } else {
+            g_grab = g_handle;
+            g_screenLive = true;
+            // Moving keeps the screen where it sat relative to the ray; resizing scales with the corner's reach.
+            g_grabFrom = look(dir).inverse() * (g_originYaw * yaw(-g_screenYaw * kRad) * pitch_q(g_screenPitch));
+            g_grabWidth = g_screenWidth;
+            g_grabReach = reach(from, dir, center);
+        }
+    } else if (!pull && g_grab) {
+        g_grab = 0;
+        g_screenLive = false;
+        save_screen();
+    }
+    if (g_grab) {
+        if (std::fabs(c.ry) > 0.2f) g_screenDistance = std::clamp(g_screenDistance * std::exp(c.ry * g_dt * 1.5f), kMinScreen, kMaxScreen);
+        if (std::fabs(c.rx) > 0.2f) g_grabWidth = std::clamp(g_grabWidth * std::exp(c.rx * g_dt * 1.5f), kMinScreen, kMaxScreen);
+        if (g_grab == 1) {
+            V3 facing = g_originYaw.inverse() * ((look(dir) * g_grabFrom) * V3{0, 0, -1});
+            g_screenYaw = heading_cw(facing);
+            g_screenPitch = std::clamp(pitch_deg(facing), -60.f, 75.f);
+            g_screenWidth = g_grabWidth;
+        } else if (g_grabReach > 0.05f) {
+            float now = reach(from, dir, center);
+            if (now > 0) g_screenWidth = std::clamp(g_grabWidth * now / g_grabReach, kMinScreen, kMaxScreen);
+        }
+    }
+    r.beamTo = on ? s.point(u, v) : from + dir;
+    return true;
+}
+
+// The plugin's WindowEyes and UpdateFocus: the window into the game sits at the focus distance, as large as the flat
+// view there; game units per metre of screen, times the depth setting, space the eyes, never wider than two
+// eye-widths at the world scale. The focus (the adapter's rays) stops at 15 m and eases over about 0.7 s.
+void window_eyes(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2], float screenH, float aspect) {
+    float s = rig::scale();
+    float ipd = std::clamp((v_of(views[1]) - v_of(views[0])).length(), 0.05f, 0.08f);
+    float nearest = std::max(g.nearClip * 4, 0.5f);
+    float target = std::clamp(g.focus > 0 ? g.focus : g_focus, nearest, std::max(nearest, 15.f * s));
+    g_focus += (target - g_focus) * (1 - std::exp(-g_dt * 1.5f));
+    float gh = 2 * g_focus * std::tan(g.fovY / 2), gw = gh * aspect;
+    float k = std::min(gh / screenH, 2.f * s) * clamp01(settings::getf("View", "Depth", 1, 0, 1));
+    for (int e = 0; e < 2; ++e) {
+        float x = (e == 0 ? -ipd : ipd) / 2 * k;
+        r.windowOffset[e] = x;
+        r.windowFov[e] = {std::atan((-gw / 2 - x) / g_focus), std::atan((gw / 2 - x) / g_focus), std::atan(gh / 2 / g_focus),
+                          std::atan(-gh / 2 / g_focus)};
+    }
+}
+
 V3 smoothed(V3 pos) {
     if ((pos - g_stepTo).dot(pos - g_stepTo) > 0) {
         g_stepFrom = (pos - g_stepTo).dot(pos - g_stepTo) > 4.f ? pos : g_stepTo;  // a jump: no line to it
@@ -407,9 +600,10 @@ namespace rig {
 void recenter() { g_recenterPending = true; }
 
 float g_testPointU = -1, g_testPointV;
+bool g_testPointScreen;
 
-void set_test_point(float u, float v) {
-    g_testPointU = u, g_testPointV = v;
+void set_test_point(float u, float v, bool screen) {
+    g_testPointU = u, g_testPointV = v, g_testPointScreen = screen;
 }
 
 void set_test_controllers(const PrxControllers* c) {
@@ -454,14 +648,26 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     cfg.pointerClick = 0;
     // While it points at the panel, the right trigger is the pointer's, not the game's.
     cfg.pointerActive = g_pointerOn ? 1 : 0;
-    g_aiming = aim_wanted(game, mode);
+    // Display: Parallax needs a game camera; without one (or when asked) the flat game on the Theater screen.
+    std::string display = setting("View", "Display", "Stereo");
+    int view = display == "Theater" || !game.hasCamera ? rig::Theater : display == "Parallax" ? rig::Parallax : rig::Stereo;
+    {
+        static bool asked = false;
+        if (!asked) {
+            PrxStats st{};
+            prx_get_stats(&st);
+            g_curvedRuntime = st.curvedSupported != 0;
+            asked = st.state >= StateSession;
+        }
+    }
+    g_aiming = view == rig::Stereo && aim_wanted(game, mode);
     if (g_aiming) {
         cfg.snap = 1;
         cfg.aim = 1;
         head_aim(game, mode == 0);
         cfg.turnX = g_aimPushX;
         cfg.turnY = g_aimPushY;
-    } else if (setting("Comfort", "Turning", "Smooth") != "Smooth" && mode != 2 && game.hasCamera && !game.menuOpen &&
+    } else if (view == rig::Stereo && setting("Comfort", "Turning", "Smooth") != "Smooth" && mode != 2 && game.hasCamera && !game.menuOpen &&
                (g_snapping || (g_orbitSamples >= 10 && orbit_radius() < 0.45f))) {
         // Snap turns are for a camera that turns about itself; a third-person camera keeps the right stick as is.
         cfg.snap = 1;
@@ -473,8 +679,13 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
         float pw = 1;
         Pose p = panel(pw);
         float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
-        if (game.menuOpen) p = game.menuPose, pw = game.menuWidth, ph = game.menuHeight;
+        if (game.menuOpen && !g_testPointScreen) p = game.menuPose, pw = game.menuWidth, ph = game.menuHeight;
         V3 target = p.p + p.q * V3{(g_testPointU - 0.5f) * pw, (0.5f - g_testPointV) * ph, 0};
+        std::string shown = setting("View", "Display", "Stereo");
+        if ((!game.menuOpen || g_testPointScreen) && (shown != "Stereo" || !game.hasCamera)) {
+            rig::Screen sc = place_screen(shown == "Parallax" && game.hasCamera, game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
+            target = surface_of(sc).point(g_testPointU, g_testPointV);
+        }
         V3 from = (v_of(views[0]) + v_of(views[1])) * 0.5f, d = target - from;
         Q q = look(d * (1 / d.length()));
         g_test.aim[1] = {from.x, from.y, from.z, q.x, q.y, q.z, q.w};
@@ -484,11 +695,29 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     r.controllers = g_controllers;
     r.aiming = g_aiming;
     if (game.hasCamera) g_camPos = smoothed(game.camera.p);
-    update_vignette(game.hasCamera);
-    r.vignette = g_vignette;
-    float w = 1;
-    Pose at = panel(w);
-    update_pointer(game, r, at.p, at.q, w, w / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f));
+    update_vignette(game.hasCamera && view == rig::Stereo);
+    r.vignette = view == rig::Stereo ? g_vignette : 0;
+    r.mode = view;
+    float aspect = game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f;
+    Surface surface;
+    if (view == rig::Stereo) {
+        float w = 1;
+        Pose at = panel(w);
+        surface = {at.p, at.q, w, w / aspect, 0};
+    } else {
+        r.screen = place_screen(view == rig::Parallax, aspect);
+        surface = surface_of(r.screen);
+        if (view == rig::Parallax && game.hasCamera) window_eyes(game, r, views, r.screen.height, aspect);
+    }
+    // Handles first: on them the laser is theirs (shown with the menu open and the screen unlocked).
+    bool onHandles = view != rig::Stereo && update_handles(game.menuOpen && game.screenUnlocked, r, surface, aspect);
+    r.handle = g_handle, r.grab = g_grab, r.screenDistance = g_screenDistance, r.screenWidth = g_screenWidth;
+    if (onHandles) {
+        g_pointerOn = false;
+        r.pointer = {};
+    } else {
+        update_pointer(game, r, surface);
+    }
     if (update_watch(game, r, views)) r.events |= EvMenuToggle;
 
     // The eyes: the headset's movement since recentring, turned with the body, scaled, from the game camera.

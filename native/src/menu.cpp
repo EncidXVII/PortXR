@@ -202,6 +202,7 @@ class Menu {
 public:
     menu::Host host;
     bool open = false, welcome = false;
+    bool screenUnlocked = false;
     int tab = QuickTab;
     menu::Requests req;
 
@@ -281,7 +282,6 @@ private:
     std::map<std::string, std::pair<float, float>> slides;
     std::map<int, float> hovers;
     int picking = -1, gesture = 0, confirming = NoConfirm, libPage = 0, camPage = 0;
-    bool screenUnlocked = false;
     Color accent = canvas::rgb(0xC6FF1A);
     float frameMs[History] = {};
     int historyAt = 0;
@@ -1176,6 +1176,7 @@ int g_lastVersion = -1;
 namespace menu {
 void set_host(const Host& host) { g_menu.host = host; }
 bool is_open() { return g_menu.open; }
+bool screen_unlocked() { return g_menu.open && g_menu.screenUnlocked; }
 void toggle() { g_menu.toggle(); }
 
 void show_welcome() {

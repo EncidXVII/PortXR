@@ -34,7 +34,19 @@ class Channel:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(1.0)
 
+    def drain(self):
+        # A reply to a resent command can arrive late and would be read as the answer to the next one.
+        self.sock.setblocking(False)
+        try:
+            while True:
+                self.sock.recv(65536)
+        except (BlockingIOError, ConnectionResetError, OSError):
+            pass
+        finally:
+            self.sock.settimeout(1.0)
+
     def cmd(self, text):
+        self.drain()
         for _ in range(5):
             self.sock.sendto(text.encode(), ("127.0.0.1", PORT))
             try:
@@ -111,8 +123,9 @@ def main():
                 ch.cmd('controllers {"rt": 0.0}')
                 ch.cmd("point 0.5 0.667")
                 s = ch.wait(lambda s: s["pointer"][0] >= 0, 5, "the pointer on the panel")
+                time.sleep(0.5)  # the pointer eases onto the button
                 ch.cmd('controllers {"rt": 1.0}')
-                time.sleep(0.3)
+                time.sleep(0.5)
                 ch.cmd('controllers {"rt": 0.0}')
                 s = ch.wait(lambda s: s["game"].get("clicks", 0) >= 1, 5, "PLAY clicked by the laser")
                 check("laser pointer", s["game"].get("captured", False), f"the laser at {s['pointer']} clicked PLAY")
@@ -195,6 +208,84 @@ def main():
                 ch.cmd("point -1 0")
                 ch.cmd('controllers {}')
                 ch.cmd("menu")
+
+                def colours(img):
+                    r, g, b = img[..., 0], img[..., 1], img[..., 2]
+                    return float(((r > 180) & (g < 70) & (b < 70)).mean()), float(((g > 180) & (r < 70) & (b < 70)).mean())
+
+                # Theater: the game draws its flat picture, the core shows it on the (curved where it can) screen.
+                ch.cmd("set View/Display Theater")
+                ch.wait(lambda s: s["mode"] == 2, 5, "Theater")
+                time.sleep(2)
+                img = headset_view(os.path.join(OUT, "theater.png"))
+                red, green = colours(img) if img is not None else (0, 0)
+                check("theater", red > 0.001 and green > 0.001, f"the flat game on the screen: red {red:.2%}, green {green:.2%} of the view")
+
+                # Parallax: two window cameras into the game, a little apart, on the screen.
+                ch.cmd("set View/Display Parallax")
+                ch.wait(lambda s: s["mode"] == 1, 5, "Parallax")
+                time.sleep(2)
+                img = headset_view(os.path.join(OUT, "parallax.png"))
+                red, green = colours(img) if img is not None else (0, 0)
+                ch.cmd("capture " + cap)
+                time.sleep(1)
+                wl, wr = os.path.join(cap, "windowL.bmp"), os.path.join(cap, "windowR.bmp")
+                differ = 0.0
+                if os.path.exists(wl) and os.path.exists(wr):
+                    a_, b_ = load_bmp(wl), load_bmp(wr)
+                    differ = float(abs(a_[..., :3].astype(int) - b_[..., :3].astype(int)).mean())
+                check("parallax", red > 0.001 and green > 0.001 and differ > 0.5,
+                      f"the window on the screen: red {red:.2%}, green {green:.2%}; the eyes' windows differ by {differ:.2f}")
+
+                # Screen handles: Theater, the menu's Screen set to Unlocked, the bar dragged to the right, then RESET.
+                ch.cmd("set View/Display Theater")
+                ch.wait(lambda s: s["mode"] == 2, 5, "Theater")
+                ch.cmd("menu")
+                ch.wait(lambda s: s["menu_open"], 5, "the menu open")
+                ch.cmd('controllers {"rt": 0.0}')
+                ch.cmd("point 0.075 0.076")  # the Quick tab: the menu reopens on the tab it was left on
+                time.sleep(0.4)
+                ch.cmd('controllers {"rt": 1.0}')
+                time.sleep(0.2)
+                ch.cmd('controllers {"rt": 0.0}')
+                time.sleep(0.3)
+                ch.cmd("point 0.778 0.273")
+                time.sleep(0.4)
+                ch.cmd('controllers {"rt": 1.0}')
+                time.sleep(0.2)
+                ch.cmd('controllers {"rt": 0.0}')
+                time.sleep(0.5)
+                ch.cmd("capture " + cap)
+                time.sleep(1)
+                if os.path.exists(shot):
+                    from PIL import Image
+                    Image.fromarray(load_bmp(shot)[..., :3].astype("uint8")).save(os.path.join(OUT, "menu-theater.png"))
+                hb = os.path.join(cap, "handles.bmp")
+                shown = os.path.exists(hb) and int((load_bmp(hb)[..., 3] > 50).sum()) > 500
+                ch.cmd("point_screen 0.5 0.967")
+                time.sleep(0.4)
+                ch.cmd('controllers {"rt": 1.0}')
+                for u in (0.55, 0.6, 0.65, 0.7):
+                    time.sleep(0.15)
+                    ch.cmd(f"point_screen {u} 0.967")
+                time.sleep(0.3)
+                ch.cmd('controllers {"rt": 0.0}')
+                time.sleep(0.5)
+                moved = ch.cmd("setting View/ScreenYaw")["value"]
+                check("screen handles", shown and moved not in ("", "0", "0.0"),
+                      f"handles {'drawn' if shown else 'missing'}; dragging the bar turned the screen to ScreenYaw = {moved}")
+                ch.cmd("point_screen 0.69 0.967")  # RESET, right of the bar (16:9)
+                time.sleep(0.4)
+                ch.cmd('controllers {"rt": 1.0}')
+                time.sleep(0.2)
+                ch.cmd('controllers {"rt": 0.0}')
+                time.sleep(0.5)
+                back = ch.cmd("setting View/ScreenYaw")["value"]
+                check("screen reset", back in ("0", "0.0"), f"RESET put ScreenYaw back to {back}")
+                ch.cmd("point -1 0")
+                ch.cmd('controllers {}')
+                ch.cmd("menu")
+                ch.cmd("set View/Display Stereo")
             finally:
                 game.terminate()
                 game.wait(20)
