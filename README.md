@@ -13,7 +13,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 **[Download the latest release](https://github.com/EncidXVII/Parallax/releases/latest)** · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
-<img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Stereo, Parallax, Theater), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
+<img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Full VR, 3D screen, VR screen), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
 
 ## Highlights
 
@@ -23,8 +23,8 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 - **Motion controls without setup.** Controllers act as keyboard & mouse or an Xbox pad; every button can be rebound.
 - **Head aim or hand aim.** The game camera follows your head or your right controller; the game's gun moves into
   your hand, and its crosshair sits on what you aim at.
-- **Three ways to play.** Stereo (stand in the game), Parallax (the game in 3D inside a big screen, like a 3D
-  monitor) and Theater (the flat game on a big screen, curved on Virtual Desktop and Meta).
+- **Three ways to play.** Full VR (stand in the game), 3D screen (the game in 3D inside a big screen, like a 3D
+  monitor) and VR screen (the flat game on a big screen, curved on Virtual Desktop and Meta).
 - **Broad Unity support.** Unity 2018.4 to Unity 6, Mono and IL2CPP, Direct3D 11 and 12, built-in, URP and HDRP, with
   the game's bloom and tonemapping kept.
 - **Per-game fixes** in small Lua scripts that anyone can share.
@@ -40,7 +40,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. After **Play in VR** the page says when the game is in VR (or what to check if it starts flat), and later when you last played it in VR. **Add VR** sets a game up without starting it. Parallax installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Stereo, Parallax, Theater), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Linux
 
@@ -91,21 +91,21 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - Something in the way of your view, like a helmet or the player's own body? VR menu, Game tab, Hide objects: point at it and pull the trigger. Parallax remembers it for that game; Show hidden brings it back.
 - 2D games drawn by a perspective camera (Hollow Knight) are scaled so their play plane sits 2.5 m away: the game's own foreground and background layers show their depth. Orthographic 2D games play on the theater screen.
 - Per-game Lua scripts fix what one game needs (camera choice, hidden objects, eye offset, game component fields): see [SCRIPTING.md](SCRIPTING.md).
-- Parallax mode shows the game in 3D inside the theater screen, played as on a 3D monitor: the game's own camera steers the view, your head does not (no head aim or turning). The screen's plane sits at what is in the middle of the view (the character, the wall ahead, a 2D game's play plane), nearer things come out of it and farther ones go behind; **3D depth** sets the strength. Cameras drawn over the game (a weapon, a HUD) and the game's UI stay flat on the screen.
-- Theater mode shows the flat game on a big screen 3 m away; the laser pointer and the wrist menu work there too. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
-- The Theater and Parallax screen is locked while you play. To move it, open the VR menu and set **Screen** to **Unlocked** in Quick; it locks again when you close the menu. Unlocked, it has handles: faint corner brackets and a bar under the middle, lime under the laser. Drag the bar with the trigger to put the screen anywhere around you (up over a bed, off to one side), drag a corner to resize it; while dragging, the right stick pushes it away or pulls it in (up, down) and sizes it (right, left). **RESET** beside the bar brings back 3 m ahead. Each game keeps its screen. A screen raised or lowered past about 12° shows flat, since the curve wraps around you at eye level.
+- 3D screen shows the game in 3D inside the big screen, played as on a 3D monitor: the game's own camera steers the view, your head does not (no head aim or turning). The screen's plane sits at what is in the middle of the view (the character, the wall ahead, a 2D game's play plane), nearer things come out of it and farther ones go behind; **3D depth** sets the strength. Cameras drawn over the game (a weapon, a HUD) and the game's UI stay flat on the screen.
+- VR screen shows the flat game on a big screen 3 m away; the laser pointer and the wrist menu work there too. The screen is curved on runtimes with curved layers (Virtual Desktop, Meta), and flat on SteamVR, which has none.
+- The screen (3D screen and VR screen) is locked while you play. To move it, open the VR menu and set **Screen** to **Unlocked** in Quick; it locks again when you close the menu. Unlocked, it has handles: faint corner brackets and a bar under the middle, lime under the laser. Drag the bar with the trigger to put the screen anywhere around you (up over a bed, off to one side), drag a corner to resize it; while dragging, the right stick pushes it away or pulls it in (up, down) and sizes it (right, left). **RESET** beside the bar brings back 3 m ahead. Each game keeps its screen. A screen raised or lowered past about 12° shows flat, since the curve wraps around you at eye level.
 - If the headset runtime restarts or the session drops, the game continues flat and VR comes back by itself once the runtime is up again.
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
 - The VR menu's Library tab quits the game, or starts another game with VR added without taking the headset off.
-- Theater and Parallax can show your room around the screen instead of black (**Around the screen: Your room**), on headset software that shares its passthrough with apps; SteamVR does not.
+- 3D screen and VR screen can show your room around the screen instead of black (**Around the screen: Your room**), on headset software that shares its passthrough with apps; SteamVR does not.
 - **Godot 4 games** get full VR. From Godot 4.3, Parallax runs inside the game as it does in Unity games: **Add VR**
   puts a `ParallaxVR` folder and an `override.cfg` beside the game's exe (Remove VR takes them out again), and the game
-  gets the same controls, head and hand aim, laser pointer, wrist watch, VR menu, Theater and Parallax modes and
+  gets the same controls, head and hand aim, laser pointer, wrist watch, VR menu, 3D screen and VR screen modes and
   per-game settings. The headset follows the game's camera, also where the game draws its 3D in a SubViewport (a retro
   resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad inside the game. It runs the
   game on Direct3D 12, which Godot's official builds include. Godot 4.0 to 4.2 games, and custom builds without
   Direct3D 12, get VR from the engine's own OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
-- **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the Theater screen: Parallax
+- **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the VR screen: Parallax
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
   the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
@@ -137,7 +137,7 @@ headset on. The game page names the runtime Parallax will use and says what to c
 flat? **Export logs** and open an issue.
 
 **Does it work with Unreal, Godot or other engines?** Unity games and Godot 4 games get full VR. Games in any other
-engine play flat on the Theater screen.
+engine play flat on the VR screen.
 
 **How is it different from a game's own VR mode?** Parallax adds VR to games that have none. Games with their own VR
 mode are marked **Already VR**; start those in VR from Steam.

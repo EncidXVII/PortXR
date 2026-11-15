@@ -709,7 +709,7 @@ private:
     }
 
     void draw_quick() {
-        options("Display", "View", "Display", {"Stereo", "Parallax", "Theater"}, {"Stereo", "Parallax", "Theater"}, "Stereo");
+        options("Display", "View", "Display", {"Stereo", "Parallax", "Theater"}, {"Full VR", "3D screen", "VR screen"}, "Stereo");
         std::string display = settings::get("View", "Display", "Stereo");
         if (display == "Parallax") stepper("3D depth", "View", "Depth", 1, 0.25f, 0, 1, "%.2f\xC3\x97");
         if (display != "Stereo") {

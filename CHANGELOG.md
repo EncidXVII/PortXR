@@ -23,6 +23,16 @@
 - **Not installed** shows only Steam library games that would get Full VR; games Parallax can't run (anti-cheat,
   multiplayer only, their own VR mode, 32-bit) are left off it. Any game you install plays on the VR screen anyway.
 - No more sweeping line under the title each time the window comes back into focus; the list just updates.
+- One set of words everywhere: the display modes are now **Full VR**, **3D screen** and **VR screen** (were Stereo,
+  Parallax and Theater) in the app, the VR menu and the library. Saved settings carry over.
+- **Play in VR** adds VR itself when it is missing; the separate Add VR button is gone, and every Full VR game shows
+  the same lime chip.
+- Game page: Play and the button layout up top; the engine, folder, logs and **Remove VR** sit in a quiet
+  Troubleshooting row at the bottom instead of a red button beside Play.
+- Library: your games first, then the Steam games that would get Full VR under their own heading. Games Parallax
+  can't run left the tabs: one line under the library shows them. The toolbar fits on one row again.
+- Opening a Godot or other non-Unity game's folder (`Parallax.exe <folder>`) opens its page instead of saying no
+  Unity game was found.
 
 ### Look and motion
 - Themes: Lime, Mint, Aqua, Sky, Violet, Pink, Amber or White as the accent, the same eight as DesktopVR and
