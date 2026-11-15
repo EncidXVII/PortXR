@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <map>
 
@@ -205,6 +206,15 @@ public:
     bool screenUnlocked = false;
     int tab = QuickTab;
     menu::Requests req;
+
+    void show(int page) {
+        welcome = false;
+        select(page);
+    }
+    void unlock(bool on) {
+        screenUnlocked = on;
+        dirty = true;
+    }
 
     void toggle() {
         open = !open;
@@ -1196,3 +1206,66 @@ const uint8_t* pixels(int& w, int& h, bool& changed) {
 
 float aspect() { return W / H; }
 }  // namespace menu
+
+// --- The menu for the Unity plugin (C#), which has no C++ bridge ---------------------------------------------------
+struct PrxMenuHost {
+    const char* product;
+    const wchar_t* gameDir;
+    const char* cameras;  // names, one per line
+    const char* currentCamera;
+    int32_t hideObjects, hidden, aimExtras, uiBlack, eyeWidth, eyeHeight;
+};
+struct PrxMenuOut {
+    int32_t open, unlocked, quit, recenter, hideObjects, showHidden, renderScale, cameraPicked;
+    char camera[256];
+};
+
+extern "C" {
+PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM);
+
+PRX_API void prx_menu_settings(const wchar_t* gameFile) { settings::open(gameFile, L""); }
+
+PRX_API void prx_menu_host(const PrxMenuHost* h) {
+    menu::Host m;
+    m.product = h->product ? h->product : "";
+    m.gameDir = h->gameDir ? h->gameDir : L"";
+    for (const char* s = h->cameras; s && *s;) {
+        const char* e = strchr(s, '\n');
+        m.cameras.emplace_back(s, e ? e - s : strlen(s));
+        s = e ? e + 1 : s + strlen(s);
+    }
+    m.currentCamera = h->currentCamera ? h->currentCamera : "";
+    m.hideObjects = h->hideObjects, m.hidden = h->hidden, m.aimExtras = h->aimExtras, m.uiBlack = h->uiBlack;
+    m.eyeWidth = h->eyeWidth, m.eyeHeight = h->eyeHeight;
+    menu::set_host(m);
+}
+
+// -2 toggles, -1 shows the welcome card, 0..5 opens that tab; unlock: the Screen row (tests), -1 leaves it.
+PRX_API void prx_menu_show(int32_t page, int32_t unlock) {
+    if (page == -2) menu::toggle();
+    else if (page == -1) menu::show_welcome();
+    else if (page >= 0) {
+        if (!g_menu.open) g_menu.toggle();
+        g_menu.show(page);
+    }
+    if (unlock >= 0) g_menu.unlock(unlock != 0);
+}
+
+// One frame: the laser at (u, v) on the menu (top-left origin), the trigger; the menu shown at `pose` (tracking space,
+// its centre), heightM tall, or hidden when pose is null or the menu is closed.
+PRX_API void prx_menu_frame(int32_t pointing, float u, float v, float trigger, float dt, const PrxPose* pose, float heightM,
+                            PrxMenuOut* out) {
+    menu::Requests r = menu::frame(pointing != 0, u, v, trigger, dt);
+    int w, h;
+    bool changed;
+    const uint8_t* px = menu::pixels(w, h, changed);
+    if (menu::is_open() && pose && px) prx_set_menu(changed ? px : nullptr, w, h, pose, heightM * menu::aspect(), heightM);
+    else prx_set_menu(nullptr, 0, 0, nullptr, 0, 0);
+    *out = {};
+    out->open = menu::is_open();
+    out->unlocked = menu::screen_unlocked();
+    out->quit = r.quit, out->recenter = r.recenter, out->hideObjects = r.hideObjects, out->showHidden = r.showHidden;
+    out->renderScale = r.renderScale, out->cameraPicked = r.cameraPicked;
+    snprintf(out->camera, sizeof(out->camera), "%s", r.camera.c_str());
+}
+}

@@ -1,4 +1,4 @@
-﻿"""Automated gate: runs a fixture under the SteamVR null driver and asserts stereo, UI, input, theater, menu."""
+"""Automated gate: runs a fixture under the SteamVR null driver and asserts stereo, UI, input, theater, menu."""
 import argparse
 import ctypes
 import ctypes.wintypes as wt
@@ -626,15 +626,15 @@ def gate_menu(g):
     tap_menu(g, 2)
     opened = g.stats()["menu"]
     time.sleep(0.5)
-    (quad,) = g.capture("menu", ["quad.bmp"])
-    # One capture per tab for review (harness/out/menu-tab*.bmp).
+    (quad,) = g.capture("menu", ["menu.bmp"])
+    # One capture per tab for review (harness/out/menu-tab*.bmp): the menu is the core's own layer.
     for t in [*range(6), -1]:
         g.cmd(f"tab {t}")
         time.sleep(0.4)
-        g.capture(f"menu-tab{t}", ["quad.bmp"])
+        g.capture(f"menu-tab{t}", ["menu.bmp"])
     g.cmd("tab 0")
     h, w = quad.shape[:2]
-    # The menu's own background must stay solid, also where the panel's black is keyed out.
+    # The menu's own background is solid.
     panel = int(np.median(quad[int(h * 0.3):int(h * 0.8), int(w * 0.3):int(w * 0.7), 3]))
     g.cmd("set WorldScale 1.5")
     g.cmd("set A F")  # rebind: right A presses F

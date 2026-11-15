@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace Parallax
 {
@@ -320,7 +320,6 @@ namespace Parallax
         void OnGUI()
         {
             GUI.depth = -1000;
-            menuDrawing.Run(Menu.Draw);
             if (PointerActive && Event.current.type == EventType.Repaint) pointerDot.Run(DrawPointer);
             if (handlesShown && Event.current.type == EventType.Repaint) handleDraw.Run(DrawHandles);
         }

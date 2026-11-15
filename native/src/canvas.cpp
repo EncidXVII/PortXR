@@ -131,6 +131,7 @@ float width_of(const std::vector<int>& cps, size_t from, size_t to, canvas::Face
 // Signed distance from p to a rounded rect (centre c, half extents h, radius r): negative inside.
 float rounded(float px, float py, float cx, float cy, float hx, float hy, float r) {
     float qx = std::fabs(px - cx) - (hx - r), qy = std::fabs(py - cy) - (hy - r);
+    if (qx <= 0 || qy <= 0) return std::max(qx, qy) - r;  // off the corner arcs (nearly every pixel): no square root
     float ox = std::max(qx, 0.f), oy = std::max(qy, 0.f);
     return std::sqrt(ox * ox + oy * oy) + std::min(std::max(qx, qy), 0.f) - r;
 }
@@ -173,11 +174,16 @@ void Canvas::blend(int x, int y, Color c, float coverage) {
     float a = c.a * coverage * fade;
     if (a <= 0) return;
     uint8_t* p = &px_[((size_t)y * w_ + x) * 4];
-    float inv = 1 - a;
-    p[0] = (uint8_t)std::lround(std::min(255.f, c.r * a * 255 + p[0] * inv));
-    p[1] = (uint8_t)std::lround(std::min(255.f, c.g * a * 255 + p[1] * inv));
-    p[2] = (uint8_t)std::lround(std::min(255.f, c.b * a * 255 + p[2] * inv));
-    p[3] = (uint8_t)std::lround(std::min(255.f, a * 255 + p[3] * inv));
+    // Hot: a menu paint blends millions of pixels. Colours are 0..1 and pixels premultiplied, so the sums stay <= 255.
+    if (a >= 1) {
+        p[0] = (uint8_t)(c.r * 255 + 0.5f), p[1] = (uint8_t)(c.g * 255 + 0.5f), p[2] = (uint8_t)(c.b * 255 + 0.5f), p[3] = 255;
+        return;
+    }
+    float inv = 1 - a, k = a * 255;
+    p[0] = (uint8_t)(c.r * k + p[0] * inv + 0.5f);
+    p[1] = (uint8_t)(c.g * k + p[1] * inv + 0.5f);
+    p[2] = (uint8_t)(c.b * k + p[2] * inv + 0.5f);
+    p[3] = (uint8_t)(k + p[3] * inv + 0.5f);
 }
 
 void Canvas::fill(const Rect& r, Color c) {
@@ -197,8 +203,22 @@ void Canvas::round(const Rect& r, Color c, float radius, int mode) {
     int x0 = std::max(0, (int)std::floor(r.x) - 1), y0 = std::max(0, (int)std::floor(r.y) - 1);
     int x1 = std::min(w_, (int)std::ceil(r.x + r.w) + 1), y1 = std::min(h_, (int)std::ceil(r.y + r.h) + 1);
     float cx = r.cx(), cy = r.cy(), hx = r.w / 2, hy = r.h / 2;
-    for (int y = y0; y < y1; ++y)
+    float a = c.a * fade;
+    uint32_t solid = (uint32_t)(c.r * 255 + 0.5f) | (uint32_t)(c.g * 255 + 0.5f) << 8 | (uint32_t)(c.b * 255 + 0.5f) << 16 | 0xFF000000u;
+    for (int y = y0; y < y1; ++y) {
+        // A filled shape's rows between the corners are covered from edge to edge but for the rim pixels: one span.
+        float qy = std::fabs(y + 0.5f - cy) - (hy - radius);
+        int s0 = x1, s1 = x1;
+        if (mode == 0 && qy <= 0 && qy <= radius - 0.5f) {
+            s0 = std::clamp((int)std::ceil(r.x), x0, x1);
+            s1 = std::clamp((int)std::floor(r.x + r.w - 1) + 1, s0, x1);
+            if (a >= 1) std::fill_n((uint32_t*)&px_[((size_t)y * w_ + s0) * 4], s1 - s0, solid);
+            else
+                for (int x = s0; x < s1; ++x) blend(x, y, c, 1);
+        }
         for (int x = x0; x < x1; ++x) {
+            if (x == s0) x = s1;
+            if (x >= x1) break;
             float d = rounded(x + 0.5f, y + 0.5f, cx, cy, hx, hy, radius);
             float inside = std::clamp(0.5f - d, 0.f, 1.f), cov = inside;
             if (mode == 1) cov = inside - std::clamp(0.5f - (d + 2.f), 0.f, 1.f);
@@ -208,6 +228,7 @@ void Canvas::round(const Rect& r, Color c, float radius, int mode) {
             }
             if (cov > 0) blend(x, y, c, cov);
         }
+    }
 }
 
 void Canvas::image(const Rect& r, const Image& img) {

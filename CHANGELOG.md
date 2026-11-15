@@ -12,8 +12,10 @@
   same controls.
 - App: Barlow for body text and Barlow SemiBold for the spaced capital labels (nav, filters, chips), both bundled;
   Anton stays for titles. Text one step bigger, rounded covers, chips and buttons, a white slider knob.
-- VR menu: the same tabs and rows, restyled; Barlow where installed, else Segoe UI, for labels and tabs too.
-  Rounded corners in Mono games; IL2CPP games keep square cells (their engine build has no way to make the texture).
+- VR menu: the same tabs and rows, restyled, with the app's Barlow and Anton faces. It is now one menu for every
+  engine, drawn by Parallax itself on its own headset layer over the UI panel or screen: Unity games (Mono and IL2CPP
+  alike) get rounded corners and the app's fonts, and the game's UI capture no longer carries it. The Game tab lists
+  cameras by name.
 - Motion, following Windows' "Animation effects": the VR menu fades in, the tab bar and a row's choice slide, hovers
   ease, presses show on trigger-down; in the app the tab bar grows into place and covers light up on hover.
 

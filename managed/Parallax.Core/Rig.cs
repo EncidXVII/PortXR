@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -154,7 +154,7 @@ namespace Parallax
         static readonly Action<RenderTexture> captureIntoTexture = FindCapture();
         readonly Optional managedCapture = new Optional("Screen capture into a texture"), mirror = new Optional("Desktop mirror"),
             recreate = new Optional("Eye target recreation"), resolve = new Optional("MSAA resolve"),
-            menuDrawing = new Optional("VR menu drawing"), pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset"),
+            pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset"),
             bodyLookup = new Optional("Player body lookup");
         bool viewMatrixReset;
 
@@ -769,14 +769,9 @@ namespace Parallax
                     f.aimRX = reticle[3]; f.aimRY = reticle[4]; f.aimRR = reticle[5];
                 }
             }
-            if (Menu.Open)
-            {
-                var r = Menu.ScreenRect;
-                f.keepX0 = r.xMin / Screen.width;
-                f.keepY0 = r.yMin / Screen.height;
-                f.keepX1 = r.xMax / Screen.width;
-                f.keepY1 = r.yMax / Screen.height;
-            }
+            // The VR menu (the core's layer) over the middle of the panel or screen, a little in front.
+            Menu.At = Xr.ToPose(center - rot * Vector3.forward * (stereo ? 0.02f : 0.05f), rot);
+            Menu.AtHeight = f.quadHeight * 840f / 1080f;
             if (!vrNoted)
             {
                 vrNoted = true;
