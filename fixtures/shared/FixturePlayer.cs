@@ -10,6 +10,15 @@ using UnityEngine.InputSystem;
 // Gamepad/mouse player that logs its state for the harness (FIXTURE_LOG env var).
 public class FixturePlayer : MonoBehaviour
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    static bool InFront()
+    {
+        uint pid;
+        GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        return pid == (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+    }
+
     public Transform head;
     CharacterController body;
     float yaw, pitch, vy;
@@ -47,8 +56,9 @@ public class FixturePlayer : MonoBehaviour
             pad = gp.name;
         }
 #endif
-        // Unity 2018 reads raw mouse deltas even without focus; test runs must not pick up the user's own mouse.
-        float look = Application.isFocused ? 2f : 0f;
+        // Unity 2018 reads raw mouse deltas without focus, and its isFocused can say so too: test runs must not pick up
+        // the user's own mouse, so look only while the OS has this process in front.
+        float look = InFront() ? 2f : 0f;
         yaw += (Input.GetAxis("RightX") + padTurn) * 120f * Time.deltaTime + Input.GetAxis("Mouse X") * look;
         pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * look, -80f, 80f);
         transform.rotation = Quaternion.Euler(0, yaw, 0);
