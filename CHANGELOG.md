@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### One core for every engine
+- Unity and Godot games now run the same player rig, VR menu and screen handles from Parallax's native core: aim,
+  snap turning, the vignette, the laser pointer, the wrist watch, the Theater and Parallax screen. A fix or feature
+  lands in every engine at once; the Unity plugin only reports the game camera and renders the eyes.
+- Godot games get what Unity games had: the body's heading stays steady when the game camera looks straight up or
+  down, and the screen handles pause the game's input.
+- Godot: the real mouse cursor no longer jumps to the window's corner while the laser points at the game.
+- The VR menu repaints about 15 times faster (1.6 ms instead of 24 ms), so opening it no longer costs frames.
+
 ### Look and motion
 - Themes: Lime, Mint, Aqua, Sky, Violet, Pink, Amber or White as the accent, the same eight as DesktopVR and
   FitnessVR. Pick it in the app (Settings > Look) or the VR menu (View > Theme); one choice for every game and the

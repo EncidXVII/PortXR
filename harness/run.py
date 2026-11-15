@@ -530,7 +530,7 @@ def gate_screen(g):
         g.cmd("unlock 1")
         corner = g.wait(lambda s: s["handle"] == 2, 3, "corner handle")
         time.sleep(0.3)
-        (overlay,) = g.capture("screen-handles", ["quad.bmp"])
+        (overlay,) = g.capture("screen-handles", ["handles.bmp"])
         pull(True)
         g.cmd(f"aim 0.2 -0.3 0.1 {at(1.25, -0.25)}")
         time.sleep(0.5)

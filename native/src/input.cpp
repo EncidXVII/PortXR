@@ -246,7 +246,8 @@ void update_pointer(const PrxControllers& c, const PrxInputConfig& cfg) {
         g_lastPointer[0] = -1;
         return;
     }
-    if (cfg.pointerX == g_lastPointer[0] && cfg.pointerY == g_lastPointer[1]) return;
+    // -1: the engine takes the pointer through its own events (or it is on the VR menu); the OS cursor stays.
+    if (cfg.pointerX < 0 || (cfg.pointerX == g_lastPointer[0] && cfg.pointerY == g_lastPointer[1])) return;
     POINT p{cfg.pointerX, cfg.pointerY};
     ClientToScreen(hwnd, &p);
     SetCursorPos(p.x, p.y);

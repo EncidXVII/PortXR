@@ -81,6 +81,9 @@ void open(const std::wstring& gameFile, const std::wstring& defaultsFile) {
     load();
 }
 
+// Re-read on the next refresh(): the Unity plugin just saved the file.
+extern "C" __declspec(dllexport) void prx_settings_touch() { g_checkedAt = 0; }
+
 bool refresh() {
     std::lock_guard lock(g_mutex);
     ULONGLONG now = GetTickCount64();

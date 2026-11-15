@@ -96,6 +96,44 @@ namespace Parallax
         public int curvedSupported;
     }
 
+    // The core's frame (native/src/bridge.cpp PrxGame and PrxRig): what Unity knows about the game this frame, and the
+    // player's rig back, shared with every engine. OpenXR handedness: Xr mirrors Z.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Game
+    {
+        public int hasCamera;
+        public Pose camera;
+        [MarshalAs(UnmanagedType.LPStr)] public string cameraKey;
+        public int cursorFree, padGame, carried, tests;
+        public float uiAspect, fovY, nearClip, focus;
+        public float upX, upY, upZ, sceneScale, offsetX, offsetY, offsetZ;
+        public int worldPointer;
+        public float worldReach;
+        public int screenW, screenH, pointerClick;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RigOut
+    {
+        public Pose eyeL, eyeR, viewL, viewR;
+        public Fov fovL, fovR;
+        public int mode, aiming, events, menuOpen;
+        public int pointer, pointerDown;
+        public float pointerU, pointerV;
+        public int quit, renderScale, cameraPicked, hideObjects, showHidden;
+        public float windowOffsetL, windowOffsetR;
+        public Fov windowFovL, windowFovR;
+        public int handAiming;
+        public Pose handAim;
+        public Pose origin;
+        public float bodyX, bodyY, bodyZ, bodyW, baseX, baseY, baseZ, scale;
+        public Controllers controllers;
+        public int handles, handle, grab;
+        public float screenYaw, screenPitch, screenDistance, screenWidth;
+        public float vignette, focus, bodyYaw, orbitRadius;
+        public int smoothing, glancing, watch, beam;
+    }
+
     internal enum XrState { Failed = -1, None = 0, Instance = 1, Session = 2, Running = 3 }
 
     internal static class Native
@@ -118,7 +156,6 @@ namespace Parallax
         [DllImport(Dll)] public static extern void prx_set_init_texture(IntPtr texture);
         [DllImport(Dll)] public static extern void prx_set_frame(int slot, ref Frame frame);
         [DllImport(Dll)] public static extern void prx_capture([MarshalAs(UnmanagedType.LPWStr)] string dir);
-        [DllImport(Dll)] public static extern int prx_locate([Out] Pose[] poses, [Out] Fov[] fovs);
         [DllImport(Dll)] public static extern void prx_get_stats(out Stats stats);
         [DllImport(Dll)] public static extern int prx_install_hooks();
         [DllImport(Dll)] public static extern uint prx_input_update(ref InputConfig cfg, [In] Controllers[] test, out Controllers result);
@@ -127,6 +164,11 @@ namespace Parallax
         [DllImport(Dll)] public static extern int prx_game_in_front();
         [DllImport(Dll)] public static extern void prx_haptic_pulse(int hand, float amplitude, float seconds);
         [DllImport(Dll)] static extern int prx_poll_log(byte[] buffer, int capacity);
+        [DllImport(Dll)] public static extern int prx_bridge_frame(ref Game game, out RigOut rig);
+        [DllImport(Dll)] public static extern void prx_bridge_layers(ref Frame frame, float uiAspect);
+        [DllImport(Dll)] public static extern void prx_bridge_recenter();
+        [DllImport(Dll)] public static extern void prx_bridge_test([In] Controllers[] controllers, float u, float v, int wrist, float[] head);
+        [DllImport(Dll)] public static extern void prx_settings_touch();
 
         static readonly byte[] logBuffer = new byte[1024];
 

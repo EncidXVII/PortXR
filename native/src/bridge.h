@@ -39,6 +39,14 @@ struct Game {
     float uiAspect = 16.f / 9.f;  // the game's UI, width / height
     float fovY = 1.f, nearClip = 0.05f;  // the game camera's vertical field of view (radians) and near plane
     float focus = 0;                     // Parallax: distance to what sits at the middle of the view (0: unknown)
+    float up[3] = {0, 1, 0};             // the player's up (a body under the game's own gravity), world space
+    float sceneScale = 1;                // 2D scenes: the player scaled so the play plane sits 2.5 m off
+    float eyeOffset[3] = {};             // a game script's nudge to the eyes, metres in tracking space
+    bool worldPointer = false;           // the hide-objects tool has the laser (into the game world)
+    float worldReach = 3;                // where its beam ends, metres along it
+    int screenW = 0, screenH = 0;        // the window's client size, when the laser should move the OS cursor
+    bool pointerClick = false;           // the laser's trigger presses the OS mouse button
+    bool tests = false;                  // a test run drives the menu: no welcome card
 };
 struct Frame {
     Pose eyes[2];  // where to render the eyes, in the game world
@@ -59,7 +67,13 @@ struct Frame {
     bool handles = false;  // the screen's handles are shown (menu open, screen unlocked)
     float windowOffset[2] = {};
     Fov windowFov[2] = {};
+    Pose views[2];  // the headset's eyes in tracking space
 };
+// After frame(): the rig's own parts of a frame's layers (eye poses, where the UI or screen goes, beam, watch,
+// vignette, theme accent, passthrough), for adapters that fill the textures themselves (Unity).
+void layers(void* prxFrame, float uiAspect);
+// Tests: the head moved to (x, y, z) in tracking space, turned yaw degrees clockwise; off restores it.
+void test_head(bool on, float x, float y, float z, float yawDeg);
 // What the engine offers the VR menu: the game's name and folder, the cameras the view can follow.
 struct MenuHost {
     std::string product;

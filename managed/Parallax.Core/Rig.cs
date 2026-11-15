@@ -48,79 +48,24 @@ namespace Parallax
         readonly System.Collections.Generic.HashSet<int> eyeIds = new System.Collections.Generic.HashSet<int>();
         const int UiLayers = 1 << 5;
         bool eyesRendered;
-        bool theaterShown;  // the last frame showed the theater screen (or the Parallax window), not the UI panel
-        bool CurvedShown => theaterShown && CurveFits;
-        // The curve is a cylinder standing around the player, so it fits a screen at about eye level only.
-        bool CurveFits => curvedTheater && !windowShown && Mathf.Abs(screenPitch) < 12f;
-        bool curvedTheater;  // the runtime draws curved layers (SteamVR does not)
         Camera extrasCamera;
         bool beforeRenderHooked;
         int sceneHandle;
 
-        Vector3 originPos;
-        Quaternion originYaw = Quaternion.identity;
-        bool recenterPending = true;
-
-        Controllers controllers;
-        readonly int[] binds = new int[Bindings.Inputs.Length], twice = new int[Bindings.GestureInputs],
-            held = new int[Bindings.GestureInputs], combo = new int[Bindings.GestureInputs];
-        bool glancing, glanceTrigger, watchShown;
-        Vector3 watchAt;
-        const float WatchRadius = 0.022f;
-        // How much the watch shows (it fades in as you look at it, like DesktopVR's clock) and how lit it is, both eased.
-        float watchFade, watchGlow, watchHeld;
-        bool watchLooked;
-        // The watch shows when looked at, as on DesktopVR: wide to show (face within ~66 degrees of the eyes, watch
-        // within ~45 degrees of where the head looks), wider to stay (~81 and ~63), held at least WatchHoldS, so
-        // tremor and head bob at the edge never make it blink. Fades are linear: in quickly, out a little slower.
-        const float ShowFacing = 0.4f, ShowLooking = 0.7f, KeepFacing = 0.15f, KeepLooking = 0.45f, WatchHoldS = 0.3f;
-        const float WatchShowS = 0.08f, WatchHideS = 0.18f, WatchGlowS = 0.1f;
-        // Comfort: snap turn state (closed loop on the game camera's yaw) and the vignette's current strength.
-        bool snapArmed = true, snapping;
-        // The view turns with the body yaw: it follows the game camera's heading, except under head aim, where the game
-        // camera follows the head and only the right stick turns the body.
-        float bodyYaw, lastHeading;
-        bool bodyKnown, aiming;
-        // The body stands on the player's ground: world up, or the player body's own up where the game applies its own
-        // gravity (Outer Wilds' small planets), carried along without twist so headings stay continuous.
-        Quaternion upFrame = Quaternion.identity;
+        // The core's frame (shared with every engine): the controls, the laser, the watch and the screen run there; this
+        // side reports the game camera and what only Unity knows, and renders the eyes where the core puts them.
+        internal RigOut Out;
+        bool located;
+        bool uiTaken;            // Unity's own UI events took the laser's click last frame
+        float worldReach = 3f;   // the hide-object tool's beam: metres to what it would hide
+        // The player body under the head camera: its own up where the game applies its own gravity (Outer Wilds' small
+        // planets), and whether the camera rides on it (first person until its turns say otherwise).
         Rigidbody playerBody;
-        bool noWorldGravity, carried;  // the head camera rides on a player body (Rigidbody or CharacterController above it): first person
+        bool noWorldGravity, carried;
         Camera playerBodyOf;
-        Quaternion Body => upFrame * Quaternion.Euler(0, bodyYaw, 0);
-        // Head aim loop: last game camera angles, last push, learned degrees per pixel (signed: games may invert Y),
-        // and for the virtual pad the learned stick direction per axis.
-        float aimLastYaw, aimLastPitch, aimPushX, aimPushY, aimDppX, aimDppY;
-        float padSignX = 1, padSignY = 1;  // X stays 1: see AimLoop.LearnPixels
-        int padWrongY, aimWrongX, aimWrongY;
-        // Orbit check: how far in front of the game camera its rotation pivot sits, from frames where it turned.
-        // First-person cameras turn about themselves (near 0); third-person cameras orbit the player (metres).
-        Vector3 orbitLastPos, orbitLastFwd;
-        float orbitNum, orbitDen;
-        int orbitSamples;
-        // Auto head aim's verdict per scene and camera name (true: first person), kept when the game switches cameras
-        // or reloads the scene. Per scene, as a menu's slowly orbiting camera may share the player camera's name.
-        // Without one, head aim stays off (its own pushes would swing a third-person camera, Megabonk), except for a
-        // camera carried at the player body's centre, which is first person until its turns say otherwise.
-        readonly System.Collections.Generic.Dictionary<string, bool> firstPerson = new System.Collections.Generic.Dictionary<string, bool>();
         string sceneName = "";
-        string AimKey => sceneName + "/" + GameCam.name;
-        // Pushes a camera ignores pause head aim; a carried camera without a verdict that ignores them twice is not
-        // steered by the mouse or stick at all (Lunistice's Cinemachine rig under the player) and loses head aim.
-        float probeIgnored, aimSuspendedUntil;
-        int ignoredTimes;
-        const float SmoothTurnDegPerSec = 120f;
-        // Step smoothing: a game camera moved in FixedUpdate steps at the physics rate (often 50 Hz) while the headset
-        // shows 90, so the world judders as you move. Seen as frames where a moving camera stood still; then the eyes
-        // follow a line between its last two positions, one step behind.
-        Vector3 stepFrom, stepTo;
-        float stepAt, stepLen = 0.02f, lastMoveAt;
-        int stepMoved, stepStill, stepFrames;
-        internal bool StepSmoothing;
-        float snapTarget, snapUntil, snapLastYaw, snapLastPush, degPerPixel;
-        internal float VignetteNow;
-        Vector3 vignetteLastPos;
-        float vignetteLastYaw;
+        internal bool StepSmoothing => Out.smoothing != 0;
+        internal float VignetteNow => Out.vignette;
         internal bool PointerActive;
         internal readonly Hider Hider = new Hider();
         Scripts scripts;  // made on the first Update: IL2CPP's injected classes cannot pass `this` in a field initialiser
@@ -128,15 +73,8 @@ namespace Parallax
         readonly ScreenQuads screenQuads = new ScreenQuads();
         readonly HandHeld handHeld = new HandHeld();
         bool vrNoted;  // played.txt beside the plugin, written at the first frame sent to the headset
-        bool handAiming;  // this frame's aim follows the right controller, at handAim
-        Pose handAim;
         internal int Held { get; private set; }  // viewmodel parts moved into the hand this frame
-        internal int AimValid => beamOn ? 1 : 0;
-        Vector2 pointerUv;
-        // Laser beam in tracking space, drawn into the eye images while the pointer is wanted.
-        bool beamOn;
-        Vector3 beamFrom, beamTo;
-        bool menuKeyDown;
+        internal int AimValid => Out.beam;
         bool failureHandled, restarting;
         float retryAt, retryDelay = 5f;
         int submitErrors;
@@ -191,7 +129,6 @@ namespace Parallax
             builtIn = BuiltInPipeline();
             Native.prx_set_init_texture(eyePtrs[0]);
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
-            curvedTheater = CurvedLayers();
 
             Application.runInBackground = true;
 #if IL2CPP
@@ -338,60 +275,18 @@ namespace Parallax
             scripts = scripts ?? new Scripts(this);
             scripts.Update();
             AutoRenderScale();
-            if (MenuKeyPressed()) Menu.Toggle();
             Menu.Update();
-            UpdatePointer();
-            var pointerAt = new Vector2(pointerUv.x * Screen.width, pointerUv.y * Screen.height);
-            Menu.Point(PointerActive && Menu.Open, pointerAt, controllers.rTrigger);
-            bool uiTaken = UiPointer.Update(PointerActive && !Menu.Open, new Vector2(pointerAt.x, Screen.height - pointerAt.y), controllers.rTrigger, controllers.ry);
+            // The laser on the game's UI (placed by the core last frame): Unity's own UI events take the click when they
+            // can, the OS mouse button otherwise.
+            var pointerAt = new Vector2(Out.pointerU * Screen.width, (1 - Out.pointerV) * Screen.height);
+            uiTaken = UiPointer.Update(PointerActive, pointerAt, Out.controllers.rTrigger, Out.controllers.ry);
             Hider.Apply();
-            var cfg = new InputConfig
+            // Without a located headset the core runs no frame: the emulated keys and buttons are let go.
+            if (!located)
             {
-                mode = (int)Settings.InputNow,
-                neutral = Menu.Open || Hider.Active || OnHandles ? 1 : 0,
-                pointerActive = PointerActive ? 1 : 0,
-                pointerX = Mathf.RoundToInt(pointerUv.x * Screen.width),
-                pointerY = Mathf.RoundToInt(pointerUv.y * Screen.height),
-                pointerClick = Menu.Open || uiTaken ? 0 : 1,
-                mouseSpeed = Settings.MouseSpeed.Value,
-                binds = binds,
-                twice = twice,
-                held = held,
-                combo = combo,
-            };
-            aiming = HeadAimWanted();
-            if (aiming)
-            {
-                cfg.snap = 1;
-                cfg.aim = 1;
-                HeadAim(Settings.InputNow == InputMode.Gamepad);
-                cfg.turnX = aimPushX;
-                cfg.turnY = aimPushY;
+                var idle = new InputConfig { mode = 2, neutral = 1, binds = new int[12], twice = new int[10], held = new int[10], combo = new int[10] };
+                Native.prx_input_update(ref idle, null, out _);
             }
-            // Snap turns are for a camera that turns about itself. A third-person camera (Lunistice), or one not seen
-            // turning yet, gets the right stick as is, so it orbits the player as on a flat screen.
-            else if (Settings.Turning.Value != TurnMode.Smooth && Settings.InputNow != InputMode.Off && GameCam != null && !Menu.Open && !windowShown
-                     && (snapping || (orbitSamples >= 10 && OrbitRadius < 0.45f)))
-            {
-                cfg.snap = 1;
-                cfg.turnX = SnapTurn(Settings.InputNow == InputMode.Gamepad);
-            }
-            Bindings.Codes(ref cfg);
-            uint events = Native.prx_input_update(ref cfg, Test?.ControllerOverride, out controllers);
-            if ((events & Native.EvMenuToggle) != 0) Menu.Toggle();
-            // Test runs drive the menu themselves; real players get the welcome card once, when VR first runs.
-            if (Settings.FirstRun.Value && Test == null && State == XrState.Running && !Menu.Open) Menu.Show(-1);
-            if (Test?.Wrist == true)
-            {
-                controllers.aimL = Xr.ToPose(originPos + originYaw * new Vector3(-0.05f, -0.22f, 0.33f), originYaw * Quaternion.Euler(-20, -90, 0));
-                controllers.aimValidL = 1;
-            }
-            bool glance = WristGlance(), trigger = controllers.rTrigger > 0.6f;
-            if (glance && !glancing) Native.prx_haptic_pulse(0, 0.2f, 0.02f);
-            if (glance && trigger && !glanceTrigger) Menu.Toggle();
-            glancing = glance;
-            glanceTrigger = trigger;
-            VignetteNow = Vignette();
             VirtualPad.Update();
             GL.IssuePluginEvent(renderEvent, Native.EvBegin);
         }
@@ -404,15 +299,69 @@ namespace Parallax
         void BeforeRender()
         {
             eyesRendered = false;
-            bool located = State == XrState.Running && Native.prx_locate(Views, Fovs) != 0;
-            if (located)
+            if (State != XrState.Running)
             {
-                Test?.ApplyHead(Views);
-                if (recenterPending) Recenter();
+                located = false;
+                SetEyes(false);
+                RestoreCamera();
+                return;
             }
-            var cam = located && Settings.Display.Value != DisplayMode.Theater && !forcedTheater && !VideoWatch.Playing() ? EnsureCamera() : null;
-            windowShown = cam != null && Settings.Display.Value == DisplayMode.Parallax;
-            if (cam == null)
+            var cam = Settings.Display.Value != DisplayMode.Theater && !forcedTheater && !VideoWatch.Playing() ? EnsureCamera() : null;
+            // What only Unity knows this frame; the core (shared with every engine) runs the controls and places the eyes.
+            var game = new Game
+            {
+                cursorFree = Cursor.visible && Cursor.lockState != CursorLockMode.Locked ? 1 : 0,
+                padGame = Settings.PadGame() ? 1 : 0,
+                tests = Test != null ? 1 : 0,
+                uiAspect = (float)Screen.width / Mathf.Max(1, Screen.height),
+                upY = 1,
+                sceneScale = 1,
+                worldPointer = Hider.Active ? 1 : 0,
+                worldReach = worldReach,
+                screenW = Screen.width,
+                screenH = Screen.height,
+                pointerClick = uiTaken ? 0 : 1,
+                cameraKey = "",
+            };
+            if (cam != null)
+            {
+                var camT = cam.transform;
+                var up = PlayerUp();
+                UpdateFlatScale(cam);
+                var nudge = scripts != null ? scripts.EyeOffset : Vector3.zero;
+                game.hasCamera = 1;
+                game.camera = Xr.ToPose(camT.position, camT.rotation);
+                game.cameraKey = sceneName + "/" + cam.name;
+                game.carried = carried ? 1 : 0;
+                game.fovY = cam.fieldOfView * Mathf.Deg2Rad;
+                game.nearClip = cam.nearClipPlane;
+                game.focus = windowShown ? FocusRays(cam) : 0;
+                game.upX = up.x; game.upY = up.y; game.upZ = -up.z;
+                game.sceneScale = flatScale;
+                game.offsetX = nudge.x; game.offsetY = nudge.y; game.offsetZ = -nudge.z;
+            }
+            Test?.Apply(this);
+            located = Native.prx_bridge_frame(ref game, out Out) != 0;
+            if (!located)
+            {
+                SetEyes(false);
+                RestoreCamera();
+                return;
+            }
+            Views[0] = Out.viewL;
+            Views[1] = Out.viewR;
+            Fovs[0] = Out.fovL;
+            Fovs[1] = Out.fovR;
+            Menu.Opened(Out.menuOpen != 0);
+            if (Out.quit != 0) Application.Quit();
+            if (Out.renderScale != 0) ApplyRenderScale();
+            if (Out.cameraPicked != 0) ReleaseCamera();
+            if (Out.showHidden != 0) Hider.ShowAll();
+            if (Out.hideObjects != 0) Hider.Start();
+            AimHider();
+            PointerActive = Out.pointer != 0;
+            windowShown = cam != null && Out.mode == 1;
+            if (cam == null || Out.mode == 2)
             {
                 SetEyes(false);
                 RestoreCamera();
@@ -431,18 +380,9 @@ namespace Parallax
                 headPost?.Invoke();
                 headPost = null;
             }
-            var camT = cam.transform;
+            var camT2 = cam.transform;
             screenQuads.Grow(cam);
-            TrackBody(camT);
-            var yaw = Body;
-            var basePos = Smoothed(camT.position);
-            var unYaw = Quaternion.Inverse(originYaw);
-            UpdateFlatScale(cam);
-            float scale = Scale;
-            var lift = Vector3.up * Settings.Height.Value;
-            eyeBase = basePos + lift;
-            eyeScale = scale;
-            if (windowShown) WindowEyes(cam);
+            if (windowShown) EnsureWindowTargets();
             for (int e = 0; e < 2; e++)
             {
                 var eye = Eyes[e];
@@ -465,29 +405,50 @@ namespace Parallax
                 eye.targetTexture = windowShown ? windowTargets[e] : eyeTargets[e];
                 eye.rect = new Rect(0, 0, 1, 1);
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
-                if (windowShown) eye.transform.SetPositionAndRotation(camT.position + camT.rotation * windowEye[e], camT.rotation);
+                if (windowShown)
+                {
+                    // Parallax: the window's two cameras, beside the game camera along its right, through the core's frustum.
+                    float offset = e == 0 ? Out.windowOffsetL : Out.windowOffsetR;
+                    eye.transform.SetPositionAndRotation(camT2.position + camT2.rotation * new Vector3(offset, 0, 0), camT2.rotation);
+                    SetProjection(eye, e == 0 ? Out.windowFovL : Out.windowFovR);
+                }
                 else
                 {
-                    var rel = unYaw * (Xr.Position(Views[e]) - originPos);
-                    var nudge = scripts != null ? scripts.EyeOffset : Vector3.zero;
-                    eye.transform.SetPositionAndRotation(basePos + yaw * ((rel + nudge) * scale) + lift,
-                        yaw * unYaw * Xr.Rotation(Views[e]));
+                    var pose = e == 0 ? Out.eyeL : Out.eyeR;
+                    eye.transform.SetPositionAndRotation(Xr.Position(pose), Xr.Rotation(pose));
+                    SetProjection(eye, Fovs[e]);
                 }
-                SetProjection(eye, EyeFov(e));
                 eye.enabled = true;
                 StackPasses(e, eye, refreshExtras);
             }
             if (refreshExtras) headPost = CameraPost.Off(cam);
-            PlaceReticle(camT);
+            PlaceReticle(camT2);
             Held = 0;
-            if (aiming && handAiming && Settings.WeaponInHand.Value)
+            if (Out.aiming != 0 && Out.handAiming != 0 && Settings.WeaponInHand.Value)
             {
-                // The newest hand pose; the one aim used this frame when tracking dropped since.
-                var p = controllers.aimValidR != 0 ? controllers.aimR : handAim;
+                var p = Out.handAim;
                 handHeld.Move(cam, ToWorld(Xr.Position(p) + Xr.Rotation(p) * new Vector3(0, 0, 0.08f)));
                 Held = handHeld.Held;
             }
             eyesRendered = true;
+        }
+
+        // The hide-object tool has the laser: it goes out into the game world from where the right hand is there, and
+        // ends on what it would hide (next frame's beam). Opening the VR menu ends the tool.
+        void AimHider()
+        {
+            if (!Hider.Active) return;
+            if (Out.menuOpen != 0)
+            {
+                Hider.Stop();
+                return;
+            }
+            var c = Out.controllers;
+            if (c.aimValidR == 0 || GameCam == null) return;
+            var from = Xr.Position(c.aimR);
+            var dir = DirToWorld(Xr.Rotation(c.aimR) * Vector3.forward);
+            Hider.Aim(new Ray(ToWorld(from), dir), c.rTrigger > 0.6f, (c.buttons & Buttons.B) != 0);
+            worldReach = Hider.Target != null ? Hider.TargetDistance / Mathf.Max(1e-4f, Out.scale) : 3f;
         }
 
         // One pass per stacked camera, turned like the head pass. The first pass to draw clears colour even when its
@@ -526,7 +487,7 @@ namespace Parallax
                 // camera sits elsewhere and turns along).
                 bool flat = windowShown && o.cam.depth > GameCam.depth && Overlays(o.clear);
                 pass.transform.SetPositionAndRotation(o.cam.transform.position + (flat ? Vector3.zero : offset), head.transform.rotation);
-                SetProjection(pass, flat ? windowFov[2] : EyeFov(e));
+                SetProjection(pass, flat ? MiddleFov() : EyeFov(e));
                 if (refreshExtras)
                 {
                     o.post?.Invoke();
@@ -549,54 +510,29 @@ namespace Parallax
         // on the screen, inside its frame.
         RenderTexture[] windowTargets = new RenderTexture[2];
         readonly IntPtr[] windowPtrs = new IntPtr[2];
-        readonly Vector3[] windowEye = new Vector3[2];
-        readonly Fov[] windowFov = new Fov[3];  // left, right, and the flat middle view
         bool windowShown;
-        float focus = 5f;
         readonly Optional focusRay = new Optional("Parallax focus");
 
         internal bool WindowShown => windowShown;
-        internal float Focus => focus;
+        internal float Focus => Out.focus;
 
-        Fov EyeFov(int e) => windowShown ? windowFov[e] : Fovs[e];
+        Fov EyeFov(int e) => windowShown ? (e == 0 ? Out.windowFovL : Out.windowFovR) : Fovs[e];
 
-        void WindowEyes(Camera cam)
+        // The flat view from between the window's two cameras: tangents are linear in the cameras' offset.
+        Fov MiddleFov()
         {
-            EnsureWindowTargets();
-            Placement(false, out _, out _, out float w, out float h);
-            float ipd = Mathf.Clamp((Xr.Position(Views[1]) - Xr.Position(Views[0])).magnitude, 0.05f, 0.08f);
-            UpdateFocus(cam);
-            // The window in the game: at the focus distance, as large as the flat view there. Game units per metre of
-            // screen, times the depth setting, scale the eyes' offsets: at full depth distant things sit an eye-width
-            // apart on the screen. Never wider than two eye-widths at the world scale, though: tied to the focus alone
-            // the eyes went metres apart when the view looked far (54 m down Peripeteia's first street), so near things
-            // split and the picture slid as the focus moved. Past that, far views just come out flatter.
-            float gh = 2 * focus * Xr.Tan(cam.fieldOfView * Mathf.Deg2Rad / 2), gw = gh * w / h;
-            float k = Mathf.Min(gh / h, MaxSeparation * Scale) * Mathf.Clamp01(Settings.Depth.Value);
-            for (int e = 0; e < 3; e++)
-            {
-                float x = e == 2 ? 0 : (e == 0 ? -ipd : ipd) / 2 * k;
-                if (e < 2) windowEye[e] = new Vector3(x, 0, 0);
-                windowFov[e] = new Fov
-                {
-                    left = Xr.Atan((-gw / 2 - x) / focus),
-                    right = Xr.Atan((gw / 2 - x) / focus),
-                    down = Xr.Atan(-gh / 2 / focus),
-                    up = Xr.Atan(gh / 2 / focus),
-                };
-            }
+            Fov a = Out.windowFovL, b = Out.windowFovR;
+            float Mid(float x, float y) => Xr.Atan((Xr.Tan(x) + Xr.Tan(y)) / 2);
+            return new Fov { left = Mid(a.left, b.left), right = Mid(a.right, b.right), up = Mid(a.up, b.up), down = Mid(a.down, b.down) };
         }
 
-        const float MaxSeparation = 2f, MaxFocus = 15f;
-
-        // What sits at the middle of the view: the play plane of a 2D game, else the median of five rays around the
-        // centre (the character of a third-person game, the wall ahead in first person). No farther than 15 m at the
-        // world scale, and eased over about 0.7 s, so the screen plane does not jump as the view sweeps past things.
-        void UpdateFocus(Camera cam)
+        // What sits at the middle of the view: the median of five rays around the centre (the character of a
+        // third-person game, the wall ahead in first person); 0 when they hit nothing. The core keeps it within reach
+        // and eases it, and a 2D scene's play plane wins there.
+        float FocusRays(Camera cam)
         {
-            float target = focus;
-            if (flatScale > 1f) target = flatScale * FlatPlaneDistance;
-            else focusRay.Run(() =>
+            float found = 0;
+            focusRay.Run(() =>
             {
                 var hits = new System.Collections.Generic.List<float>();
                 for (int i = 0; i < 5; i++)
@@ -606,11 +542,9 @@ namespace Parallax
                 }
                 if (hits.Count == 0) return;
                 hits.Sort();
-                target = hits[hits.Count / 2];
+                found = hits[hits.Count / 2];
             });
-            float near = Mathf.Max(cam.nearClipPlane * 4, 0.5f);
-            target = Mathf.Clamp(target, near, Mathf.Max(near, MaxFocus * Scale, flatScale * FlatPlaneDistance));
-            focus = Mathf.Lerp(focus, target, 1 - (float)System.Math.Exp(-Time.unscaledDeltaTime * 1.5f));
+            return found;
         }
 
         // Screen-shaped, a little under the eye height in pixels: the window covers less of the view than the eyes do.
@@ -680,7 +614,7 @@ namespace Parallax
             bool window = eyesRendered && windowShown, stereo = eyesRendered && !window;
             // The theater screen and the Parallax window still need eye images for the hand menu and the beam:
             // transparent ones, drawn over the screen.
-            bool layered = stereo || window || ((watchShown || watchFade > 0 || beamOn) && !VideoWatch.Playing());
+            bool layered = stereo || window || ((Out.watch != 0 || Out.beam != 0) && !VideoWatch.Playing());
             var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo || window ? 1 : 0 };
             if (window)
             {
@@ -715,32 +649,12 @@ namespace Parallax
                 }
                 f.eyeL = new Layer { texture = eyePtrs[0], flipY = EyeFlip };
                 f.eyeR = new Layer { texture = eyePtrs[1], flipY = EyeFlip };
-                f.poseL = Views[0];
-                f.poseR = Views[1];
-                f.fovL = Fovs[0];
-                f.fovR = Fovs[1];
             }
-            Placement(stereo, out var center, out var rot, out f.quadWidth, out f.quadHeight);
             f.quadLayer = new Layer { texture = uiPtr, flipY = CaptureFlip };
-            // Where the runtime can, the theater screen curves around the player: its layer pose is the cylinder's centre.
-            // The Parallax window takes the theater screen's place, flat: its view is computed for a plane.
-            theaterShown = !stereo;
-            bool curved = CurvedShown;
-            f.quadPose = Xr.ToPose(curved ? CurveCenter : center, rot);
-            f.quadRadius = curved ? CurveRadius : 0;
-            f.vignette = stereo ? VignetteNow : 0;
-            f.beam = layered && beamOn ? 1 : 0;
-            // Native projects with the OpenXR eye poses: right-handed, so Z mirrored back.
-            f.fromX = beamFrom.x; f.fromY = beamFrom.y; f.fromZ = -beamFrom.z;
-            f.toX = beamTo.x; f.toY = beamTo.y; f.toZ = -beamTo.z;
-            f.watch = layered && watchFade > 0.004f ? 1 : 0;
-            f.watchLit = watchGlow;
-            f.watchAlpha = watchFade;
-            var accent = Menu.Lime;
-            f.accentR = accent.r; f.accentG = accent.g; f.accentB = accent.b;
-            f.passthrough = Settings.Display.Value != DisplayMode.Stereo && Settings.Background.Value == ScreenBackground.Passthrough ? 1 : 0;
-            f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
-            f.watchRadius = WatchRadius;
+            // The core's parts: eye poses, the UI panel or the (curved, where the runtime can) screen, beam, watch,
+            // vignette, theme accent, passthrough.
+            Native.prx_bridge_layers(ref f, (float)Screen.width / Mathf.Max(1, Screen.height));
+            if (!layered) f.beam = f.watch = 0;
             // Auto: once the head camera draws off screen and the screen is cleared for the UI, the panel's alpha is
             // usually the game's own again, so native measures it afresh (3) and keys it only if it is still opaque
             // (keying a clean panel made dark HUD frames and crosshairs see-through).
@@ -757,9 +671,9 @@ namespace Parallax
                     // Same size to the eye as on the panel, facing the head.
                     var headAt = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2;
                     var at = ToTracking(ReticleAt);
-                    float grow = (at - headAt).magnitude / Mathf.Max(0.1f, (center - headAt).magnitude);
+                    float grow = (at - headAt).magnitude / Mathf.Max(0.1f, (Xr.Position(f.quadPose) - headAt).magnitude);
                     f.patchShown = 1;
-                    f.aimPose = Xr.ToPose(at, Quaternion.LookRotation(at - headAt, originYaw * Vector3.up));
+                    f.aimPose = Xr.ToPose(at, Quaternion.LookRotation(at - headAt, Vector3.up));
                     f.aimW = 2 * f.patchW * f.quadWidth * grow;
                     f.aimH = 2 * f.patchH * f.quadHeight * grow;
                 }
@@ -769,9 +683,6 @@ namespace Parallax
                     f.aimRX = reticle[3]; f.aimRY = reticle[4]; f.aimRR = reticle[5];
                 }
             }
-            // The VR menu (the core's layer) over the middle of the panel or screen, a little in front.
-            Menu.At = Xr.ToPose(center - rot * Vector3.forward * (stereo ? 0.02f : 0.05f), rot);
-            Menu.AtHeight = f.quadHeight * 840f / 1080f;
             if (!vrNoted)
             {
                 vrNoted = true;
@@ -804,13 +715,7 @@ namespace Parallax
             uiPtr = uiTarget.GetNativeTexturePtr();
         }
 
-        internal void RequestRecenter() => recenterPending = true;
-
-        static bool CurvedLayers()
-        {
-            Native.prx_get_stats(out var s);
-            return s.curvedSupported != 0;
-        }
+        internal void RequestRecenter() => Native.prx_bridge_recenter();
 
         // Runtime restarts, headset sleep and session loss end the session; the game goes flat and we retry with
         // a growing delay until the runtime is back.
@@ -840,18 +745,10 @@ namespace Parallax
                 DrainLog();
                 return;  // Failed again: the next Update schedules another try
             }
-            recenterPending = true;
+            Native.prx_bridge_recenter();
             Native.prx_set_init_texture(eyePtrs[0]);
             GL.IssuePluginEvent(renderEvent, Native.EvInit);
-            curvedTheater = CurvedLayers();
             Plugin.Log.LogInfo("OpenXR runtime found again; restarting VR.");
-        }
-
-        void Recenter()
-        {
-            originPos = (Xr.Position(Views[0]) + Xr.Position(Views[1])) * 0.5f;
-            originYaw = Xr.Yaw(Xr.Rotation(Views[0]));
-            recenterPending = false;
         }
 
         Camera EnsureCamera()
@@ -931,12 +828,13 @@ namespace Parallax
         {
             RestoreCamera();
             GameCam = null;
-            bodyKnown = false;
-            orbitSamples = 0;
-            orbitNum = orbitDen = 0;
-            orbitLastFwd = Vector3.zero;
-            probeIgnored = 0;
-            ignoredTimes = 0;
+        }
+
+        static int BitCount(int v)
+        {
+            int n = 0;
+            for (uint u = (uint)v; u != 0; u &= u - 1) n++;
+            return n;
         }
 
         // 2D games drawn by a perspective camera (Hollow Knight): the sprites lie in a plane tens of units ahead, so at
@@ -947,7 +845,7 @@ namespace Parallax
         float flatScale = 1f;
         Camera flatScaleOf;
         readonly Optional flatLookup = new Optional("2D scene scale");
-        float Scale => Settings.WorldScale.Value * flatScale;
+
 
         void UpdateFlatScale(Camera cam)
         {
@@ -1104,107 +1002,7 @@ namespace Parallax
 
         internal bool IsEye(Camera cam) => eyeIds.Contains(cam.GetInstanceID());
 
-        // The menu's preview of the head camera, which is blanked while the eyes render in its place.
-        internal void RestoreForPreview(Camera preview)
-        {
-            if (!camHidden) return;
-            preview.cullingMask = savedMask;
-            preview.clearFlags = savedClear;
-            preview.backgroundColor = savedBackground;
-        }
-
         internal void ApplyRenderScale() => CreateEyeTargets();
-
-        static float SnapAngle(TurnMode m) => m == TurnMode.Snap15 ? 15f : m == TurnMode.Snap45 ? 45f : 30f;
-
-        // A flick of the right stick turns the game camera by the snap angle. Games turn by mouse or stick at their own
-        // sensitivity, so this pushes until the camera's yaw arrives: mouse pixels from a learned degrees-per-pixel
-        // (keyboard + mouse), or a proportional stick (gamepad). Returns this frame's push (PrxInputConfig.turnX).
-        float SnapTurn(bool pad)
-        {
-            float yaw = Heading(GameCam.transform), rx = controllers.rx;
-            if (!snapping)
-            {
-                if (Mathf.Abs(rx) < 0.3f) snapArmed = true;
-                if (!snapArmed || Mathf.Abs(rx) < 0.7f) return 0;
-                snapArmed = false;
-                snapping = true;
-                snapTarget = yaw + Mathf.Sign(rx) * SnapAngle(Settings.Turning.Value);
-                snapUntil = Time.unscaledTime + 0.6f;
-                snapLastYaw = yaw;
-                snapLastPush = 0;
-            }
-            float moved = Mathf.DeltaAngle(snapLastYaw, yaw);
-            if (!pad && Mathf.Abs(snapLastPush) >= 4 && Mathf.Abs(moved) > 0.05f && Mathf.Sign(moved) == Mathf.Sign(snapLastPush))
-            {
-                float sample = moved / snapLastPush;
-                degPerPixel = degPerPixel > 0 ? Mathf.Lerp(degPerPixel, sample, 0.5f) : sample;
-            }
-            snapLastYaw = yaw;
-            float err = Mathf.DeltaAngle(yaw, snapTarget);
-            if (Mathf.Abs(err) < 1.5f || Time.unscaledTime > snapUntil)
-            {
-                snapping = false;
-                return snapLastPush = 0;
-            }
-            // Half the remaining error per frame: the game may apply input a frame late, so a full step would overshoot.
-            if (pad) snapLastPush = Mathf.Sign(err) * Mathf.Clamp(Mathf.Abs(err) / 20f, 0.3f, 1f);
-            else snapLastPush = degPerPixel > 0 ? Mathf.Clamp(err * 0.5f / degPerPixel, -600, 600) : Mathf.Sign(err) * 40f;
-            return snapLastPush;
-        }
-
-        // Comfort vignette: strongest while the player moves or turns (stick input, or the game camera itself moving),
-        // eased in fast and out slowly. Jumps faster than 50 m/s are teleports or scene loads, not motion.
-        float Vignette()
-        {
-            var level = Settings.Vignette.Value;
-            if (level == VignetteLevel.Off || GameCam == null) return 0;
-            float dt = Mathf.Max(Time.unscaledDeltaTime, 1e-3f);
-            var pos = GameCam.transform.position;
-            float yaw = bodyYaw;
-            float speed = (pos - vignetteLastPos).magnitude / dt, turn = Mathf.Abs(Mathf.DeltaAngle(vignetteLastYaw, yaw)) / dt;
-            vignetteLastPos = pos;
-            vignetteLastYaw = yaw;
-            float stick = Xr.Sqrt(controllers.lx * controllers.lx + controllers.ly * controllers.ly);
-            float motion = Mathf.Max(Mathf.Max(stick, snapping ? 1f : 0f), Mathf.Max(speed < 50 ? speed / 3f : 0f, turn / 90f));
-            float target = (level == VignetteLevel.High ? 1f : 0.55f) * Mathf.Clamp01(motion);
-            return Mathf.MoveTowards(VignetteNow, target, dt * (target > VignetteNow ? 4f : 1.5f));
-        }
-
-        Vector3 Smoothed(Vector3 pos)
-        {
-            float now = Time.realtimeSinceStartup;
-            if (pos != stepTo)
-            {
-                if ((pos - stepTo).sqrMagnitude > 4f) stepFrom = pos;  // a jump: teleport or cut, no line to it
-                else stepFrom = stepTo;
-                stepLen = Mathf.Clamp(now - stepAt, 0.005f, 0.1f);
-                stepTo = pos;
-                stepAt = lastMoveAt = now;
-                stepMoved++;
-            }
-            else if (now - lastMoveAt < 0.1f) stepStill++;
-            // Judged every 90 frames: a fifth of the moving frames standing still turns it on, a twentieth turns it off.
-            if (++stepFrames >= 90)
-            {
-                float still = stepMoved > 20 ? (float)stepStill / (stepMoved + stepStill) : 0;
-                if (still > 0.2f) StepSmoothing = true;
-                else if (still < 0.05f) StepSmoothing = false;
-                stepFrames = stepMoved = stepStill = 0;
-            }
-            return StepSmoothing ? Vector3.Lerp(stepFrom, stepTo, (now - stepAt) / stepLen) : pos;
-        }
-
-        // Compass heading of a camera, stable when it looks straight up or down: the forward's horizontal part vanishes
-        // there and the up vector's takes over.
-        float Heading(Transform t)
-        {
-            var un = Quaternion.Inverse(upFrame);
-            Vector3 f = un * t.forward, h = f - un * t.up * f.y;
-            return Xr.Atan2(h.x, h.z) * Mathf.Rad2Deg;
-        }
-
-        float Pitch(Transform t) => Xr.Asin(Mathf.Clamp((Quaternion.Inverse(upFrame) * t.forward).y, -1, 1)) * Mathf.Rad2Deg;
 
         Vector3 PlayerUp()
         {
@@ -1236,41 +1034,18 @@ namespace Parallax
             return playerBody != null && !playerBody.useGravity && noWorldGravity ? playerBody.transform.up : Vector3.up;
         }
 
-        void TrackBody(Transform camT)
-        {
-            upFrame = Quaternion.FromToRotation(upFrame * Vector3.up, PlayerUp()) * upFrame;
-            float heading = Heading(camT);
-            if (!bodyKnown) bodyYaw = heading;
-            else if (!aiming) bodyYaw += Mathf.DeltaAngle(lastHeading, heading);
-            bodyKnown = true;
-            lastHeading = heading;
-            SampleOrbit(camT);
-        }
+        internal float OrbitRadius => Out.orbitRadius;
+        internal bool Aiming => Out.aiming != 0;
 
-        void SampleOrbit(Transform t)
-        {
-            Vector3 p = t.position, f = t.forward, dc = p - orbitLastPos, df = f - orbitLastFwd;
-            bool primed = orbitLastFwd != Vector3.zero;
-            orbitLastPos = p;
-            orbitLastFwd = f;
-            // A turn of at least 0.3 degrees; a jump over half a metre is a teleport, a cut or a dash, which says nothing
-            // about the pivot. Nor does a turn while the player walks: circle-strafing a target moves a first-person
-            // camera exactly like an orbit (ULTRAKILL flipped between verdicts), so only turns standing still count.
-            bool walking = controllers.lx * controllers.lx + controllers.ly * controllers.ly > 0.04f;
-            if (!primed || walking || df.sqrMagnitude < 2.7e-5f || dc.sqrMagnitude > 0.25f) return;
-            orbitNum = orbitNum * 0.99f - Vector3.Dot(dc, df);
-            orbitDen = orbitDen * 0.99f + df.sqrMagnitude;
-            orbitSamples++;
-        }
-
-        internal float OrbitRadius => orbitDen > 0 ? orbitNum / orbitDen : 0;
-        internal bool Aiming => aiming;
-
-        // Tracking space (metres from the recenter point) to the game world, as the eyes are placed this frame.
-        Vector3 eyeBase;
-        float eyeScale = 1;
-        Vector3 ToWorld(Vector3 tracking) => eyeBase + Body * (Quaternion.Inverse(originYaw) * (tracking - originPos) * eyeScale);
-        Vector3 ToTracking(Vector3 world) => originPos + originYaw * (Quaternion.Inverse(Body) * (world - eyeBase) / eyeScale);
+        // Tracking space (Unity's handedness, metres from the recenter point) to the game world, as the core placed the
+        // eyes this frame; and back.
+        internal Vector3 OriginPos => Xr.Position(Out.origin);
+        internal Quaternion OriginYaw => Xr.Rotation(Out.origin);
+        Quaternion Body => new Quaternion(-Out.bodyX, -Out.bodyY, Out.bodyZ, Out.bodyW);
+        Vector3 Base => new Vector3(Out.baseX, Out.baseY, -Out.baseZ);
+        Vector3 ToWorld(Vector3 tracking) => Base + Body * (Quaternion.Inverse(OriginYaw) * (tracking - OriginPos) * Out.scale);
+        internal Vector3 ToTracking(Vector3 world) => OriginPos + OriginYaw * (Quaternion.Inverse(Body) * (world - Base) / Mathf.Max(1e-4f, Out.scale));
+        Vector3 DirToWorld(Vector3 dir) => Body * (Quaternion.Inverse(OriginYaw) * dir);
 
         // The game's crosshair sits at the middle of its UI, which in VR is a panel that stays put while the camera
         // follows the head or hand, so it points elsewhere. While aiming, that middle (with the game's grab and use
@@ -1286,7 +1061,7 @@ namespace Parallax
 
         void PlaceReticle(Transform camT)
         {
-            reticleShown = !windowShown && aiming && Settings.Crosshair.Value != CrosshairMode.Off;
+            reticleShown = !windowShown && Out.aiming != 0 && Settings.Crosshair.Value != CrosshairMode.Off;
             if (!reticleShown) return;
             float dist = ReticleFar;
             aimRay.Run(() =>
@@ -1307,152 +1082,7 @@ namespace Parallax
                 reticle[e * 3 + 2] = front ? Xr.Tan(ReticleDeg * Mathf.Deg2Rad) / (u - d) : 0;
             }
         }
-        internal float BodyYaw => bodyYaw;
-
-        // On is unconditional outside the VR menu. Auto needs the game's cursor hidden (play, not its menus); after 40
-        // turning frames the camera gets a verdict (first person below 0.45 m), which only strong evidence flips (third
-        // person above 1 m, first person again below 0.2 m), so camera shake and dashes do not toggle it.
-        bool HeadAimWanted()
-        {
-            var mode = Settings.HeadAim.Value;
-            if (mode == AimMode.Off || Settings.InputNow == InputMode.Off || GameCam == null || !camHidden || !bodyKnown
-                || Menu.Open || Hider.Active || State != XrState.Running || windowShown)
-                return false;
-            if (Time.unscaledTime < aimSuspendedUntil) return false;
-            // A free cursor is a menu: mouse pushes would drag it sideways (stick pushes leave it be when forced on).
-            if (Cursor.visible && Cursor.lockState != CursorLockMode.Locked && (mode != AimMode.On || Settings.InputNow != InputMode.Gamepad)) return false;
-            if (mode == AimMode.On) return true;
-            string key = AimKey;
-            bool known = firstPerson.TryGetValue(key, out bool fp);
-            if (orbitSamples >= 40)
-            {
-                float r = OrbitRadius;
-                if (!known) fp = r < 0.45f;
-                else if (fp && r > 1f) fp = false;
-                else if (!fp && r < 0.2f) fp = true;
-                if (!known || firstPerson[key] != fp) Plugin.Log.LogInfo($"Head aim (auto): {key} turns about {r:0.00} m from itself, {(fp ? "first" : "third")} person");
-                firstPerson[key] = fp;
-                return fp;
-            }
-            if (known) return fp;
-            return carried && ignoredTimes < 2;
-        }
-
-        // Steers the game camera to where the head looks, closed loop on its angles: mouse pixels from a learned
-        // degrees-per-pixel (half the error per frame, as the game may apply input a frame late), or a proportional
-        // right stick. The right stick turns the body instead, smoothly or in snaps. Sets this frame's push (aimPushX/Y).
-        // No ref parameters on Rig: IL2CPP's class injector cannot convert them.
-        void HeadAim(bool pad)
-        {
-            float rx = controllers.rx;
-            if (Settings.Turning.Value == TurnMode.Smooth) bodyYaw += rx * Mathf.Abs(rx) * SmoothTurnDegPerSec * Mathf.Min(Time.unscaledDeltaTime, 0.1f);
-            else if (Mathf.Abs(rx) < 0.3f) snapArmed = true;
-            else if (snapArmed && Mathf.Abs(rx) > 0.7f)
-            {
-                snapArmed = false;
-                bodyYaw += Mathf.Sign(rx) * SnapAngle(Settings.Turning.Value);
-            }
-            handAiming = Settings.AimWith.Value == AimHand.Hand && controllers.aimValidR != 0;
-            if (handAiming) handAim = controllers.aimR;
-            var look = Quaternion.Inverse(originYaw) * Xr.Rotation(handAiming ? controllers.aimR : Views[0]) * Vector3.forward;
-            float wantYaw = bodyYaw + Xr.Atan2(look.x, look.z) * Mathf.Rad2Deg;
-            float wantPitch = Mathf.Clamp(Xr.Asin(Mathf.Clamp(look.y, -1, 1)) * Mathf.Rad2Deg, -80, 80);
-            var camT = GameCam.transform;
-            float yaw = Heading(camT), pitch = Pitch(camT);
-            float movedX = Mathf.DeltaAngle(aimLastYaw, yaw), movedY = pitch - aimLastPitch;
-            float errX = Mathf.DeltaAngle(yaw, wantYaw), errY = wantPitch - pitch;
-            if (pad)
-            {
-                AimLoop.LearnStick(ref padSignY, ref padWrongY, movedY, aimPushY);
-                aimPushX = Mathf.Abs(errX) < 1f ? 0 : Mathf.Sign(errX) * Mathf.Clamp(Mathf.Abs(errX) / 25f, 0.3f, 1f) * padSignX;
-                aimPushY = Mathf.Abs(errY) < 1f ? 0 : Mathf.Sign(errY) * Mathf.Clamp(Mathf.Abs(errY) / 25f, 0.3f, 1f) * padSignY;
-            }
-            else
-            {
-                AimLoop.LearnPixels(ref aimDppX, ref aimWrongX, movedX, aimPushX, false);
-                AimLoop.LearnPixels(ref aimDppY, ref aimWrongY, movedY, aimPushY, true);
-                aimPushX = AimLoop.PixelPush(errX, aimDppX);
-                aimPushY = AimLoop.PixelPush(errY, aimDppY);
-            }
-            aimLastYaw = yaw;
-            aimLastPitch = pitch;
-            // Pushes the camera ignores for 1.5 s (a camera the game does not steer, input it drops) pause head aim for
-            // 3 s in any mode, so it never spins the view endlessly; then it tries again.
-            if (Mathf.Abs(errX) > 5f && Mathf.Abs(movedX) < 0.05f) probeIgnored += Time.unscaledDeltaTime;
-            else if (Mathf.Abs(movedX) > 0.2f) probeIgnored = 0;
-            if (probeIgnored > 1.5f)
-            {
-                probeIgnored = 0;
-                aimSuspendedUntil = Time.unscaledTime + 3f;
-                ignoredTimes++;
-                Plugin.Log.LogInfo($"Head aim: {AimKey} ignores the pushes; paused for 3 s");
-            }
-        }
-
-        // Watch check, as DesktopVR's clock: the left controller close to the face with the back of the hand (its outer,
-        // -X side) turned toward the eyes, and the eyes on it. The face fades in with both, so it is out of sight while
-        // you play; glanced at (face turned within 45 degrees, mostly shown) it lights and the trigger opens the menu.
-        // The right hand pointing at a shown watch counts as a glance too.
-        bool WristGlance()
-        {
-            watchShown = Settings.WristMenu.Value && controllers.aimValidL != 0 && State == XrState.Running && !Menu.Open;
-            bool looked = false;
-            bool glance = false;
-            float dt = Time.unscaledDeltaTime;
-            if (watchShown)
-            {
-                var hand = Xr.Rotation(controllers.aimL);
-                watchAt = Xr.Position(controllers.aimL) + hand * new Vector3(-0.035f, 0.01f, -0.12f);
-                var toHead = (Xr.Position(Views[0]) + Xr.Position(Views[1])) / 2 - watchAt;
-                float dist = toHead.magnitude;
-                if (dist <= 0.7f && dist > 1e-4f)
-                {
-                    var toEye = toHead / dist;
-                    float facing = Vector3.Dot(hand * Vector3.left, toEye);
-                    float looking = Vector3.Dot(Xr.Rotation(Views[0]) * Vector3.forward, -toEye);
-                    // Test runs hold the wrist up without turning the null headset's view to it.
-                    if (Test?.Wrist == true) looking = 1f;
-                    looked = watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
-                    // Lit (a trigger pull opens the menu) when turned toward the eyes, or under the laser.
-                    glance = looked && facing > 0.6f;
-                    if (!glance && looked && controllers.aimValidR != 0)
-                    {
-                        var from = Xr.Position(controllers.aimR);
-                        var dir = Xr.Rotation(controllers.aimR) * Vector3.forward;
-                        var to = watchAt - from;
-                        float along = Vector3.Dot(to, dir);
-                        glance = along > 0 && along < 0.6f && (to - dir * along).magnitude < 0.06f;
-                    }
-                }
-            }
-            watchHeld += dt;
-            if (looked != watchLooked && (looked || watchHeld >= WatchHoldS))
-            {
-                watchLooked = looked;
-                watchHeld = 0;
-            }
-            float target = watchShown && watchLooked ? 1f : 0f;
-            watchFade = !Motion.On ? target
-                : target > watchFade ? Mathf.Min(target, watchFade + dt / WatchShowS)
-                : Mathf.Max(target, watchFade - dt / WatchHideS);
-            watchGlow = Motion.Follow(watchGlow, glance ? 1f : 0f, WatchGlowS, dt);
-            return glance;
-        }
-
-        static int BitCount(int v)
-        {
-            int n = 0;
-            for (uint u = (uint)v; u != 0; u &= u - 1) n++;
-            return n;
-        }
-
-        bool MenuKeyPressed()
-        {
-            bool down = Native.prx_key_down(Settings.MenuKey.Value) != 0;
-            bool pressed = down && !menuKeyDown;
-            menuKeyDown = down;
-            return pressed;
-        }
+        internal float BodyYaw => Out.bodyYaw;
 
         static void DrainLog()
         {
@@ -1467,49 +1097,5 @@ namespace Parallax
         }
 
         internal Vector2Int EyeSize => new Vector2Int(eyeTargets[0].width, eyeTargets[0].height);
-    }
-
-    // Head aim loop helpers, outside Rig so the IL2CPP class injector never sees their ref parameters.
-    internal static class AimLoop
-    {
-        // Over 2 degrees per pixel is not our push. Movement against the expected direction (up is up until shown
-        // otherwise) is noise: bob, recoil, screen shake. Only a camera clearly running away from strong pushes, five
-        // frames in a row, inverts an axis that may be inverted (Y); horizontal look never is, as a wrong sign there
-        // holds the camera facing backwards. A noise-learned flip on Y pinned ULTRAKILL's view to the floor.
-        internal static void LearnPixels(ref float dpp, ref int wrong, float moved, float push, bool invertible)
-        {
-            if (Mathf.Abs(push) < 4 || Mathf.Abs(moved) < 0.05f) return;
-            float sample = moved / push;
-            if (Mathf.Abs(sample) > 2f) return;
-            if (Mathf.Sign(sample) != (dpp != 0 ? Mathf.Sign(dpp) : 1f))
-            {
-                wrong = Mathf.Abs(push) >= 20 && Mathf.Abs(moved) >= 1f ? wrong + 1 : 0;
-                if (!invertible || wrong < 5) return;
-                dpp = 0;
-            }
-            wrong = 0;
-            dpp = dpp != 0 ? Mathf.Lerp(dpp, sample, 0.3f) : sample;
-        }
-
-        internal static void LearnStick(ref float sign, ref int wrong, float moved, float push)
-        {
-            if (Mathf.Abs(push) < 0.3f || Mathf.Abs(moved) < 0.05f) return;
-            if (Mathf.Sign(moved) == Mathf.Sign(push))  // push is already signed
-            {
-                wrong = 0;
-                return;
-            }
-            wrong = Mathf.Abs(push) >= 0.5f && Mathf.Abs(moved) >= 1f ? wrong + 1 : 0;
-            if (wrong < 5) return;
-            sign = -sign;
-            wrong = 0;
-        }
-
-        // Before the rate is learned, a small probe in the error's direction.
-        internal static float PixelPush(float err, float dpp)
-        {
-            if (Mathf.Abs(err) < 0.3f) return 0;
-            return dpp != 0 ? Mathf.Clamp(err * 0.5f / dpp, -800, 800) : Mathf.Sign(err) * Mathf.Min(Mathf.Abs(err) * 2, 30);
-        }
     }
 }

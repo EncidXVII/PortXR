@@ -39,6 +39,20 @@ inline Q look(const V3& to) {
     return {q.x / n, q.y / n, q.z / n, q.w / n};
 }
 
+// The shortest rotation turning unit vector `a` onto unit vector `b`.
+inline Q from_to(const V3& a, const V3& b) {
+    float d = a.dot(b);
+    if (d < -0.9999f) {  // half a turn about any perpendicular
+        V3 p = std::fabs(a.x) < 0.9f ? V3{0, -a.z, a.y} : V3{a.z, 0, -a.x};
+        p = p * (1 / p.length());
+        return {p.x, p.y, p.z, 0};
+    }
+    V3 c{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    Q q{c.x, c.y, c.z, 1 + d};
+    float n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    return {q.x / n, q.y / n, q.z / n, q.w / n};
+}
+
 inline Q yaw(float radians) { return {0, std::sin(radians / 2), 0, std::cos(radians / 2)}; }
 // Heading of a rotation about +Y: 0 looks down -Z, positive turns left (towards -X).
 inline float heading(const Q& q) {

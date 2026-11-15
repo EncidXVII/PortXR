@@ -26,7 +26,7 @@ namespace Parallax
         internal static InputMode InputNow => Input.Value != InputMode.Auto ? Input.Value : PadGame() ? InputMode.Gamepad : InputMode.KeyboardMouse;
         static bool? padGame;
 
-        static bool PadGame()
+        internal static bool PadGame()
         {
             if (padGame is bool known) return known;
             string[] pads = { "Unity.InputSystem", "Rewired_Core", "InControl", "XInputDotNetPure", "SharpDX.XInput", "XInputInterface" };

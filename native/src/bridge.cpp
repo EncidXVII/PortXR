@@ -32,7 +32,7 @@ PrxPose g_views[2];
 PrxFov g_fovs[2];
 bool g_located;
 float g_accent[3];
-bool g_accentRead;
+ULONGLONG g_accentAt;
 float g_vignette;
 rig::Result g_rig;
 LARGE_INTEGER g_menuTick{};
@@ -75,6 +75,8 @@ void draw_handles(const rig::Result& r, float aspect) {
                          {1, 1, 1, 1}, canvas::Center);
 }
 bool g_menuKeyDown, g_welcomed;
+bool g_testHead;
+float g_testHeadAt[4];
 int g_lastMode;
 rig::Screen g_lastScreen;
 float g_aspect = 16.f / 9.f;
@@ -152,9 +154,23 @@ void set_setting(const char* section, const char* key, const std::string& value)
 void recenter() { rig::recenter(); }
 
 bool frame(const Game& game, Frame& out) {
-    if (settings::refresh() || !g_accentRead) settings::accent(g_accent), g_accentRead = true;
+    // The theme (one file for every game and the app) is looked at once a second; a settings change shows at once.
+    ULONGLONG nowMs = GetTickCount64();
+    if (settings::refresh() || nowMs - g_accentAt >= 1000) settings::accent(g_accent), g_accentAt = nowMs;
     g_located = prx_locate(g_views, g_fovs) != 0;
     if (!g_located) return false;
+    if (g_testHead) {
+        // The head where the test puts it: the eyes keep their places around it, turned to its heading.
+        mathx::V3 center{(g_views[0].px + g_views[1].px) / 2, (g_views[0].py + g_views[1].py) / 2, (g_views[0].pz + g_views[1].pz) / 2};
+        mathx::Q undo = mathx::Q{g_views[0].qx, g_views[0].qy, g_views[0].qz, g_views[0].qw}.inverse();
+        mathx::Q turn = mathx::yaw(-g_testHeadAt[3] * mathx::kPi / 180);
+        mathx::V3 head{g_testHeadAt[0], g_testHeadAt[1], g_testHeadAt[2]};
+        for (auto& v : g_views) {
+            mathx::V3 p = head + turn * (undo * (mathx::V3{v.px, v.py, v.pz} - center));
+            mathx::Q q = turn * undo * mathx::Q{v.qx, v.qy, v.qz, v.qw};
+            v = {p.x, p.y, p.z, q.x, q.y, q.z, q.w};
+        }
+    }
     rig::GameFrame g;
     g.hasCamera = game.hasCamera;
     g.camera = {{game.camera.p[0], game.camera.p[1], game.camera.p[2]}, {game.camera.q[0], game.camera.q[1], game.camera.q[2], game.camera.q[3]}};
@@ -183,6 +199,13 @@ bool frame(const Game& game, Frame& out) {
     g.menuWidth = g.menuHeight * menu::aspect();
     g.menuPose = {at.p + at.q * mathx::V3{0, 0, g_lastMode != 0 ? 0.05f : 0.02f}, at.q};
     g.pointerAuto = settings::get("Controls", "Pointer", "Auto") != "MenuOnly";
+    g.up = {game.up[0], game.up[1], game.up[2]};
+    g.sceneScale = game.sceneScale;
+    g.eyeOffset = {game.eyeOffset[0], game.eyeOffset[1], game.eyeOffset[2]};
+    g.worldPointer = game.worldPointer;
+    g.worldReach = game.worldReach;
+    g.screenW = game.screenW, g.screenH = game.screenH;
+    g.pointerClick = game.pointerClick;
     rig::Result r = rig::frame(g, g_views);
     g_rig = r;
     g_lastMode = r.mode;
@@ -214,6 +237,7 @@ bool frame(const Game& game, Frame& out) {
     for (int e = 0; e < 2; ++e) {
         out.eyes[e] = {{r.eyes[e].p.x, r.eyes[e].p.y, r.eyes[e].p.z}, {r.eyes[e].q.x, r.eyes[e].q.y, r.eyes[e].q.z, r.eyes[e].q.w}};
         out.fovs[e] = {g_fovs[e].left, g_fovs[e].right, g_fovs[e].up, g_fovs[e].down};
+        out.views[e] = {{g_views[e].px, g_views[e].py, g_views[e].pz}, {g_views[e].qx, g_views[e].qy, g_views[e].qz, g_views[e].qw}};
     }
     out.aiming = r.aiming;
     out.events = r.events;
@@ -227,7 +251,7 @@ bool frame(const Game& game, Frame& out) {
     if ((r.events & EvMenuToggle) || (key && !g_menuKeyDown)) menu::toggle();
     g_menuKeyDown = key;
     // The welcome card the first time VR runs in a game.
-    if (!g_welcomed && settings::getb("Menu", "FirstRun", true)) menu::show_welcome();
+    if (!g_welcomed && !game.tests && settings::getb("Menu", "FirstRun", true)) menu::show_welcome();
     g_welcomed = true;
     menu::Requests req = menu::frame(r.pointer.onMenu, r.pointer.u, r.pointer.v, r.controllers.rTrigger, dt);
     if (req.recenter) rig::recenter();
@@ -291,46 +315,26 @@ bool pad(Pad& out) {
     return true;
 }
 
-void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY) {
-    if (!g_located) return;
-    PrxFrame f{};
+void layers(void* prxFrame, float uiAspect) {
+    PrxFrame& f = *(PrxFrame*)prxFrame;
     int mode = g_rig.mode;
-    // Stereo: the eyes. Theater and Parallax: transparent eyes of the core's own, for the beam and the watch over the
-    // screen; Parallax adds the window eyes on the screen.
-    f.stereo = mode == rig::Stereo || g_rig.beam || g_rig.watch.shown || mode == rig::Parallax ? 1 : 0;
-    if (mode == rig::Stereo) {
-        f.eye[0] = {left, flipY ? 1 : 0};
-        f.eye[1] = {right, flipY ? 1 : 0};
-    }
     for (int e = 0; e < 2; ++e) {
         f.eyePose[e] = g_views[e];
         f.eyeFov[e] = g_fovs[e];
     }
-    if (mode == rig::Parallax && left && right) {
-        f.window = 1;
-        f.windowLayer[0] = {left, flipY ? 1 : 0};
-        f.windowLayer[1] = {right, flipY ? 1 : 0};
-    }
     f.passthrough = mode != rig::Stereo && settings::get("View", "Background", "Dark") == "Passthrough" && prx_passthrough() ? 1 : 0;
-    if (ui && mode != rig::Stereo) {
+    if (mode != rig::Stereo) {
         // The game's picture (Theater) or its UI over the window (Parallax) on the screen, curved where it fits.
         const rig::Screen& sc = g_rig.screen;
-        f.quad = 1;
-        f.quadAlpha = mode == rig::Parallax ? 1 : 0;
-        f.uiKey = 2;
-        f.quadLayer = {ui, flipY ? 1 : 0};
         f.quadPose = prx_pose(mode == rig::Parallax ? sc.center : (sc.radius > 0 ? sc.pose : sc.center));
         f.quadRadius = mode == rig::Theater ? sc.radius : 0;
         f.quadWidth = sc.width;
         f.quadHeight = sc.height;
-    } else if (ui) {
+    } else {
         float width = 1;
         rig::Pose at = rig::panel(width);
-        f.quad = 1;
-        f.quadAlpha = 1;
-        f.uiKey = 2;  // the engine gives the UI with its real alpha: nothing to key
-        f.quadLayer = {ui, flipY ? 1 : 0};
-        f.quadPose = {at.p.x, at.p.y, at.p.z, at.q.x, at.q.y, at.q.z, at.q.w};
+        f.quadPose = prx_pose(at);
+        f.quadRadius = 0;
         f.quadWidth = width;
         f.quadHeight = width / (uiAspect > 0 ? uiAspect : 16.f / 9.f);
     }
@@ -348,8 +352,124 @@ void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY) 
         f.watchAt[0] = g_rig.watch.at.x, f.watchAt[1] = g_rig.watch.at.y, f.watchAt[2] = g_rig.watch.at.z;
         f.watchRadius = 0.022f;
     }
+}
+
+void test_head(bool on, float x, float y, float z, float yawDeg) {
+    g_testHead = on;
+    g_testHeadAt[0] = x, g_testHeadAt[1] = y, g_testHeadAt[2] = z, g_testHeadAt[3] = yawDeg;
+}
+
+void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY) {
+    if (!g_located) return;
+    PrxFrame f{};
+    int mode = g_rig.mode;
+    layers(&f, uiAspect);
+    // Stereo: the eyes. Theater and Parallax: transparent eyes of the core's own, for the beam and the watch over the
+    // screen; Parallax adds the window eyes on the screen.
+    f.stereo = mode == rig::Stereo || g_rig.beam || g_rig.watch.shown || mode == rig::Parallax ? 1 : 0;
+    if (mode == rig::Stereo) {
+        f.eye[0] = {left, flipY ? 1 : 0};
+        f.eye[1] = {right, flipY ? 1 : 0};
+    }
+    if (mode == rig::Parallax && left && right) {
+        f.window = 1;
+        f.windowLayer[0] = {left, flipY ? 1 : 0};
+        f.windowLayer[1] = {right, flipY ? 1 : 0};
+    }
+    if (ui) {
+        f.quad = 1;
+        f.quadAlpha = mode != rig::Theater ? 1 : 0;
+        f.uiKey = 2;  // the engine gives the UI with its real alpha: nothing to key
+        f.quadLayer = {ui, flipY ? 1 : 0};
+    }
     prx_set_frame(g_slot, &f);
     event(EvSubmit | (g_slot << 8));
     g_slot = (g_slot + 1) % 4;
 }
 }  // namespace bridge
+
+// --- The bridge for the Unity plugin (C#): the same frame as every engine, flat structs at the edge ---------------
+// Poses in OpenXR handedness (the plugin mirrors Z at its side).
+struct PrxGame {
+    int32_t hasCamera;
+    PrxPose camera;
+    const char* cameraKey;
+    int32_t cursorFree, padGame, carried, tests;
+    float uiAspect, fovY, nearClip, focus;
+    float up[3], sceneScale, eyeOffset[3];
+    int32_t worldPointer;
+    float worldReach;
+    int32_t screenW, screenH, pointerClick;
+};
+struct PrxRig {
+    PrxPose eyes[2], views[2];
+    PrxFov fovs[2];
+    int32_t mode, aiming, events, menuOpen;
+    int32_t pointer, pointerDown;
+    float pointerU, pointerV;
+    int32_t quit, renderScale, cameraPicked, hideObjects, showHidden;
+    float windowOffset[2];
+    PrxFov windowFov[2];
+    int32_t handAiming;
+    PrxPose handAim;
+    PrxPose origin;  // tracking to world: base + body * (origin.q^-1 * (p - origin.p) * scale)
+    float body[4], base[3], scale;
+    PrxControllers controllers;
+    int32_t handles, handle, grab;
+    float screen[4];  // yaw, pitch (degrees), distance, width (metres)
+    float vignette, focus, bodyYaw, orbitRadius;
+    int32_t smoothing, glancing, watch, beam;
+};
+
+extern "C" {
+PRX_API int32_t prx_bridge_frame(const PrxGame* in, PrxRig* out) {
+    bridge::Game g;
+    g.hasCamera = in->hasCamera != 0;
+    g.camera = {{in->camera.px, in->camera.py, in->camera.pz}, {in->camera.qx, in->camera.qy, in->camera.qz, in->camera.qw}};
+    g.cameraKey = in->cameraKey ? in->cameraKey : "";
+    g.cursorFree = in->cursorFree != 0, g.padGame = in->padGame != 0, g.carried = in->carried != 0, g.tests = in->tests != 0;
+    g.uiAspect = in->uiAspect, g.fovY = in->fovY, g.nearClip = in->nearClip, g.focus = in->focus;
+    for (int i = 0; i < 3; ++i) g.up[i] = in->up[i], g.eyeOffset[i] = in->eyeOffset[i];
+    g.sceneScale = in->sceneScale;
+    g.worldPointer = in->worldPointer != 0, g.worldReach = in->worldReach;
+    g.screenW = in->screenW, g.screenH = in->screenH, g.pointerClick = in->pointerClick != 0;
+    bridge::Frame f;
+    *out = {};
+    if (!bridge::frame(g, f)) return 0;
+    const rig::Result& r = g_rig;
+    for (int e = 0; e < 2; ++e) {
+        out->eyes[e] = {f.eyes[e].p[0], f.eyes[e].p[1], f.eyes[e].p[2], f.eyes[e].q[0], f.eyes[e].q[1], f.eyes[e].q[2], f.eyes[e].q[3]};
+        out->views[e] = g_views[e];
+        out->fovs[e] = g_fovs[e];
+        out->windowOffset[e] = r.windowOffset[e];
+        out->windowFov[e] = r.windowFov[e];
+    }
+    out->mode = f.mode, out->aiming = f.aiming, out->events = f.events, out->menuOpen = f.menuOpen;
+    out->pointer = f.pointer, out->pointerDown = f.pointerDown, out->pointerU = f.pointerU, out->pointerV = f.pointerV;
+    out->quit = f.quit, out->renderScale = f.renderScale, out->cameraPicked = f.cameraPicked;
+    out->hideObjects = f.hideObjects, out->showHidden = f.showHidden;
+    out->handAiming = r.handAiming, out->handAim = r.handAim;
+    out->origin = prx_pose(r.origin);
+    out->body[0] = r.body.x, out->body[1] = r.body.y, out->body[2] = r.body.z, out->body[3] = r.body.w;
+    out->base[0] = r.base.x, out->base[1] = r.base.y, out->base[2] = r.base.z;
+    out->scale = r.scale;
+    out->controllers = r.controllers;
+    out->handles = r.handles, out->handle = r.handle, out->grab = r.grab;
+    out->screen[0] = r.screenYaw, out->screen[1] = r.screenPitch, out->screen[2] = r.screenDistance, out->screen[3] = r.screenWidth;
+    out->vignette = r.vignette, out->focus = r.focus, out->bodyYaw = r.bodyYaw, out->orbitRadius = r.orbitRadius;
+    out->smoothing = r.stepSmoothing, out->glancing = r.glancing, out->watch = r.watch.shown, out->beam = r.beam;
+    return 1;
+}
+
+PRX_API void prx_bridge_layers(PrxFrame* f, float uiAspect) { bridge::layers(f, uiAspect); }
+PRX_API void prx_bridge_recenter() { rig::recenter(); }
+
+// Tests: controllers instead of the headset's (null: the real ones), the laser forced onto the UI at (u, v) (u < 0:
+// not), the raised wrist counted as looked at, the head moved (x, y, z, clockwise yaw degrees; null: off).
+PRX_API void prx_bridge_test(const PrxControllers* c, float u, float v, int32_t wrist, const float* head) {
+    rig::set_test_controllers(c);
+    rig::set_test_point(u, v, false);
+    rig::set_test_wrist(wrist != 0);
+    bridge::test_head(head != nullptr, head ? head[0] : 0, head ? head[1] : 0, head ? head[2] : 0, head ? head[3] : 0);
+}
+}

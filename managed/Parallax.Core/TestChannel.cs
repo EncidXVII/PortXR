@@ -73,15 +73,36 @@ namespace Parallax
             if (busyMs > 0) System.Threading.Thread.Sleep(busyMs);
         }
 
-        public void ApplyHead(Pose[] views)
+        // Before the core's frame: what the test fakes this frame. Positions are in the play space (Unity's handedness,
+        // from the recenter point as last frame's rig placed it); the core takes them mirrored.
+        public void Apply(Rig rig)
         {
-            if (headPos == null) return;
-            var center = (Xr.Position(views[0]) + Xr.Position(views[1])) * 0.5f;
-            var undo = Quaternion.Inverse(Xr.Rotation(views[0]));
-            var target = Quaternion.Euler(0, headYaw, 0);
-            for (int e = 0; e < 2; e++)
-                views[e] = Xr.ToPose(headPos.Value + target * (undo * (Xr.Position(views[e]) - center)),
-                    target * undo * Xr.Rotation(views[e]));
+            Controllers[] fake = null;
+            if (ControllerOverride != null || AimOffset != null || Wrist)
+            {
+                var c = ControllerOverride != null ? ControllerOverride[0] : new Controllers();
+                var origin = rig.OriginPos;
+                var yaw = rig.OriginYaw;
+                if (AimOffset is Vector3 offset)
+                {
+                    var from = origin + yaw * offset;
+                    var to = AimTarget is Vector3 t ? origin + yaw * t : rig.PictureCenter;
+                    var target = AimObject != null ? GameObject.Find(AimObject) : null;
+                    if (target != null) to = rig.ToTracking(target.transform.position);
+                    c.aimR = Xr.ToPose(from, Quaternion.LookRotation(to - from));
+                    c.aimValidR = 1;
+                }
+                // The left hand raised in front of the face, the back of the wrist toward the eyes.
+                if (Wrist)
+                {
+                    c.aimL = Xr.ToPose(origin + yaw * new Vector3(-0.05f, -0.22f, 0.33f), yaw * Quaternion.Euler(-20, -90, 0));
+                    c.aimValidL = 1;
+                }
+                fake = new[] { c };
+            }
+            var point = PointerOverride ?? new Vector2(-1, -1);
+            float[] head = headPos is Vector3 h ? new[] { h.x, h.y, -h.z, headYaw } : null;
+            Native.prx_bridge_test(fake, point.x, point.y, Wrist ? 1 : 0, head);
         }
 
         static float F(string s) => float.Parse(s, CultureInfo.InvariantCulture);

@@ -1,4 +1,4 @@
-﻿# Parallax: play flat Unity games in VR
+# Parallax: play flat Unity games in VR
 
 [![Latest release](https://img.shields.io/github/v/release/EncidXVII/Parallax?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/EncidXVII/Parallax/total?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases)
@@ -134,7 +134,8 @@ for single-player games only.
 headset on. The game page names the runtime Parallax will use and says what to check if VR does not start. Still
 flat? **Export logs** and open an issue.
 
-**Does it work with Unreal, Godot or other engines?** No, only Unity games.
+**Does it work with Unreal, Godot or other engines?** Unity games and Godot 4 games get full VR. Games in any other
+engine play flat on the Theater screen.
 
 **How is it different from a game's own VR mode?** Parallax adds VR to games that have none. Games with their own VR
 mode are marked **Already VR**; start those in VR from Steam.
@@ -189,8 +190,9 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 ## How it works
 
-- `native/` (C++20, `parallax_xr.dll`): OpenXR session and frame loop on Unity's render thread, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation.
-- `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): picks the game camera, renders two eye cameras each frame, captures the game's UI from the backbuffer onto a panel, draws the VR menu.
+- `native/` (C++20): the core every engine shares. OpenXR session and frame loop, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation; and the player's rig (`rig.cpp`: recentring, body turning, head and hand aim, snap turning, comfort vignette, the laser pointer, wrist watch, Theater and Parallax screen with its handles, eye placement), the VR menu (`menu.cpp`, drawn on the CPU and shown as its own layer) and settings. `bridge.cpp` is the one frame every engine adapter calls. Built as `parallax_xr.dll` (Unity) and `parallax_godot.dll` (a Godot 4 GDExtension).
+- `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): the Unity adapter. Picks the game camera and reports it with what only Unity knows (its physics rays, a player body's gravity, 2D scenes), renders the two eyes where the core puts them, captures the game's UI from the backbuffer, moves a weapon into the hand, hides objects.
+- `godot/core/` (GDScript): the Godot adapter, the same frame from inside a Godot 4 game.
 - `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam, Epic, GOG and manual adds (plus a "Not installed" shelf of the Steam library's Unity games, matched against Wikidata's list of Unity games, that installs through Steam and flags multiplayer-only and 32-bit games first), per-game script import with search, status and store filters and a recently-played order, settings for all games with per-game changes (kept in `%APPDATA%\Parallax` across uninstalls; a game follows a changed all-games value unless it was set differently for that game, in the app or its VR menu), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases. `Parallax.exe <gameDir>` opens straight to that game's page.
 
 ## Safety and privacy

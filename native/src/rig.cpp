@@ -66,6 +66,13 @@ bool g_pointerOn, g_pointerDown;
 bool g_watchLooked, g_glancing, g_glanceTrigger;
 float g_watchHeld, g_watchFade, g_watchGlow;
 PrxControllers g_test{};
+bool g_testWrist;
+// The player's ground: world up, or a player body's own up where the game applies its own gravity (small planets),
+// carried along without twist so headings stay continuous.
+Q g_upFrame;
+float g_sceneScale = 1;
+bool g_handAiming;
+PrxPose g_handAim{};
 
 float clamp01(float v) { return std::clamp(v, 0.f, 1.f); }
 float sign(float v) { return v < 0 ? -1.f : 1.f; }
@@ -74,7 +81,15 @@ V3 forward(const Q& q) { return q * V3{0, 0, -1}; }
 // Clockwise heading and pitch in degrees, as the player sees them.
 float heading_cw(const V3& f) { return std::atan2(f.x, -f.z) * kDeg; }
 float pitch_deg(const V3& f) { return std::asin(std::clamp(f.y, -1.f, 1.f)) * kDeg; }
-Q body() { return yaw(-g_bodyYaw * kRad); }
+Q body() { return g_upFrame * yaw(-g_bodyYaw * kRad); }
+// A camera's heading on the player's ground, stable when it looks straight up or down: the forward's level part vanishes
+// there and the up vector's takes over.
+float cam_heading(const Q& q) {
+    Q un = g_upFrame.inverse();
+    V3 f = un * forward(q), u = un * (q * V3{0, 1, 0});
+    return heading_cw(f - u * f.y);
+}
+float cam_pitch(const Q& q) { return pitch_deg(g_upFrame.inverse() * forward(q)); }
 Q q_of(const PrxPose& p) { return {p.qx, p.qy, p.qz, p.qw}; }
 V3 v_of(const PrxPose& p) { return {p.px, p.py, p.pz}; }
 
@@ -120,7 +135,7 @@ int input_mode(bool padGame) {
 }
 
 void track_body(const rig::Pose& cam) {
-    float h = heading_cw(forward(cam.q));
+    float h = cam_heading(cam.q);
     if (!g_bodyKnown) g_bodyYaw = h;
     else if (!g_aiming) g_bodyYaw += delta_angle(g_lastHeading, h);
     g_bodyKnown = true;
@@ -148,7 +163,7 @@ float orbit_radius() { return g_orbitDen > 0 ? g_orbitNum / g_orbitDen : 0; }
 // the pushes twice.
 bool aim_wanted(const rig::GameFrame& g, int mode) {
     std::string aim = setting("Controls", "HeadAim", "Auto");
-    if (aim == "Off" || mode == 2 || !g.hasCamera || !g_bodyKnown || g.menuOpen) return false;
+    if (aim == "Off" || mode == 2 || !g.hasCamera || !g_bodyKnown || g.menuOpen || g.worldPointer) return false;
     if (g_now < g_aimSuspendedUntil) return false;
     // A free cursor is a menu: mouse pushes would drag it (stick pushes leave it be when forced on).
     if (g.cursorFree && (aim != "On" || mode != 0)) return false;
@@ -211,12 +226,13 @@ void head_aim(const rig::GameFrame& g, bool pad) {
         g_bodyYaw += sign(rx) * snap_angle();
     }
     bool hand = setting("Controls", "AimWith", "Hand") == "Hand" && g_controllers.aimValid[1];
+    g_handAiming = hand;
+    if (hand) g_handAim = g_controllers.aim[1];
     Q aimQ = hand ? Q{g_controllers.aim[1].qx, g_controllers.aim[1].qy, g_controllers.aim[1].qz, g_controllers.aim[1].qw} : q_of(g_lastViews[0]);
     V3 look = g_originYaw.inverse() * forward(aimQ);
     float wantYaw = g_bodyYaw + heading_cw(look);
     float wantPitch = std::clamp(pitch_deg(look), -80.f, 80.f);
-    V3 f = forward(g.camera.q);
-    float yaw = heading_cw(f), pitch = pitch_deg(f);
+    float yaw = cam_heading(g.camera.q), pitch = cam_pitch(g.camera.q);
     float movedX = delta_angle(g_aimLastYaw, yaw), movedY = pitch - g_aimLastPitch;
     float errX = delta_angle(yaw, wantYaw), errY = wantPitch - pitch;
     if (pad) {
@@ -244,7 +260,7 @@ void head_aim(const rig::GameFrame& g, bool pad) {
 
 // A flick of the right stick turns the game camera by the snap angle, pushing until its heading arrives.
 float snap_turn(const rig::Pose& cam, bool pad) {
-    float yaw = heading_cw(forward(cam.q)), rx = g_controllers.rx;
+    float yaw = cam_heading(cam.q), rx = g_controllers.rx;
     if (!g_snapping) {
         if (std::fabs(rx) < 0.3f) g_snapArmed = true;
         if (!g_snapArmed || std::fabs(rx) < 0.7f) return 0;
@@ -341,6 +357,15 @@ V3 aim_dir(const PrxPose& p) { return Q{p.qx, p.qy, p.qz, p.qw} * V3{0, 0, -1}; 
 // the game shows a free cursor; small moves eased against tremor, more so while the trigger is being pulled.
 void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surface) {
     const PrxControllers& c = g_controllers;
+    if (g.worldPointer) {
+        // The hide-objects tool: the beam goes out into the game world and ends on what it would hide.
+        g_pointerOn = g_pointerDown = false;
+        r.pointer = {};
+        r.beam = c.aimValid[1] != 0;
+        r.beamFrom = aim_from(c.aim[1]);
+        r.beamTo = r.beamFrom + aim_dir(c.aim[1]) * std::min(g.worldReach, 20.f);
+        return;
+    }
     bool wanted = g.menuOpen || (g.pointerAuto && g.cursorFree);
     float u = -1, v = -1;
     V3 at, from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]);
@@ -390,7 +415,7 @@ bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2
         if (dist <= 0.7f && dist > 1e-4f) {
             V3 toEye = toHead * (1 / dist);
             float facing = (hand * V3{-1, 0, 0}).dot(toEye);
-            float looking = (q_of(views[0]) * V3{0, 0, -1}).dot(toEye * -1.f);
+            float looking = g_testWrist ? 1.f : (q_of(views[0]) * V3{0, 0, -1}).dot(toEye * -1.f);
             looked = g_watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
             glance = looked && facing > 0.6f;
             if (!glance && looked && c.aimValid[1]) {
@@ -560,10 +585,12 @@ bool update_handles(bool shown, rig::Result& r, const Surface& s, float aspect) 
 // view there; game units per metre of screen, times the depth setting, space the eyes, never wider than two
 // eye-widths at the world scale. The focus (the adapter's rays) stops at 15 m and eases over about 0.7 s.
 void window_eyes(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2], float screenH, float aspect) {
-    float s = rig::scale();
+    float s = rig::scale() * g_sceneScale, plane = g_sceneScale > 1 ? g_sceneScale * 2.5f : 0;
     float ipd = std::clamp((v_of(views[1]) - v_of(views[0])).length(), 0.05f, 0.08f);
     float nearest = std::max(g.nearClip * 4, 0.5f);
-    float target = std::clamp(g.focus > 0 ? g.focus : g_focus, nearest, std::max(nearest, 15.f * s));
+    // A 2D scene's play plane, else what the adapter's rays found.
+    float target = plane > 0 ? plane : g.focus > 0 ? g.focus : g_focus;
+    target = std::clamp(target, nearest, std::max({nearest, 15.f * s, plane}));
     g_focus += (target - g_focus) * (1 - std::exp(-g_dt * 1.5f));
     float gh = 2 * g_focus * std::tan(g.fovY / 2), gw = gh * aspect;
     float k = std::min(gh / screenH, 2.f * s) * clamp01(settings::getf("View", "Depth", 1, 0, 1));
@@ -606,6 +633,8 @@ void set_test_point(float u, float v, bool screen) {
     g_testPointU = u, g_testPointV = v, g_testPointScreen = screen;
 }
 
+void set_test_wrist(bool on) { g_testWrist = on; }
+
 void set_test_controllers(const PrxControllers* c) {
     g_testOn = c != nullptr;
     if (c) g_test = *c;
@@ -632,8 +661,14 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
         g_orbitSamples = 0;
         g_orbitNum = g_orbitDen = 0;
         g_orbitLastFwd = {};
+        g_probeIgnored = 0;
+        g_ignoredTimes = 0;
     }
+    g_sceneScale = std::max(1.f, game.sceneScale);
+    g_handAiming = false;
     if (game.hasCamera) {
+        float n = game.up.length();
+        if (n > 1e-3f) g_upFrame = from_to(g_upFrame * V3{0, 1, 0}, game.up * (1 / n)) * g_upFrame;
         track_body(game.camera);
         sample_orbit(game.camera);
     }
@@ -642,10 +677,16 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     int mode = input_mode(game.padGame);
     PrxInputConfig cfg{};
     cfg.mode = mode;
-    cfg.neutral = game.menuOpen ? 1 : 0;
+    // Game input pauses while the VR menu, the hide-objects tool or a screen handle has the controllers.
+    cfg.neutral = game.menuOpen || game.worldPointer || g_handle || g_grab ? 1 : 0;
     cfg.mouseSpeed = settings::getf("Controls", "MouseSpeed", 1200.f, 100.f, 6000.f);
     // The pointer's click reaches the game through the adapter (the engine's own UI events), never the OS mouse.
-    cfg.pointerClick = 0;
+    // Engines whose UI follows the OS mouse (Unity) also get the OS cursor moved under the laser and, unless their own
+    // UI events took the click, the OS button; not on the VR menu, which is ours.
+    cfg.pointerClick = game.pointerClick && !game.menuOpen ? 1 : 0;
+    bool osCursor = g_pointerOn && !game.menuOpen && game.screenW > 0 && game.screenH > 0;
+    cfg.pointerX = osCursor ? (int)std::lround(g_pointerU * game.screenW) : -1;
+    cfg.pointerY = osCursor ? (int)std::lround(g_pointerV * game.screenH) : -1;
     // While it points at the panel, the right trigger is the pointer's, not the game's.
     cfg.pointerActive = g_pointerOn ? 1 : 0;
     // Display: Parallax needs a game camera; without one (or when asked) the flat game on the Theater screen.
@@ -722,13 +763,25 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
 
     // The eyes: the headset's movement since recentring, turned with the body, scaled, from the game camera.
     Q b = body(), unYaw = g_originYaw.inverse();
-    float s = scale();
+    float s = scale() * g_sceneScale;
     V3 lift{0, settings::getf("View", "Height", 0.f, -1.f, 1.f), 0};
     for (int e = 0; e < 2; ++e) {
         V3 rel = unYaw * (v_of(views[e]) - g_originPos);
-        r.eyes[e].p = g_camPos + b * (rel * s) + lift;
+        r.eyes[e].p = g_camPos + b * ((rel + game.eyeOffset) * s) + lift;
         r.eyes[e].q = b * unYaw * q_of(views[e]);
     }
+    r.origin = {g_originPos, g_originYaw};
+    r.body = b;
+    r.base = g_camPos + lift;
+    r.scale = s;
+    r.handAiming = g_handAiming;
+    r.handAim = g_handAim;
+    r.screenYaw = g_screenYaw, r.screenPitch = g_screenPitch;
+    r.bodyYaw = g_bodyYaw;
+    r.orbitRadius = orbit_radius();
+    r.focus = g_focus;
+    r.stepSmoothing = g_stepSmoothing;
+    r.glancing = g_glancing;
     return r;
 }
 

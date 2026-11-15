@@ -40,6 +40,7 @@ add_library(parallax_core OBJECT
     src/rig.cpp
     src/canvas.cpp
     src/menu.cpp
+    src/bridge.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/fonts.cpp)
 add_library(parallax_core_deps INTERFACE)
 target_include_directories(parallax_core_deps INTERFACE ${openxr_sdk_SOURCE_DIR}/include ${stb_SOURCE_DIR})
@@ -77,7 +78,7 @@ if(PARALLAX_GODOT)
     get_target_property(godot_cpp_flags godot-cpp COMPILE_FLAGS)
     string(REGEX REPLACE "/MDd?" "" godot_cpp_flags "${godot_cpp_flags}")
     set_target_properties(godot-cpp PROPERTIES COMPILE_FLAGS "${godot_cpp_flags}")
-    add_library(parallax_godot SHARED src/godot.cpp src/bridge.cpp $<TARGET_OBJECTS:parallax_core>)
+    add_library(parallax_godot SHARED src/godot.cpp $<TARGET_OBJECTS:parallax_core>)
     target_link_libraries(parallax_godot PRIVATE parallax_core_deps godot-cpp)
     target_compile_options(parallax_godot PRIVATE /EHsc)
     add_custom_command(TARGET parallax_godot POST_BUILD

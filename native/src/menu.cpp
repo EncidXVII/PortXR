@@ -1,4 +1,4 @@
-#include "menu.h"
+﻿#include "menu.h"
 #include "canvas.h"
 #include "common.h"
 #include "settings.h"
@@ -1207,7 +1207,7 @@ const uint8_t* pixels(int& w, int& h, bool& changed) {
 float aspect() { return W / H; }
 }  // namespace menu
 
-// --- The menu for the Unity plugin (C#), which has no C++ bridge ---------------------------------------------------
+// --- The menu's entry points for the Unity plugin (C#): what Unity offers it, and the tests' tabs ------------------
 struct PrxMenuHost {
     const char* product;
     const wchar_t* gameDir;
@@ -1215,14 +1215,8 @@ struct PrxMenuHost {
     const char* currentCamera;
     int32_t hideObjects, hidden, aimExtras, uiBlack, eyeWidth, eyeHeight;
 };
-struct PrxMenuOut {
-    int32_t open, unlocked, quit, recenter, hideObjects, showHidden, renderScale, cameraPicked;
-    char camera[256];
-};
 
 extern "C" {
-PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM, float heightM);
-
 PRX_API void prx_menu_settings(const wchar_t* gameFile) { settings::open(gameFile, L""); }
 
 PRX_API void prx_menu_host(const PrxMenuHost* h) {
@@ -1251,21 +1245,4 @@ PRX_API void prx_menu_show(int32_t page, int32_t unlock) {
     if (unlock >= 0) g_menu.unlock(unlock != 0);
 }
 
-// One frame: the laser at (u, v) on the menu (top-left origin), the trigger; the menu shown at `pose` (tracking space,
-// its centre), heightM tall, or hidden when pose is null or the menu is closed.
-PRX_API void prx_menu_frame(int32_t pointing, float u, float v, float trigger, float dt, const PrxPose* pose, float heightM,
-                            PrxMenuOut* out) {
-    menu::Requests r = menu::frame(pointing != 0, u, v, trigger, dt);
-    int w, h;
-    bool changed;
-    const uint8_t* px = menu::pixels(w, h, changed);
-    if (menu::is_open() && pose && px) prx_set_menu(changed ? px : nullptr, w, h, pose, heightM * menu::aspect(), heightM);
-    else prx_set_menu(nullptr, 0, 0, nullptr, 0, 0);
-    *out = {};
-    out->open = menu::is_open();
-    out->unlocked = menu::screen_unlocked();
-    out->quit = r.quit, out->recenter = r.recenter, out->hideObjects = r.hideObjects, out->showHidden = r.showHidden;
-    out->renderScale = r.renderScale, out->cameraPicked = r.cameraPicked;
-    snprintf(out->camera, sizeof(out->camera), "%s", r.camera.c_str());
-}
 }
