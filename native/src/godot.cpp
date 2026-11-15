@@ -49,7 +49,10 @@ protected:
         ClassDB::bind_method(D_METHOD("setting", "section", "key", "fallback"), &ParallaxCore::setting);
         ClassDB::bind_method(D_METHOD("set_setting", "section", "key", "value"), &ParallaxCore::set_setting);
         ClassDB::bind_method(D_METHOD("recenter"), &ParallaxCore::recenter);
-        ClassDB::bind_method(D_METHOD("place_eyes", "has_camera", "camera"), &ParallaxCore::place_eyes);
+        ClassDB::bind_method(D_METHOD("frame", "game"), &ParallaxCore::frame);
+        ClassDB::bind_method(D_METHOD("set_window", "hwnd"), &ParallaxCore::set_window);
+        ClassDB::bind_method(D_METHOD("pad"), &ParallaxCore::pad);
+        ClassDB::bind_method(D_METHOD("test_controllers", "controllers"), &ParallaxCore::test_controllers);
         ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &ParallaxCore::submit_view);
     }
 
@@ -131,26 +134,61 @@ public:
     }
     void recenter() { bridge::recenter(); }
 
-    // [left, right] eyes in the game world ({transform, fov}), placed by the core from the game camera; empty while
-    // the headset has no pose.
-    Array place_eyes(bool hasCamera, const Transform3D& camera) {
-        Array out;
-        bridge::Pose eyes[2];
-        bridge::Fov fovs[2];
-        if (!bridge::place_eyes(hasCamera, pose(camera), eyes, fovs)) return out;
+    // One frame of the shared behaviour. game: {camera: Transform3D (absent: none), camera_key, cursor_free,
+    // pad_game, carried, menu_open}. Returns {eyes: [{transform, fov}, {..}], aiming, menu_toggle}; empty while the
+    // headset has no pose.
+    Dictionary frame(const Dictionary& game) {
+        bridge::Game g;
+        g.hasCamera = game.has("camera");
+        if (g.hasCamera) g.camera = pose(game["camera"]);
+        g.cameraKey = String(game.get("camera_key", "")).utf8().get_data();
+        g.cursorFree = game.get("cursor_free", false);
+        g.padGame = game.get("pad_game", false);
+        g.carried = game.get("carried", false);
+        g.menuOpen = game.get("menu_open", false);
+        bridge::Frame f;
+        Dictionary out;
+        if (!bridge::frame(g, f)) return out;
+        Array eyes;
         for (int e = 0; e < 2; ++e) {
             Dictionary d;
-            const bridge::Pose& p = eyes[e];
+            const bridge::Pose& p = f.eyes[e];
             d["transform"] = Transform3D(Basis(Quaternion(p.q[0], p.q[1], p.q[2], p.q[3])), Vector3(p.p[0], p.p[1], p.p[2]));
             Array fov;
-            fov.append(fovs[e].left);
-            fov.append(fovs[e].right);
-            fov.append(fovs[e].up);
-            fov.append(fovs[e].down);
+            fov.append(f.fovs[e].left);
+            fov.append(f.fovs[e].right);
+            fov.append(f.fovs[e].up);
+            fov.append(f.fovs[e].down);
             d["fov"] = fov;
-            out.append(d);
+            eyes.append(d);
         }
+        out["eyes"] = eyes;
+        out["aiming"] = f.aiming;
+        out["menu_toggle"] = (f.events & 1) != 0;
         return out;
+    }
+
+    // Tests: {lx, ly, rx, ry, lt, rt, buttons} instead of the controllers; an empty dictionary restores them.
+    void test_controllers(const Dictionary& c) {
+        bridge::test_controllers(!c.is_empty(), c.get("lx", 0.0), c.get("ly", 0.0), c.get("rx", 0.0), c.get("ry", 0.0),
+                                 c.get("lt", 0.0), c.get("rt", 0.0), (uint32_t)(int64_t)c.get("buttons", 0));
+    }
+
+    void set_window(int64_t hwnd) { bridge::set_window((void*)hwnd); }
+
+    // The emulated gamepad ({buttons: XInput bits, lt, rt 0..1, lx, ly, rx, ry -1..1}); empty while gamepad mode is off.
+    Dictionary pad() {
+        bridge::Pad p{};
+        Dictionary d;
+        if (!bridge::pad(p)) return d;
+        d["buttons"] = (int64_t)p.buttons;
+        d["lt"] = p.leftTrigger / 255.0;
+        d["rt"] = p.rightTrigger / 255.0;
+        d["lx"] = p.lx / 32767.0;
+        d["ly"] = p.ly / 32767.0;
+        d["rx"] = p.rx / 32767.0;
+        d["ry"] = p.ry / 32767.0;
+        return d;
     }
 
     bool submit_view(const RID& left, const RID& right, const RID& ui, float uiAspect) {

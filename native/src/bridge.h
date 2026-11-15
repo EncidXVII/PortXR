@@ -29,9 +29,30 @@ void settings_open(const std::wstring& gameFile);
 std::string setting(const char* section, const char* key, const char* fallback);
 void set_setting(const char* section, const char* key, const std::string& value);
 void recenter();
-// After begin(): locates the headset and places the eyes in the game world (camera: the game's camera in the world,
-// right-handed, Y up, -Z forward). False while the headset has no pose.
-bool place_eyes(bool hasCamera, const Pose& camera, Pose eyesWorld[2], Fov fovs[2]);
+// What only the engine knows about this frame.
+struct Game {
+    bool hasCamera = false;
+    Pose camera{};          // the game camera in the world (right-handed, Y up, -Z forward)
+    std::string cameraKey;  // scene and camera name
+    bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
+};
+struct Frame {
+    Pose eyes[2];  // where to render the eyes, in the game world
+    Fov fovs[2];
+    bool aiming = false;
+    uint32_t events = 0;  // 1: the VR menu button was double-tapped
+};
+// After begin(): locates the headset, runs the controllers (aim, snap turning, keyboard & mouse or gamepad) and places
+// the eyes. False while the headset has no pose.
+bool frame(const Game& game, Frame& out);
+// The game's window, for the keyboard & mouse emulation (SendInput while it is in front).
+void set_window(void* hwnd);
+// The emulated gamepad this frame (XINPUT_GAMEPAD layout), for engines that read pads themselves; false when the
+// gamepad mode is off.
+struct Pad { uint16_t buttons; uint8_t leftTrigger, rightTrigger; int16_t lx, ly, rx, ry; };
+bool pad(Pad& out);
+// Tests: sticks (lx ly rx ry), triggers and buttons (PrxButton bits) instead of the controllers; off restores them.
+void test_controllers(bool on, float lx, float ly, float rx, float ry, float lt, float rt, uint32_t buttons);
 // End of frame: the eyes rendered at those poses, and the game's UI (straight alpha, uiAspect = width / height) on the
 // panel in front.
 void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY);

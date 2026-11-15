@@ -22,6 +22,15 @@ var _view: SubViewport
 var _view_picture: Control
 var _hidden: CanvasItem
 var _hidden_alpha := 1.0
+var _pad_game := false
+var _pad_sent := {}
+var _aiming := false
+var _udp: PacketPeerUDP
+# XInput button bits to Godot's pad buttons.
+const PAD_BUTTONS := {0x1000: JOY_BUTTON_A, 0x2000: JOY_BUTTON_B, 0x4000: JOY_BUTTON_X, 0x8000: JOY_BUTTON_Y,
+	0x10: JOY_BUTTON_START, 0x20: JOY_BUTTON_BACK, 0x40: JOY_BUTTON_LEFT_STICK, 0x80: JOY_BUTTON_RIGHT_STICK,
+	0x100: JOY_BUTTON_LEFT_SHOULDER, 0x200: JOY_BUTTON_RIGHT_SHOULDER, 0x1: JOY_BUTTON_DPAD_UP, 0x2: JOY_BUTTON_DPAD_DOWN,
+	0x4: JOY_BUTTON_DPAD_LEFT, 0x8: JOY_BUTTON_DPAD_RIGHT}
 
 
 func _ready() -> void:
@@ -60,7 +69,13 @@ func _ready() -> void:
 	root.disable_3d = true
 	root.transparent_bg = true
 	RenderingServer.frame_post_draw.connect(_after_draw)
-	print(LOG, "VR core on, eyes ", _views[0].size)
+	core.set_window(DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE))
+	_pad_game = _reads_pad()
+	var port := OS.get_environment("PARALLAX_TEST_PORT")
+	if port != "":
+		_udp = PacketPeerUDP.new()
+		_udp.bind(int(port), "127.0.0.1")
+	print(LOG, "VR core on, eyes ", _views[0].size, ", controls (auto): ", "gamepad" if _pad_game else "keyboard and mouse")
 
 
 func _process(_delta: float) -> void:
@@ -72,9 +87,19 @@ func _process(_delta: float) -> void:
 	var root := get_tree().root
 	_game = _game_camera(root)
 	_show_picture(_view_picture if _view != null else null)
-	var cam_transform := _game.global_transform.orthonormalized() if _game != null else Transform3D()
-	var eyes: Array = core.place_eyes(_game != null, cam_transform) if _attached else []
+	_serve_tests()
+	var game := {
+		"camera_key": (str(get_tree().current_scene.scene_file_path) if get_tree().current_scene else "") + "/" + (str(_game.name) if _game else ""),
+		"cursor_free": Input.mouse_mode == Input.MOUSE_MODE_VISIBLE or Input.mouse_mode == Input.MOUSE_MODE_CONFINED,
+		"pad_game": _pad_game, "carried": _carried(_game), "menu_open": false,
+	}
+	if _game != null:
+		game["camera"] = _game.global_transform.orthonormalized()
+	var result: Dictionary = core.frame(game) if _attached else {}
+	var eyes: Array = result.get("eyes", [])
+	_aiming = result.get("aiming", false)
 	_placed = eyes.size() == 2
+	_send_pad()
 	if _placed:
 		var world := _game.get_world_3d() if _game != null else root.find_world_3d()
 		for e in 2:
@@ -172,3 +197,117 @@ func _show_picture(picture: CanvasItem) -> void:
 		_hidden_alpha = picture.self_modulate.a
 		picture.self_modulate.a = 0
 		print(LOG, "the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel")
+
+
+# Controls Auto: a gamepad where the game's input map has gamepad events (its own, not Godot's ui_ actions).
+func _reads_pad() -> bool:
+	for action in InputMap.get_actions():
+		if String(action).begins_with("ui_"):
+			continue
+		for e in InputMap.action_get_events(action):
+			if e is InputEventJoypadButton or e is InputEventJoypadMotion:
+				return true
+	return false
+
+
+# First person until the camera's turns say otherwise: a camera inside a character body, near its centre.
+func _carried(cam: Camera3D) -> bool:
+	if cam == null:
+		return false
+	var n := cam.get_parent()
+	for i in 4:
+		if n == null:
+			return false
+		if n is CharacterBody3D or n is RigidBody3D:
+			var off := cam.global_position - (n as Node3D).global_position
+			return Vector2(off.x, off.z).length() < 0.6
+		n = n.get_parent()
+	return false
+
+
+# The core's emulated gamepad into Godot's input, as a connected pad 0; only changes are sent.
+func _send_pad() -> void:
+	var p: Dictionary = core.pad()
+	if p.is_empty():
+		if not _pad_sent.is_empty():
+			for key in _pad_sent.keys():
+				if key is String:
+					_axis(int(key), 0.0)
+				else:
+					_button(key, false)
+			_pad_sent.clear()
+		return
+	var buttons: int = p["buttons"]
+	for bit in PAD_BUTTONS:
+		_button(PAD_BUTTONS[bit], (buttons & bit) != 0)
+	_axis(JOY_AXIS_LEFT_X, p["lx"])
+	_axis(JOY_AXIS_LEFT_Y, -float(p["ly"]))
+	_axis(JOY_AXIS_RIGHT_X, p["rx"])
+	_axis(JOY_AXIS_RIGHT_Y, -float(p["ry"]))
+	_axis(JOY_AXIS_TRIGGER_LEFT, p["lt"])
+	_axis(JOY_AXIS_TRIGGER_RIGHT, p["rt"])
+
+
+func _axis(axis: int, value: float) -> void:
+	var key := str(axis)
+	if is_equal_approx(_pad_sent.get(key, 0.0), value):
+		return
+	_pad_sent[key] = value
+	var e := InputEventJoypadMotion.new()
+	e.device = 0
+	e.axis = axis
+	e.axis_value = value
+	Input.parse_input_event(e)
+
+
+func _button(button: int, pressed: bool) -> void:
+	if _pad_sent.get(button, false) == pressed:
+		return
+	_pad_sent[button] = pressed
+	var e := InputEventJoypadButton.new()
+	e.device = 0
+	e.button_index = button
+	e.pressed = pressed
+	Input.parse_input_event(e)
+
+
+# Tests: PARALLAX_TEST_PORT opens a UDP channel, as the Unity plugin's: stats, set, controllers, turn.
+func _serve_tests() -> void:
+	if _udp == null:
+		return
+	while _udp.get_available_packet_count() > 0:
+		var cmd := _udp.get_packet().get_string_from_utf8().strip_edges()
+		_udp.set_dest_address(_udp.get_packet_ip(), _udp.get_packet_port())
+		_udp.put_packet(JSON.stringify(_command(cmd)).to_utf8_buffer())
+
+
+func _command(cmd: String) -> Variant:
+	var parts := cmd.split(" ", false, 1)
+	match parts[0]:
+		"stats":
+			var yaw := 0.0
+			if _game != null:
+				var f := -_game.global_basis.z
+				yaw = rad_to_deg(atan2(f.x, -f.z))
+			return {"state": core.state(), "camera": str(_game.get_path()) if _game else "", "aiming": _aiming,
+				"heading": yaw, "frames": _frames, "pad_game": _pad_game, "game": get_tree().root.get_meta("g1", {})}
+		"set":
+			var kv := parts[1].split(" ", false, 1)
+			var key := kv[0].split("/")
+			core.set_setting(key[0], key[1], kv[1] if kv.size() > 1 else "")
+			return {"ok": true}
+		"controllers":
+			core.test_controllers(JSON.parse_string(parts[1]) if parts.size() > 1 else {})
+			return {"ok": true}
+		"recenter":
+			core.recenter()
+			return {"ok": true}
+		"turn", "play":
+			# Fixture G1's own hooks: turn the player, or press PLAY.
+			var main := get_tree().root.find_child("Main", true, false)
+			if main != null and parts[0] == "turn" and main.has_method("turn"):
+				main.turn(float(parts[1]))
+			elif main != null and main.has_method("_on_play"):
+				main._on_play()
+			return {"ok": true}
+	return {"error": "unknown " + parts[0]}
