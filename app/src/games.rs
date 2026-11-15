@@ -38,6 +38,9 @@ pub struct Game {
     /// Steam lists its own VR support: it is played in VR without Parallax.
     #[serde(default)]
     pub native_vr: bool,
+    /// A Godot build without Direct3D 12 (custom engine builds): VR from the engine's own OpenXR, not the core.
+    #[serde(default)]
+    pub no_d3d12: bool,
     #[serde(deserialize_with = "leak_opt")]
     pub blocker: Option<&'static str>,
     #[serde(deserialize_with = "leak_opt")]
@@ -67,10 +70,10 @@ impl Game {
         self.engine == "Godot" && self.unity.starts_with("4.")
     }
 
-    /// Godot 4.3 and later (the GDExtension's minimum): the shared VR core, as Unity games have it. Older Godot 4 games
-    /// take their VR from the engine's own OpenXR.
+    /// Godot 4.3 and later (the GDExtension's minimum): the shared VR core, as Unity games have it. Older Godot 4 games,
+    /// and builds without Direct3D 12, take their VR from the engine's own OpenXR.
     pub fn godot_core(&self) -> bool {
-        self.godot_vr() && self.unity.split('.').nth(1).and_then(|m| m.parse::<u32>().ok()).is_some_and(|m| m >= 3)
+        self.godot_vr() && !self.no_d3d12 && self.unity.split('.').nth(1).and_then(|m| m.parse::<u32>().ok()).is_some_and(|m| m >= 3)
     }
 
     /// This game's settings file while VR is added: the Unity plugin's BepInEx config, or the Godot core's beside it.
@@ -317,6 +320,7 @@ pub fn detect(root: &Path) -> Option<Game> {
         x86: is_x86(&exe).unwrap_or(false),
         linux_build: exe.extension().is_some_and(|x| x == "x86_64"),
         native_vr: false,
+        no_d3d12: false,
         stripped: !il2cpp && is_stripped(&dir, &data_dir(&exe).join("Managed")),
         blocker,
         other_loader,
@@ -358,16 +362,19 @@ pub fn detect_other(root: &Path) -> Option<Game> {
             files.extend(names(d));
         }
     }
+    let version = if engine == "Godot" { godot_version(&exe).unwrap_or_default() } else { String::new() };
+    let no_d3d12 = version.starts_with("4.") && !fs::read(&exe).is_ok_and(|b| b.windows(17).any(|w| w == b"D3D12CreateDevice"));
     Some(Game {
         name: root.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         engine: engine.into(),
         // For Godot, its engine version (from the game's pack): Godot 4 games get full VR.
-        unity: if engine == "Godot" { godot_version(&exe).unwrap_or_default() } else { String::new() },
+        unity: version,
         il2cpp: false,
         x86: false,
         stripped: false,
         linux_build: false,
         native_vr: false,
+        no_d3d12,
         blocker: anti_cheat_files(&files),
         other_loader: None,
         app_id: 0,

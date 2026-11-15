@@ -103,8 +103,8 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
   gets the same controls, head and hand aim, laser pointer, wrist watch, VR menu, Theater and Parallax modes and
   per-game settings. The headset follows the game's camera, also where the game draws its 3D in a SubViewport (a retro
   resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad inside the game. It runs the
-  game on Direct3D 12, which Godot's official builds include. Godot 4.0 to 4.2 games get VR from the engine's own
-  OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
+  game on Direct3D 12, which Godot's official builds include. Godot 4.0 to 4.2 games, and custom builds without
+  Direct3D 12, get VR from the engine's own OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
 - **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the Theater screen: Parallax
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap

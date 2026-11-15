@@ -8,7 +8,8 @@
   lands in every engine at once; the Unity plugin only reports the game camera and renders the eyes.
 - **Add VR** puts Godot 4.3+ games on that core (a `ParallaxVR` folder beside the exe, on Direct3D 12), with the
   laser pointer, VR menu and the game's own settings page in the app, as Unity games have. Games set up the older way
-  move over on their next Play. Godot 4.0 to 4.2 keep the engine's own OpenXR.
+  move over on their next Play. Godot 4.0 to 4.2, and custom builds without Direct3D 12 (Vulkan
+  only), keep the engine's own OpenXR instead of being refused.
 - Godot games get what Unity games had: the body's heading stays steady when the game camera looks straight up or
   down, and the screen handles pause the game's input.
 - Godot: the real mouse cursor no longer jumps to the window's corner while the laser points at the game.
