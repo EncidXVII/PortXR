@@ -31,6 +31,15 @@ target_link_libraries(parallax_xr PRIVATE minhook d3d11 d3d12 dxgi d3dcompiler)
 add_custom_command(TARGET parallax_xr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_xr>)
 
+# Theater for games Parallax cannot go inside: captures the game's window and shows it through parallax_xr.dll.
+add_executable(parallax_theater WIN32 src/screen.cpp)
+set_target_properties(parallax_theater PROPERTIES OUTPUT_NAME ParallaxTheater)
+target_include_directories(parallax_theater PRIVATE ${openxr_sdk_SOURCE_DIR}/include)
+target_compile_definitions(parallax_theater PRIVATE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_USE_GRAPHICS_API_D3D12 WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(parallax_theater PRIVATE /W4 /permissive- /EHsc)
+target_link_options(parallax_theater PRIVATE /ENTRY:wmainCRTStartup)
+target_link_libraries(parallax_theater PRIVATE parallax_xr d3d11 dxgi dwmapi windowsapp)
+
 enable_testing()
 add_executable(gesture_test test/gesture_test.cpp)
 add_test(NAME gesture COMMAND gesture_test)

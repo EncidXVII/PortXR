@@ -567,9 +567,12 @@ namespace Parallax
             float ipd = Mathf.Clamp((Xr.Position(Views[1]) - Xr.Position(Views[0])).magnitude, 0.05f, 0.08f);
             UpdateFocus(cam);
             // The window in the game: at the focus distance, as large as the flat view there. Game units per metre of
-            // screen, times the depth setting, scale the eyes' offsets.
+            // screen, times the depth setting, scale the eyes' offsets: at full depth distant things sit an eye-width
+            // apart on the screen. Never wider than two eye-widths at the world scale, though: tied to the focus alone
+            // the eyes went metres apart when the view looked far (54 m down Peripeteia's first street), so near things
+            // split and the picture slid as the focus moved. Past that, far views just come out flatter.
             float gh = 2 * focus * Xr.Tan(cam.fieldOfView * Mathf.Deg2Rad / 2), gw = gh * w / h;
-            float k = gh / h * Mathf.Clamp01(Settings.Depth.Value);
+            float k = Mathf.Min(gh / h, MaxSeparation * Scale) * Mathf.Clamp01(Settings.Depth.Value);
             for (int e = 0; e < 3; e++)
             {
                 float x = e == 2 ? 0 : (e == 0 ? -ipd : ipd) / 2 * k;
@@ -584,8 +587,11 @@ namespace Parallax
             }
         }
 
-        // What sits at the middle of the view, eased over a quarter second: the play plane of a 2D game, else the
-        // median of five rays around the centre (the character of a third-person game, the wall ahead in first person).
+        const float MaxSeparation = 2f, MaxFocus = 15f;
+
+        // What sits at the middle of the view: the play plane of a 2D game, else the median of five rays around the
+        // centre (the character of a third-person game, the wall ahead in first person). No farther than 15 m at the
+        // world scale, and eased over about 0.7 s, so the screen plane does not jump as the view sweeps past things.
         void UpdateFocus(Camera cam)
         {
             float target = focus;
@@ -602,8 +608,9 @@ namespace Parallax
                 hits.Sort();
                 target = hits[hits.Count / 2];
             });
-            target = Mathf.Clamp(target, Mathf.Max(cam.nearClipPlane * 4, 0.5f), 200f);
-            focus = Mathf.Lerp(focus, target, 1 - (float)System.Math.Exp(-Time.unscaledDeltaTime * 4));
+            float near = Mathf.Max(cam.nearClipPlane * 4, 0.5f);
+            target = Mathf.Clamp(target, near, Mathf.Max(near, MaxFocus * Scale, flatScale * FlatPlaneDistance));
+            focus = Mathf.Lerp(focus, target, 1 - (float)System.Math.Exp(-Time.unscaledDeltaTime * 1.5f));
         }
 
         // Screen-shaped, a little under the eye height in pixels: the window covers less of the view than the eyes do.
@@ -734,7 +741,11 @@ namespace Parallax
             f.passthrough = Settings.Display.Value != DisplayMode.Stereo && Settings.Background.Value == ScreenBackground.Passthrough ? 1 : 0;
             f.watchX = watchAt.x; f.watchY = watchAt.y; f.watchZ = -watchAt.z;
             f.watchRadius = WatchRadius;
-            f.uiKey = Settings.UiBlack.Value == UiBackground.Auto ? 0 : Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : 2;
+            // Auto: once the head camera draws off screen and the screen is cleared for the UI, the panel's alpha is
+            // usually the game's own again, so native measures it afresh (3) and keys it only if it is still opaque
+            // (keying a clean panel made dark HUD frames and crosshairs see-through).
+            f.uiKey = Settings.UiBlack.Value == UiBackground.SeeThrough ? 1 : Settings.UiBlack.Value == UiBackground.Keep ? 2
+                : screenCleared ? 3 : 0;
             f.scene = sceneHandle;
             if (stereo && reticleShown)
             {
@@ -972,7 +983,7 @@ namespace Parallax
         // screen, and the screen is cleared to transparent for the UI. Not for a URP camera stack: its overlay
         // cameras (often the HUD) would land in that texture too.
         RenderTexture sink;
-        bool sinkWanted;
+        bool sinkWanted, screenCleared;
         readonly Optional clearScreen = new Optional("Screen clear");
 
         void Sink()
@@ -990,8 +1001,9 @@ namespace Parallax
                 sink = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32) { name = "Parallax Sink" };
             }
             if (GameCam.targetTexture == null) GameCam.targetTexture = sink;
+            screenCleared = false;
             if (GameCam.targetTexture != sink) return;
-            clearScreen.Run(() =>
+            screenCleared = clearScreen.Run(() =>
             {
                 var was = RenderTexture.active;
                 RenderTexture.active = null;
@@ -1059,6 +1071,7 @@ namespace Parallax
 
         void RestoreCamera()
         {
+            screenCleared = false;
             canvases.Restore();
             screenQuads.Restore();
             handHeld.Restore();

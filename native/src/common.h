@@ -41,7 +41,8 @@ struct PrxFrame {
     float watchLit;
     float watchAt[3], watchRadius, watchAlpha;
     // UI panel black: 0 auto (made see-through once the panel is found fully opaque, e.g. a full-screen effect on a
-    // UI camera wrote alpha 1; until `scene` changes), 1 always see-through, 2 never.
+    // UI camera wrote alpha 1; until `scene` changes), 1 always see-through, 2 never, 3 auto measured afresh (the head
+    // camera now draws off screen and the screen is cleared for the UI).
     int32_t uiKey, scene;
     // Part of the panel never keyed (the VR menu, whose dark background must stay solid): UV from the top-left,
     // x0 y0 x1 y1; an empty rect keys everything.

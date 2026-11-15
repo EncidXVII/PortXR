@@ -314,6 +314,13 @@ def gate_ui(g):
     # The world shows through: post-processing on the hidden game camera would make the whole panel opaque.
     opaque = (quad[..., 3] > 128).mean()
     check("6b ui see-through", opaque < 0.3, f"{opaque:.0%} of the panel opaque")
+    # The 50% white square left of middle keeps its opacity (alpha about 128) and its premultiplied colour (half white:
+    # 128 on a plain swapchain, 188 on an sRGB one). Unity 2018's UI shader stores alpha squared (25%), and keying a
+    # panel the game left see-through dims it more; too much (71%) is wrong as well. Holds through the off-screen
+    # camera too (F5, F7: their post drew over the UI).
+    square = quad[int(h * 0.45):int(h * 0.55), int(w * 0.05):int(w * 0.1)]
+    a, c = float(np.median(square[..., 3])), float(np.median(square[..., :3]))
+    check("6c translucent ui", 108 < a < 150 and (110 < c < 146 or 172 < c < 204), f"alpha {a:.0f}, colour {c:.0f} (alpha about 128 wanted)")
 
 
 def gate_input(g):
@@ -621,7 +628,7 @@ def gate_menu(g):
     time.sleep(0.5)
     (quad,) = g.capture("menu", ["quad.bmp"])
     # One capture per tab for review (harness/out/menu-tab*.bmp).
-    for t in range(5):
+    for t in [*range(6), -1]:
         g.cmd(f"tab {t}")
         time.sleep(0.4)
         g.capture(f"menu-tab{t}", ["quad.bmp"])

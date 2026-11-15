@@ -15,7 +15,7 @@ namespace Parallax
     {
         static readonly string[] Tabs = { "Quick", "View", "Controls", "Game", "Library", "Diagnostics" };
         const int QuickTab = 0, ViewTab = 1, ControlsTab = 2, GameTab = 3, LibraryTab = 4;
-        const float RefHeight = 1080f, Width = 1100f, Height = 800f, Row = 64f, Pad = 48f;
+        const float RefHeight = 1080f, Width = 1100f, Height = 840f, Row = 64f, Pad = 48f;
         const int ThumbW = 304, ThumbH = 171, History = 120;
         static readonly Color Bg = Rgb(0x0B0B0C), Surface = Rgb(0x1D1D20), Line = Rgb(0x2A2A2E);
         // Cells: Surface at rest, HoverFill under the laser, PressFill while the trigger is held on them.
@@ -66,7 +66,8 @@ namespace Parallax
         readonly Dictionary<string, GUIContent> contents = new Dictionary<string, GUIContent>();
         readonly Dictionary<int, GUIContent> images = new Dictionary<int, GUIContent>();
         int camPage;
-        GUIStyle cell, cellOn, cellQuiet, quiet, sign, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn;
+        GUIStyle cell, cellOn, cellQuiet, quiet, sign, label, muted, eyebrow, eyebrowWord, display, value, data, warn, tabStyle, tabOn,
+            monogram, monogramSmall, cardName, cardTitle, centredLabel, centredMuted;
 
         // Where the menu was last drawn, in screen pixels from the top-left.
         internal Rect ScreenRect;
@@ -215,6 +216,7 @@ namespace Parallax
                 lastHovered = hovered;
                 hovered = 0;
                 press = false;
+                coverLoaded = false;
             }
         }
 
@@ -233,7 +235,7 @@ namespace Parallax
                 if (Clicked(r)) Select(i);
                 if (on) active = r;
                 if (Repainting) Hover(r);
-                ui.Gap(28);
+                ui.Gap(20);
             }
             ui.Flex();
             // Only tabs with settings have something to reset.
@@ -310,8 +312,9 @@ namespace Parallax
         void Step(string number, string text)
         {
             ui.BeginRow();
-            Label(number, eyebrowWord, 72, 48);
-            Text(ui.Take(0, 48), text, label);
+            float h = Natural(text, label) > Width - 2 * Pad - 72 ? 80 : 48;
+            Label(number, eyebrowWord, 72, h);
+            Text(ui.Take(0, h), text, label);
             ui.EndRow();
             ui.Gap(8);
         }
@@ -439,8 +442,7 @@ namespace Parallax
         {
             ui.BeginRow();
             int current = Theme.Index;
-            Label("Theme", label, 200);
-            Label(Theme.Names[current], muted, 160);
+            Label("Theme", label, 360);
             for (int i = 0; i < Theme.Names.Length; i++)
             {
                 var r = ui.Take(Row + 6, Row);
@@ -460,6 +462,8 @@ namespace Parallax
                     Native.prx_haptic_pulse(1, 0.35f, 0.02f);
                 }
             }
+            ui.Gap(12);
+            Label(Theme.Names[current], muted, 0);
             ui.EndRow();
             ui.Gap(12);
         }
@@ -484,7 +488,7 @@ namespace Parallax
                 return;
             }
             ui.BeginRow();
-            int pickedGesture = Segment("gesture", Bindings.Gestures, Bindings.Gestures.Select(_ => 212f).ToArray(), gesture);
+            int pickedGesture = Segment("gesture", Bindings.Gestures, Bindings.Gestures.Select(_ => (Width - 2 * Pad - 8) / Bindings.Gestures.Length).ToArray(), gesture);
             if (pickedGesture >= 0) gesture = pickedGesture;
             ui.EndRow();
             Label(gesture == Bindings.Press ? "Left stick moves (W A S D), right stick looks. Pick a button to change it."
@@ -579,7 +583,11 @@ namespace Parallax
                 ui.BeginColumn(ThumbW);
                 var rect = ui.Take(ThumbW, ThumbH);
                 Round(rect, Surface, InnerRadius);
-                if (Repainting && thumbs.TryGetValue(cam.GetInstanceID(), out var rt)) Image(rect, rt);
+                if (Repainting && thumbs.TryGetValue(cam.GetInstanceID(), out var rt))
+                {
+                    Image(rect, rt);
+                    Mask(rect, Bg, InnerRadius);
+                }
                 if (cam == rig.GameCam) Ring(rect, Lime, InnerRadius);
                 // Lime fill only for a camera the player picked; the automatic pick gets the lime outline above.
                 if (Button(cam.name, !automatic && cam == rig.GameCam, ThumbW, true)) PickCamera(cam.name);
@@ -601,19 +609,25 @@ namespace Parallax
         }
 
         // Library: quit this game, or start another game with VR added. Both ask twice, since the game's unsaved
-        // progress goes. The list is the one Parallax.exe keeps (games.rs write_vr_list); starting goes through
-        // Parallax.exe, which waits for this game to quit, updates the plugin and launches the next one as Play does.
-        const int NoConfirm = -2, QuitConfirm = -1, LibraryRows = 5;
+        // progress goes. The list is the one Parallax.exe keeps (games.rs write_vr_list: name, folder, Steam's cover);
+        // starting goes through Parallax.exe, which waits for this game to quit, updates the plugin and launches the next
+        // one as Play does. Look as DesktopVR's window picker: a "now playing" card, then the other games as covers.
+        const int NoConfirm = -2, QuitConfirm = -1, LibraryCards = 5;
+        const float CardGap = 16, NowHeight = 148, ThumbWidth = 64;
         int confirming = NoConfirm, libPage;
         string appPath;
-        readonly List<KeyValuePair<string, string>> others = new List<KeyValuePair<string, string>>();
+        sealed class Entry { public string Name, Dir, Cover; }
+        Entry current;
+        readonly List<Entry> others = new List<Entry>();
         readonly Optional library = new Optional("Library");
 
         void LoadLibrary()
         {
             appPath = null;
+            current = null;
             others.Clear();
             libPage = 0;
+            FreeCovers();
             library.Run(() =>
             {
                 string file = System.IO.Path.Combine(System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "Parallax"), "vr-games.txt");
@@ -621,11 +635,16 @@ namespace Parallax
                 string here = Folder(System.IO.Path.GetDirectoryName(Application.dataPath));
                 foreach (var line in System.IO.File.ReadAllLines(file))
                 {
-                    int t = line.IndexOf('\t');
-                    if (t <= 0) continue;
-                    string a = line.Substring(0, t), b = line.Substring(t + 1);
-                    if (a == "app") appPath = b.EndsWith(".exe", System.StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(b) ? b : null;
-                    else if (Folder(b) != here) others.Add(new KeyValuePair<string, string>(a, b));
+                    var f = line.Split('\t');
+                    if (f.Length < 2 || f[0].Length == 0) continue;
+                    if (f[0] == "app")
+                    {
+                        appPath = f[1].EndsWith(".exe", System.StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(f[1]) ? f[1] : null;
+                        continue;
+                    }
+                    var e = new Entry { Name = f[0], Dir = f[1], Cover = f.Length > 2 && f[2].Length > 0 ? f[2] : null };
+                    if (Folder(e.Dir) == here) current = e;
+                    else others.Add(e);
                 }
             });
         }
@@ -634,60 +653,185 @@ namespace Parallax
 
         void DrawLibrary()
         {
-            ui.BeginRow();
-            Label(Application.productName, label, 600);
-            ui.Flex();
-            if (confirming == QuitConfirm ? Confirm("Confirm: quit", 300) : Button("Quit game", false, 300))
-            {
-                if (confirming == QuitConfirm) Leave(null);
-                else confirming = QuitConfirm;
-            }
-            ui.EndRow();
-            ui.Gap(8);
-            Label(confirming == QuitConfirm ? "Press again to quit. Progress the game has not saved is lost." : "Closes the game. Unsaved progress is lost.", muted, 0);
+            DrawNowPlaying();
             ui.Gap(32);
-            if (appPath == null)
-            {
-                Label("Start Parallax.exe once on this PC to switch games from here.", muted, 0);
-                return;
-            }
-            if (others.Count == 0)
-            {
-                Label("No other game has VR added yet. Add VR to one in Parallax.exe.", muted, 0);
-                return;
-            }
-            int pages = (others.Count + LibraryRows - 1) / LibraryRows;
+            int pages = Mathf.Max(1, (others.Count + LibraryCards - 1) / LibraryCards);
             libPage %= pages;
             ui.BeginRow();
-            Label("Other games with VR", muted, 0);
+            Label("Your VR games", muted, 0);
             ui.Flex();
-            if (pages > 1 && Button($"More games {libPage + 1}/{pages}", false, 320))
+            if (pages > 1)
             {
-                libPage = (libPage + 1) % pages;
-                confirming = NoConfirm;
+                if (Button("‹", false, 64, false, sign)) Page(pages - 1, pages);
+                Label($"{libPage + 1} / {pages}", value, 96);
+                if (Button("›", false, 64, false, sign)) Page(1, pages);
             }
             ui.EndRow();
-            ui.Gap(8);
-            for (int i = libPage * LibraryRows; i < Mathf.Min((libPage + 1) * LibraryRows, others.Count); i++)
+            ui.Gap(12);
+            float w = (Width - 2 * Pad - (LibraryCards - 1) * CardGap) / LibraryCards;
+            var shelf = ui.Take(0, w * 1.5f + 52);
+            if (appPath == null || others.Count == 0)
             {
-                ui.BeginRow();
-                Label(others[i].Key, label, 600);
-                ui.Flex();
-                if (confirming == i ? Confirm("Quit and start", 300) : Button("Start", false, 300))
-                {
-                    if (confirming == i) Leave(others[i].Value);
-                    else confirming = i;
-                }
-                ui.EndRow();
-                ui.Gap(8);
+                // Empty state: what fills this shelf, in the shelf's own shape.
+                Round(shelf, Surface, CellRadius);
+                bool noApp = appPath == null;
+                Text(new Rect(shelf.x, shelf.center.y - 40, shelf.width, 40), noApp ? "Switching games needs Parallax.exe" : "No other games with VR yet", centredLabel);
+                Text(new Rect(shelf.x, shelf.center.y + 4, shelf.width, 36), noApp ? "Open it once on this PC, then your VR games show up here." : "Add VR to another game in Parallax.exe and it shows up here.", centredMuted);
+                return;
+            }
+            for (int n = 0; n < LibraryCards; n++)
+            {
+                int i = libPage * LibraryCards + n;
+                if (i >= others.Count) break;
+                GameCard(new Rect(shelf.x + n * (w + CardGap), shelf.y, w, shelf.height), i);
             }
         }
 
-        // The confirming press of a two-step action: a danger fill, so it never reads as a choice that is on.
-        bool Confirm(string text, float width)
+        void Page(int step, int pages)
         {
-            var r = ui.Take(width, Row);
-            return Cell(r, text.ToUpperInvariant(), cellOn, Danger, true);
+            libPage = (libPage + step) % pages;
+            confirming = NoConfirm;
+        }
+
+        // This game: its cover, name and Quit, which turns into a red Quit now for the second press.
+        void DrawNowPlaying()
+        {
+            var card = ui.Take(0, NowHeight);
+            bool asking = confirming == QuitConfirm;
+            Round(card, Surface, CellRadius);
+            var thumb = new Rect(card.x + 16, card.y + 16, ThumbWidth, NowHeight - 32);
+            string name = current != null ? current.Name : Application.productName;
+            CoverArt(thumb, current?.Cover, name, Surface, monogramSmall);
+            float tx = thumb.xMax + 24, tw = card.xMax - 16 - 240 - 24 - tx;
+            Text(new Rect(tx, card.y + 22, tw, 28), "NOW PLAYING", eyebrowWord);
+            Text(new Rect(tx, card.y + 54, tw, 40), Fit(name, label, tw), label);
+            Text(new Rect(tx, card.y + 98, tw, 28), asking ? "Press Quit now to close it. Unsaved progress is lost." : "Closes the game. Unsaved progress is lost.", asking ? warn : muted);
+            var quit = new Rect(card.xMax - 16 - 240, card.center.y - Row / 2, 240, Row);
+            bool pressed = asking ? Cell(quit, "QUIT NOW", cellOn, Danger, true) : Cell(quit, "QUIT GAME", cell, HoverFill, false);
+            if (!pressed) return;
+            if (asking) Leave(null);
+            else confirming = QuitConfirm;
+        }
+
+        // One other game: its cover with the name under it. Under the laser a lime ring and a Start pill; the first press
+        // asks (the game quits first), the second starts it.
+        void GameCard(Rect r, int i)
+        {
+            var e = others[i];
+            var art = new Rect(r.x, r.y, r.width, r.width * 1.5f);
+            bool over = r.Contains(Mouse), asking = confirming == i;
+            if (Repainting)
+            {
+                float h = Eased(art, over);
+                CoverArt(art, e.Cover, e.Name, Bg, monogram, asking ? 0.7f : Pressed(r) ? 0.25f : 0);
+                if (asking)
+                {
+                    Text(new Rect(art.x, art.center.y - 52, art.width, 36), "Quit and start?", centredLabel);
+                    Pill(art.center.y, "START", Danger);
+                }
+                else if (h > 0.01f) Pill(art.yMax - 40, "START", Lime);
+                if (over || asking) Ring(art, asking ? Danger : Lime, CellRadius);
+                Text(new Rect(r.x + 4, art.yMax + 12, r.width - 8, 36), Fit(e.Name, cardName, r.width - 8), over ? cardTitle : cardName);
+                Hover(r);
+
+                void Pill(float cy, string text, Color fill)
+                {
+                    var p = new Rect(art.center.x - 64, cy - 22, 128, 44);
+                    Round(p, new Color(fill.r, fill.g, fill.b, asking ? 1 : h), 22);
+                    var saved = GUI.color;
+                    GUI.color = new Color(1, 1, 1, (asking ? 1 : h) * fade);
+                    cellOn.Draw(p, Content(text), false, false, false, false);
+                    GUI.color = saved;
+                }
+            }
+            if (!Clicked(r)) return;
+            Native.prx_haptic_pulse(1, 0.35f, 0.02f);
+            if (asking) Leave(e.Dir);
+            else confirming = i;
+        }
+
+        // A game's cover with rounded corners (the corners masked in `behind`), the initial on a lifted fill when there is
+        // none, and an optional dark scrim.
+        void CoverArt(Rect r, string path, string name, Color behind, GUIStyle initial, float scrim = 0)
+        {
+            if (!Repainting) return;
+            var tex = Cover(path);
+            if (tex != null)
+            {
+                Fill(r, Surface);
+                Image(r, tex);
+            }
+            else
+            {
+                Round(r, HoverFill, CellRadius);
+                var at = new Rect(r.x + r.width * 0.1f, r.y + r.width * 0.06f, r.width, r.width * 0.6f);
+                Text(initial.alignment == TextAnchor.MiddleCenter ? r : at, name.Length > 0 ? name.Substring(0, 1).ToUpperInvariant() : "?", initial);
+            }
+            if (scrim > 0) Fill(r, new Color(0, 0, 0, scrim));
+            if (tex != null || scrim > 0) Mask(r, behind, CellRadius);
+        }
+
+        // Long names end in "…" instead of running under the next card.
+        string Fit(string text, GUIStyle style, float width)
+        {
+            if (Natural(text, style) <= width) return text;
+            for (int n = text.Length - 1; n > 0; n--)
+            {
+                string cut = text.Substring(0, n).TrimEnd() + "…";
+                if (Natural(cut, style) <= width) return cut;
+            }
+            return "…";
+        }
+
+        // Covers: Steam's JPGs decoded into textures, one per frame so opening the tab never stalls the headset. Mono
+        // games only (the IL2CPP build has no texture constructor); ImageConversion from Unity 2017, Texture2D's own
+        // LoadImage before that. A cover that fails is left out and the initial shows.
+        readonly Dictionary<string, Texture2D> covers = new Dictionary<string, Texture2D>();
+        bool coverLoaded, coversOff;
+        static System.Reflection.MethodInfo loadImage;
+        static bool loadStatic;
+
+        Texture2D Cover(string path)
+        {
+            if (path == null || coversOff) return null;
+            if (covers.TryGetValue(path, out var known)) return known;
+            if (coverLoaded) return null;
+            coverLoaded = true;
+            covers[path] = null;
+#if !IL2CPP
+            try
+            {
+                if (loadImage == null)
+                {
+                    var conversion = System.Type.GetType("UnityEngine.ImageConversion, UnityEngine.ImageConversionModule");
+                    loadImage = conversion?.GetMethod("LoadImage", new[] { typeof(Texture2D), typeof(byte[]), typeof(bool) });
+                    loadStatic = loadImage != null;
+                    loadImage = loadImage ?? typeof(Texture2D).GetMethod("LoadImage", new[] { typeof(byte[]), typeof(bool) });
+                    if (loadImage == null) throw new System.MissingMethodException("Texture2D", "LoadImage");
+                }
+                byte[] bytes = System.IO.File.ReadAllBytes(path);
+                var tex = new Texture2D(2, 2) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear, hideFlags = HideFlags.HideAndDontSave };
+                bool ok = (bool)(loadStatic ? loadImage.Invoke(null, new object[] { tex, bytes, true }) : loadImage.Invoke(tex, new object[] { bytes, true }));
+                if (ok) covers[path] = tex;
+                else Object.Destroy(tex);
+            }
+            catch (System.Exception ex) when (ex is System.IO.IOException || ex is System.UnauthorizedAccessException)
+            {
+            }
+            catch (System.Exception ex)
+            {
+                coversOff = true;
+                Plugin.Log.LogWarning($"Game covers are unavailable in this game ({ex.GetBaseException().Message}); the Library shows initials.");
+            }
+#endif
+            return covers[path];
+        }
+
+        void FreeCovers()
+        {
+            foreach (var t in covers.Values)
+                if (t != null) Object.Destroy(t);
+            covers.Clear();
         }
 
         // Quits the game; with `next`, Parallax.exe starts that game folder once this process has ended.
@@ -735,6 +879,12 @@ namespace Parallax
         // Bars of recent frame intervals against the headset's frame budget: lime within it, danger over it.
         void DrawGraph(float budgetMs)
         {
+            ui.BeginRow();
+            Label("FRAME TIMES", eyebrow, 0, 32);
+            ui.Flex();
+            Label($"Line: headset budget {budgetMs:0.0} ms", muted, 0, 32);
+            ui.EndRow();
+            ui.Gap(8);
             var rect = ui.Take(0, 160);
             if (!Repainting) return;
             Round(rect, Surface, 16);
@@ -747,7 +897,6 @@ namespace Parallax
             }
             float budgetY = rect.yMax - budgetMs / top * rect.height;
             Fill(new Rect(rect.x, budgetY, rect.width, 1), Ink2);
-            Text(new Rect(rect.x + 12, budgetY - 30, 400, 28), $"HEADSET BUDGET {budgetMs:0.0} MS", eyebrow);
         }
 
         void Warning(string text, string fix, System.Action action)
@@ -774,12 +923,12 @@ namespace Parallax
             entry.Value = on;
         }
 
-        // Segmented control: two 292 px halves in a rounded track, the chosen one ink.
+        // Segmented control: two 296 px halves (the 600 px value column, as Options) in a rounded track, the chosen one ink.
         void Choice(string name, string off, string on, ref bool v, bool offIsNeutral = false)
         {
             ui.BeginRow();
             Label(name, label, 360);
-            int picked = Segment(name, new[] { off, on }, new[] { 292f, 292f }, v ? 1 : 0);
+            int picked = Segment(name, new[] { off, on }, new[] { 296f, 296f }, v ? 1 : 0);
             if (picked >= 0) v = picked == 1;
             ui.EndRow();
             ui.Gap(12);
@@ -1011,19 +1160,22 @@ namespace Parallax
         static readonly Optional rounding = new Optional("Rounded corners");
         static readonly Dictionary<int, GUIStyle> roundStyles = new Dictionary<int, GUIStyle>();
 
-        internal static void Round(Rect r, Color c, float radius) => Shape(r, c, radius, false);
+        internal static void Round(Rect r, Color c, float radius) => Shape(r, c, radius, 0);
 
-        static void Ring(Rect r, Color c, float radius) => Shape(r, c, radius, true);
+        static void Ring(Rect r, Color c, float radius) => Shape(r, c, radius, 1);
 
-        static void Shape(Rect r, Color c, float radius, bool ring)
+        // Paints only the corners outside the rounded rect, in the colour behind it: an image under it gets round corners.
+        static void Mask(Rect r, Color c, float radius) => Shape(r, c, radius, 2);
+
+        static void Shape(Rect r, Color c, float radius, int mode)
         {
             if (Event.current.type != EventType.Repaint || (MenuLayout.Current != null && MenuLayout.Current.Measuring)) return;
             int k = Mathf.Clamp(Mathf.RoundToInt(Mathf.Min(radius, r.width / 2, r.height / 2)), 1, 32);
-            var style = RoundStyle(k, ring);
+            var style = RoundStyle(k, mode);
             if (style == null)
             {
-                if (ring) Outline(r, c, 2);
-                else Fill(r, c);
+                if (mode == 1) Outline(r, c, 2);
+                else if (mode == 0) Fill(r, c);
                 return;
             }
             var saved = GUI.color;
@@ -1038,9 +1190,10 @@ namespace Parallax
             }
         }
 
-        static GUIStyle RoundStyle(int k, bool ring)
+        static GUIStyle RoundStyle(int k, int mode)
         {
-            int key = ring ? -k : k;
+            int key = mode * 100 + k;
+            bool ring = mode == 1;
             if (roundStyles.TryGetValue(key, out var found)) return found;
             GUIStyle made = null;
 #if IL2CPP
@@ -1070,7 +1223,7 @@ namespace Parallax
                                 bool hit = d <= k && (!ring || inner <= 2f);
                                 if (hit) inside++;
                             }
-                        px[y * n + x] = new Color32(255, 255, 255, (byte)(inside * 255 / 16));
+                        px[y * n + x] = new Color32(255, 255, 255, (byte)((mode == 2 ? 16 - inside : inside) * 255 / 16));
                     }
                 tex.SetPixels32(px);
                 tex.Apply();
@@ -1122,6 +1275,13 @@ namespace Parallax
             tabStyle.hover.textColor = Ink;
             tabOn = Style(TextAnchor.MiddleLeft, Ink, 26, bodyFont, false);
             tabOn.fontStyle = FontStyle.Bold;
+            // Library cards: the initial in the headline face where a game has no cover; names that never wrap.
+            monogram = Style(TextAnchor.UpperLeft, Ink3, 96, displayFont, false);
+            monogramSmall = Style(TextAnchor.MiddleCenter, Ink3, 44, displayFont, false);
+            cardName = Style(TextAnchor.UpperLeft, Ink2, Small, bodyFont, false);
+            cardTitle = Style(TextAnchor.UpperLeft, Ink, Small, bodyFont, false);
+            centredLabel = Style(TextAnchor.MiddleCenter, Ink, Body, bodyFont, false);
+            centredMuted = Style(TextAnchor.MiddleCenter, Ink2, Small, bodyFont, false);
             imageStyle = new GUIStyle { imagePosition = ImagePosition.ImageOnly, alignment = TextAnchor.MiddleCenter };
         }
 

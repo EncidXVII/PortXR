@@ -39,7 +39,7 @@ pub const QUICK: &[Def] = &[
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
     def("Controls", "Mode", "Controls", "Auto", Kind::Choice(&[("Auto", "Auto"), ("Gamepad", "Gamepad"), ("KeyboardMouse", "Keyboard & mouse"), ("Off", "Off")]), "Auto: gamepad in games made for one, else keyboard & mouse. Off: play with your own devices; controllers only work the VR menu."),
     def("Controls", "HeadAim", "Aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera follows your head, or your right hand, so you aim in VR. Auto: first-person games, while you play."),
-    def("Controls", "AimWith", "Aim with", "Head", Kind::Choice(&[("Head", "Head"), ("Hand", "Right hand")]), "Aim follows where you look, or where the right controller points. The view always follows your head."),
+    def("Controls", "AimWith", "Aim with", "Hand", Kind::Choice(&[("Head", "Head"), ("Hand", "Right hand")]), "Aim follows where you look, or where the right controller points. The view always follows your head."),
 ];
 
 pub const ADVANCED: &[Def] = &[

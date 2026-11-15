@@ -16,11 +16,16 @@ pub enum Compat {
     LinuxBuild,
     X86,
     Stripped,
+    /// Not Unity: Parallax cannot go inside, so the game's window is shown on the Theater screen.
+    Theater,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Game {
     pub name: String,
+    /// "Unity", or for games shown on the Theater screen "Unreal", "Godot" or "Other".
+    #[serde(default = "unity")]
+    pub engine: String,
     pub dir: PathBuf,
     pub exe: PathBuf,
     pub unity: String,
@@ -48,12 +53,29 @@ pub struct Game {
     pub last_played: u64,
 }
 
+fn unity() -> String {
+    "Unity".into()
+}
+
 impl Game {
+    pub fn unity(&self) -> bool {
+        self.engine == "Unity"
+    }
+
+    /// A Godot 4 game: full VR through the engine's own OpenXR (override.cfg and a script beside the exe).
+    pub fn godot_vr(&self) -> bool {
+        self.engine == "Godot" && self.unity.starts_with("4.")
+    }
+
     pub fn compat(&self) -> Compat {
         if self.blocker.is_some() {
             Compat::Blocked
         } else if self.native_vr {
             Compat::NativeVr
+        } else if self.godot_vr() {
+            Compat::Supported
+        } else if !self.unity() {
+            Compat::Theater
         } else if self.linux_build {
             Compat::LinuxBuild
         } else if self.x86 {
@@ -74,6 +96,7 @@ impl Game {
             Compat::LinuxBuild => "Linux build",
             Compat::X86 => "32-bit",
             Compat::Stripped => "Trimmed engine",
+            Compat::Theater => "Theater",
         }
     }
 
@@ -92,11 +115,22 @@ impl Game {
 
     /// Parallax runs in it: supported, or VR added anyway after the caution.
     pub fn usable(&self) -> bool {
-        self.compat() == Compat::Supported || (self.caution().is_some() && self.installed())
+        matches!(self.compat(), Compat::Supported | Compat::Theater) || (self.caution().is_some() && self.installed())
     }
 
     pub fn backend(&self) -> &'static str {
         if self.il2cpp { "IL2CPP" } else { "Mono" }
+    }
+
+    /// The engine and build, as the game page and the log export name them.
+    pub fn engine_label(&self) -> String {
+        if self.unity() {
+            format!("Unity {}, {}", self.unity, self.backend())
+        } else if self.unity.is_empty() {
+            self.engine.clone()
+        } else {
+            format!("{} {}", self.engine, self.unity)
+        }
     }
 
     pub fn installed(&self) -> bool {
@@ -256,6 +290,7 @@ pub fn detect(root: &Path) -> Option<Game> {
     let product = fs::read_to_string(data_dir(&exe).join("app.info")).ok().and_then(|t| t.lines().nth(1).map(|l| l.trim().to_string()));
     let il2cpp = dir.join("GameAssembly.dll").exists() || dir.join("GameAssembly.so").exists();
     Some(Game {
+        engine: unity(),
         name: product.filter(|p| !p.is_empty()).unwrap_or_else(|| root.file_name().unwrap_or_default().to_string_lossy().into_owned()),
         unity: unity_version(&data_dir(&exe)).unwrap_or_else(|| "unknown".into()),
         il2cpp,
@@ -273,6 +308,118 @@ pub fn detect(root: &Path) -> Option<Game> {
         dir,
         exe,
     })
+}
+
+/// A game in another engine, for the Theater screen: only in folders a store or the player names as a game (never the
+/// "On disk" sweep, which would list every program). The exe is the one a launch without a store would start.
+#[cfg(windows)]
+pub fn detect_other(root: &Path) -> Option<Game> {
+    let mut exes = Vec::new();
+    collect_exes(root, 3, &mut exes);
+    let shipping = exes.iter().find(|p| p.file_stem().is_some_and(|s| s.to_string_lossy().ends_with("-Shipping"))).cloned();
+    let godot = exes.iter().find(|p| p.with_extension("pck").exists() || ends_with_pck(p)).cloned();
+    // Shallowest first, then largest: the game rather than a tool in a subfolder.
+    let depth = |p: &PathBuf| p.strip_prefix(root).map(|r| r.components().count()).unwrap_or(9);
+    let size = |p: &PathBuf| fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let main = exes.iter().min_by_key(|p| (depth(p), std::cmp::Reverse(size(p)))).cloned();
+    let (engine, exe) = if shipping.is_some() || root.join("Engine").is_dir() {
+        ("Unreal", main.or(shipping)?)
+    } else if let Some(g) = godot {
+        ("Godot", g)
+    } else {
+        ("Other", main?)
+    };
+    let names = |d: &Path| -> Vec<String> {
+        fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect()
+    };
+    let mut files = names(root);
+    for e in &exes {
+        if let Some(d) = e.parent().filter(|d| *d != root) {
+            files.extend(names(d));
+        }
+    }
+    Some(Game {
+        name: root.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        engine: engine.into(),
+        // For Godot, its engine version (from the game's pack): Godot 4 games get full VR.
+        unity: if engine == "Godot" { godot_version(&exe).unwrap_or_default() } else { String::new() },
+        il2cpp: false,
+        x86: false,
+        stripped: false,
+        linux_build: false,
+        native_vr: false,
+        blocker: anti_cheat_files(&files),
+        other_loader: None,
+        app_id: 0,
+        cover: None,
+        added: None,
+        store: "",
+        last_played: 0,
+        dir: root.to_path_buf(),
+        exe,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn detect_other(_root: &Path) -> Option<Game> {
+    // The Theater screen captures windows through Windows; on Linux only Unity games get VR.
+    None
+}
+
+// Windows exes up to `depth` folders down, minus installers, crash reporters and anti-cheat helpers.
+#[cfg(windows)]
+fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
+    const NOT_GAME: [&str; 14] = ["unins", "setup", "redist", "vc_", "dxsetup", "crash", "dotnet", "directx", "ue4prereq",
+                                   "ueprereq", "cef", "launcherpatcher", "easyanticheat", "notification"];
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut dirs = Vec::new();
+    for p in entries.flatten().map(|e| e.path()) {
+        let name = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        if p.is_dir() {
+            // Unreal's Engine folder holds its crash reporter and prerequisites, never the game.
+            if !["_commonredist", "redist", "directx", "support", "engine"].contains(&name.as_str()) {
+                dirs.push(p);
+            }
+        } else if name.ends_with(".exe") && !NOT_GAME.iter().any(|n| name.contains(n)) {
+            out.push(p);
+        }
+    }
+    if depth > 0 {
+        for d in dirs {
+            collect_exes(&d, depth - 1, out);
+        }
+    }
+}
+
+/// The Godot version a game was exported with, from its pack's header ("GDPC", format, major, minor, patch): the
+/// .pck beside the exe, or the pack embedded at the end of the exe (its size in the 8 bytes before the closing magic).
+#[cfg(windows)]
+fn godot_version(exe: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let (mut f, start) = match File::open(exe.with_extension("pck")) {
+        Ok(f) => (f, SeekFrom::Start(0)),
+        Err(_) => {
+            let mut f = File::open(exe).ok()?;
+            let mut size = [0u8; 8];
+            f.seek(SeekFrom::End(-12)).ok()?;
+            f.read_exact(&mut size).ok()?;
+            (f, SeekFrom::End(-12 - i64::from_le_bytes(size)))
+        }
+    };
+    let mut head = [0u8; 20];
+    f.seek(start).ok()?;
+    f.read_exact(&mut head).ok()?;
+    let word = |i: usize| u32::from_le_bytes(head[i..i + 4].try_into().unwrap());
+    (&head[..4] == b"GDPC").then(|| format!("{}.{}.{}", word(8), word(12), word(16)))
+}
+
+// Godot can embed its game data in the exe: the file then ends with the pack's magic.
+#[cfg(windows)]
+fn ends_with_pck(exe: &Path) -> bool {
+    use std::io::{Seek, SeekFrom};
+    let Ok(mut f) = File::open(exe) else { return false };
+    let mut tail = [0u8; 4];
+    f.seek(SeekFrom::End(-4)).is_ok() && f.read_exact(&mut tail).is_ok() && &tail == b"GDPC"
 }
 
 fn data_dir(exe: &Path) -> PathBuf {
@@ -332,7 +479,9 @@ pub fn add_folder(dir: &Path) -> io::Result<usize> {
     let roots: Vec<PathBuf> = if detect(dir).is_some() {
         vec![dir.to_path_buf()]
     } else {
-        fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && detect(p).is_some()).collect()
+        let inside: Vec<PathBuf> = fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && (detect(p).is_some() || detect_other(p).is_some())).collect();
+        // No game one level in: the folder is one game in another engine (for the Theater screen).
+        if inside.is_empty() && detect_other(dir).is_some() { vec![dir.to_path_buf()] } else { inside }
     };
     let list = manual_list();
     fs::create_dir_all(list.parent().unwrap())?;
@@ -529,7 +678,9 @@ pub fn write_vr_list(games: &[Game]) {
     let mut vr: Vec<&Game> = games.iter().filter(|g| g.installed() && g.usable()).collect();
     vr.sort_by(|a, b| b.last_played.cmp(&a.last_played).then_with(|| a.name.cmp(&b.name)));
     for g in vr {
-        text += &format!("{}\t{}\n", g.name.replace('\t', " "), g.dir.display());
+        // The cover (Steam's cached art) is optional: the VR menu shows the initial without one.
+        let cover = g.cover.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
+        text += &format!("{}\t{}\t{}\n", g.name.replace('\t', " "), g.dir.display(), cover);
     }
     let path = dirs::config_dir().unwrap_or_default().join("Parallax").join("vr-games.txt");
     if fs::read_to_string(&path).is_ok_and(|old| old == text) {
@@ -648,6 +799,8 @@ struct Facts {
     /// VR support of its own (31, 53, 54).
     vr: bool,
     osarch: String,
+    /// common/type: "Game", "Demo", "Tool", "Application", ...
+    kind: String,
 }
 
 impl Facts {
@@ -729,6 +882,8 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Fact
                     found.anti_cheat |= names_ac(&v);
                     if path.len() == 2 && path[1] == "common" && k == "osarch" {
                         found.osarch = v;
+                    } else if path.len() == 2 && path[1] == "common" && k == "type" {
+                        found.kind = v.to_lowercase();
                     }
                 }
                 2 | 3 => {
@@ -900,6 +1055,10 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
     let facts = steam_facts(steam, &ids);
     for g in games.iter_mut() {
         let Some(f) = facts.get(&id_of(g)) else { continue };
+        // SteamVR, overlays, wallpaper apps: Steam calls them tools or applications, not games.
+        if !g.unity() && !f.kind.is_empty() && f.kind != "game" && f.kind != "demo" {
+            g.engine.clear();
+        }
         g.native_vr = f.vr;
         if g.blocker.is_none() {
             g.blocker = f.blocker().or((f.multiplayer && has_cheat_toolkit(g)).then_some("Anti-Cheat Toolkit"));
@@ -909,7 +1068,7 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
 
 /// One game folder, checked as the library checks it: its files, and Steam's word if Steam installed it.
 pub fn inspect(dir: &Path) -> Option<Game> {
-    let mut g = detect(dir)?;
+    let mut g = detect(dir).or_else(|| detect_other(dir))?;
     if let Some(steam) = steam_root() {
         if let Some((_, id, ..)) = steam_installs(&steam).into_iter().find(|(root, ..)| under(&g.dir, root)) {
             g.app_id = id;
@@ -929,7 +1088,7 @@ pub fn scan() -> Vec<Game> {
 
     let mut games: Vec<Game> = Vec::new();
     for (i, (dir, id, name, store, last)) in found.into_iter().enumerate() {
-        let Some(mut g) = detect(&dir) else { continue };
+        let Some(mut g) = detect(&dir).or_else(|| if store == "On disk" { None } else { detect_other(&dir) }) else { continue };
         if games.iter().any(|other| other.dir == g.dir) {
             continue;
         }
@@ -947,6 +1106,7 @@ pub fn scan() -> Vec<Game> {
     if let Some(steam) = &steam {
         apply_steam(steam, &mut games);
     }
+    games.retain(|g| !g.engine.is_empty());
     games.sort_by_key(|g| g.name.to_lowercase());
     if let Ok(json) = serde_json::to_vec(&games) {
         let _ = fs::create_dir_all(library_cache().parent().unwrap()).and_then(|_| fs::write(library_cache(), json));

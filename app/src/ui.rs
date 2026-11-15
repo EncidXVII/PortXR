@@ -200,7 +200,7 @@ fn body(size: f32) -> FontId {
 fn filter_of(g: &Game) -> Filter {
     match (g.compat(), g.installed()) {
         (Compat::Supported, true) => Filter::VrAdded,
-        (Compat::Supported, false) => Filter::Installed,
+        (Compat::Supported | Compat::Theater, false) => Filter::Installed,
         (_, true) if g.usable() => Filter::VrAdded,
         _ => Filter::Unsupported,
     }
@@ -573,8 +573,12 @@ impl App {
                 // Anton reserves a tall line; pull the metadata up so it groups with the title.
                 ui.add_space(-10.0);
                 ui.horizontal_wrapped(|ui| {
-                    chip(ui, &format!("Unity {}", g.unity), ChipKind::Plain);
-                    chip(ui, g.backend(), ChipKind::Plain);
+                    if g.unity() {
+                        chip(ui, &format!("Unity {}", g.unity), ChipKind::Plain);
+                        chip(ui, g.backend(), ChipKind::Plain);
+                    } else {
+                        chip(ui, &g.engine_label(), ChipKind::Plain);
+                    }
                     chip(ui, g.badge(), chip_kind(&g));
                 });
                 ui.add_space(8.0);
@@ -589,13 +593,15 @@ impl App {
                     // Checked before Play: without a runtime the game just starts flat.
                     let last = games::last_vr(&g).map(|t| format!(" Last played in VR {}.", ago(t))).unwrap_or_default();
                     match games::openxr_runtime() {
+                        Some(name) if g.compat() == Compat::Theater => status_line(ui, &format!("Plays on the Theater screen through {name}: the game runs as usual and Parallax shows its window in VR, with your controllers as keyboard and mouse. Nothing is added to the game.{last}"), Tone::Info),
                         Some(name) => status_line(ui, &format!("Starts in VR through {name}. Put your headset on first.{last}"), Tone::Info),
                         None => status_line(ui, "No VR runtime is set up, so the game would start flat. Install and start SteamVR, Virtual Desktop or Meta Quest Link.", Tone::Bad),
                     }
                 }
             });
         });
-        if !g.usable() {
+        // Theater games use the all-games screen settings; the per-game ones below belong to the plugin.
+        if !g.usable() || !g.unity() {
             return;
         }
         section_break(ui);
@@ -764,7 +770,7 @@ impl App {
             ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
             self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
         }
-        if playable && !g.installed() && secondary(ui, "Add VR").clicked() {
+        if playable && g.compat() != Compat::Theater && !g.installed() && secondary(ui, "Add VR").clicked() {
             self.report(install(g, &self.defaults));
             self.cfg = load_cfg(g);
             games::write_vr_list(&self.games);
@@ -1399,7 +1405,7 @@ enum ChipKind {
 fn chip_kind(g: &Game) -> ChipKind {
     match (g.compat(), g.installed()) {
         (Compat::Supported, true) => ChipKind::VrAdded,
-        (Compat::Supported, false) => ChipKind::Installed,
+        (Compat::Supported | Compat::Theater, false) => ChipKind::Installed,
         (Compat::Blocked, _) => ChipKind::Blocked,
         _ => ChipKind::Unsupported,
     }
@@ -1598,6 +1604,10 @@ fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
+    // The plugin's settings file is Unity's; Godot games take their VR from the engine.
+    if !g.unity() {
+        return Ok(());
+    }
     // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the plugin;
     // everything else comes from the all-games values.
     let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
@@ -1606,6 +1616,9 @@ fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
+    if g.compat() == Compat::Theater {
+        return play_theater(g);
+    }
     if games::steam_update_pending(&g.dir) {
         return Err("Steam has an update waiting for this game. Let Steam finish it, then press Play again: Parallax checks every update for anti-cheat first.".into());
     }
@@ -1614,6 +1627,9 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     } else {
         installer::update(&g.dir).map_err(|e| format!("Couldn't update the plugin (is the game still running?): {e}"))?;
     }
+    if g.godot_vr() {
+        return play_godot(g);
+    }
     g.launch()?;
     games::mark_played(&g.dir);
     // Steam may hold freshly pasted launch options in memory until it exits, so this only reminds.
@@ -1621,6 +1637,32 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
         return Ok(format!("Launching. If the game starts flat, its Steam launch options are missing: {}", games::LAUNCH_OPTIONS));
     }
     Ok("Launching. Put on your headset; double-tap the left menu button for the VR menu.".into())
+}
+
+// Games Parallax cannot go inside: ParallaxTheater.exe (beside the app, in theater\) waits for the game's window and
+// shows it on the Theater screen. Nothing is written to the game folder.
+fn play_theater(g: &Game) -> Result<String, Box<dyn Error>> {
+    let host = std::env::current_exe()?.with_file_name("theater").join("ParallaxTheater.exe");
+    if !host.exists() {
+        return Err(format!("{} is missing; reinstall Parallax.", host.display()).into());
+    }
+    std::process::Command::new(&host).arg("--dir").arg(&g.dir).spawn()?;
+    g.launch()?;
+    games::mark_played(&g.dir);
+    Ok("Launching. The game shows on the Theater screen once its window opens; double-tap the left menu button to bring the screen in front.".into())
+}
+
+// Godot opens VR itself as it starts, and gets none from a runtime that is still starting (SteamVR from cold): the
+// Theater host wakes the runtime first (ParallaxTheater.exe --wake, seconds), then the game is launched.
+fn play_godot(g: &Game) -> Result<String, Box<dyn Error>> {
+    let host = std::env::current_exe()?.with_file_name("theater").join("ParallaxTheater.exe");
+    let game = g.clone();
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new(&host).arg("--wake").status();
+        let _ = game.launch();
+    });
+    games::mark_played(&g.dir);
+    Ok("Starting VR, then the game. Its own VR mode is switched on; the controllers work as a gamepad.".into())
 }
 
 fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {

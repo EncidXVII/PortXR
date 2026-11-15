@@ -94,7 +94,7 @@ namespace Parallax
             HeadAim = cfg.Bind("Controls", "HeadAim", AimMode.Auto,
                 "On: the game camera turns to where you look, so first-person games aim with your head (also in their menus). Auto: on in " +
                 "first-person games while the game hides the cursor, off for cameras that orbit the player. Off: the head only looks around.");
-            AimWith = cfg.Bind("Controls", "AimWith", AimHand.Head,
+            AimWith = cfg.Bind("Controls", "AimWith", AimHand.Hand,
                 "What head aim follows. Head: where you look. Hand: where the right controller points; the view still follows your head.");
             WeaponInHand = cfg.Bind("Controls", "WeaponInHand", true,
                 "With hand aim, move the weapon the game hangs under its camera (arms and gun) into the right hand while the eyes render.");

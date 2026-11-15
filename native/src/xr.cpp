@@ -129,14 +129,23 @@ bool watch_uv(const PrxFrame& f, int e, float out[4]) {
 }
 
 // UI panel keying (PrxFrame::uiKey). Auto latches after two probes in a row find the panel over 97% opaque: the game
-// filled in the alpha, so the panel would hide the world. A new scene measures again.
+// filled in the alpha, so the panel would hide the world. A new scene measures again, and so does Auto after the
+// plugin moved the head camera off screen (3): the cleared screen usually leaves the UI's own alpha, so keying stops,
+// but a pipeline pass that still paints the screen (a sun drawn after the clear) latches it again.
 bool g_uiKeyed = false;
-int g_opaqueProbes = 0, g_keyScene = 0;
+int g_opaqueProbes = 0, g_keyScene = 0, g_lastUiKey = 0;
 uint64_t g_panelFrames = 0;
 
 bool ui_key(const PrxFrame& f) {
+    bool fresh = f.uiKey == 3 && g_lastUiKey != 3;
+    g_lastUiKey = f.uiKey;
     if (!f.quadAlpha || f.uiKey == 2) return false;
     if (f.uiKey == 1) return true;
+    if (fresh) {
+        g_uiKeyed = false;
+        g_opaqueProbes = 0;
+        prx_log("UI panel drawn on a cleared screen; measuring its alpha again");
+    }
     if (f.scene != g_keyScene) {
         g_keyScene = f.scene;
         g_uiKeyed = false;
@@ -482,10 +491,11 @@ void do_submit(int slot) {
         }
         PrxLayer quadSource = f.quadFromBackbuffer ? PrxLayer{g_gpu->backbuffer_copy(), 0} : f.quadLayer;
         Overlay panel;
-        panel.key = ui_key(f) ? 1.f : 0.f;
+        // 1: the game filled the panel opaque, so its black is keyed out; -1: see-through, colour without alpha dropped.
+        panel.key = ui_key(f) ? 1.f : f.quadAlpha ? -1.f : 0.f;
         for (int i = 0; i < 4; ++i) panel.keep[i] = f.keepRect[i];
         // Measured unkeyed, about twice a second, until it latches.
-        panel.probe = f.quadAlpha && f.uiKey == 0 && !g_uiKeyed && (g_panelFrames++ % 45) == 0;
+        panel.probe = f.quadAlpha && (f.uiKey == 0 || f.uiKey == 3) && !g_uiKeyed && (g_panelFrames++ % 45) == 0;
         // While aiming the middle leaves the flat panel (a hole) and is copied to its own layer.
         bool split = f.aimPatch[0] > 0 && f.quadRadius <= 0;
         float middle[4] = {0.5f - f.aimPatch[0], 0.5f - f.aimPatch[1], 0.5f + f.aimPatch[0], 0.5f + f.aimPatch[1]};

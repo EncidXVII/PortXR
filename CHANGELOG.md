@@ -18,6 +18,15 @@
   ease, presses show on trigger-down; in the app the tab bar grows into place and covers light up on hover.
 
 ### In VR
+- **Aim with** now starts on **Right hand**: in first-person games the game camera follows the right controller,
+  your view your head. Head stays one choice away (VR menu Quick, or the app).
+- Parallax mode no longer pulls the picture apart a few seconds in: the eyes were spaced by the focus distance, so
+  looking down a long street put them metres apart (Peripeteia). They now stay within two eye-widths at the world
+  scale, the focus stops at 15 m, and it eases over about 0.7 s.
+- UI panel: HUD boxes and crosshairs no longer come out see-through. Once the game camera draws off screen (games
+  whose effects painted over the UI, such as HDRP's), the panel is measured again and only keyed if something
+  still paints the screen; and translucent UI keeps the opacity it has on the monitor (older Unity UI shaders store
+  it squared on a transparent screen; where the colour shows that, the opacity is raised back).
 - The screen in Theater and Parallax is locked while you play: its handles show only after **Screen: Unlocked** in
   the VR menu's Quick tab, and it locks again when the menu closes.
 - The wrist watch fades in as you look at it, like DesktopVR's clock, and is out of sight otherwise; glanced at, its
@@ -25,17 +34,35 @@
   edge. A grey rim and round-ended bars replace the white rim.
 - **Library** tab in the VR menu: **Quit game**, or **Start** another game with VR added (Parallax.exe waits for this
   game to close, updates the plugin and launches the next one). Both ask twice, since unsaved progress is lost.
+  Laid out like DesktopVR's window picker: a Now playing card, then your VR games as a shelf of Steam covers (the
+  initial where a game has none, and in IL2CPP games), five at a time.
 - **Around the screen: Your room** (Quick tab, Theater and Parallax): passthrough around the screen instead of black, where the
   headset software shares it with apps (alpha-blend passthrough or Meta's passthrough extension); the row only shows
   there. SteamVR has neither.
 
 ### App
+- **Godot 4 games in full VR**: the game's own OpenXR, switched on by an `override.cfg` and a script beside its exe
+  (Add VR; Remove VR restores the folder byte for byte). The headset follows the game's camera, the 2D UI is a panel
+  in front, the controllers are a gamepad inside the game. Play in VR wakes the headset runtime first
+  (ParallaxTheater.exe --wake). Godot 3 games play on the Theater screen.
+- **Any game on the Theater screen**: games in other engines (Unreal, Godot and the rest, from Steam, Epic, GOG or a
+  folder you add) now show in the library with a **Theater** badge. Play in VR starts the game as usual and shows its
+  window on the Theater screen (ParallaxTheater.exe, beside the app); the controllers work as keyboard and mouse, and
+  the laser pointer clicks where the game shows its cursor. Nothing is written to the game folder. Steam tools and
+  apps are left out; anti-cheat and online-only games stay refused.
 - **Add VR anyway** for games Parallax would leave alone but could run in: multiplayer-only games without
   anti-cheat, games with their own VR mode, and Mono games built with code trimming. The page says what to expect
   first and asks again. Anti-cheat, 32-bit and Linux-build games stay refused.
 - Settings: **Around the screen** (Dark or Your room) for Theater and Parallax.
 
 ### Tests
+- Godot gate (`harness/godot.py`): fixture G1, a Godot 4.5 project, in VR through the app's override.cfg; the
+  compositor's view of the test headset must show the world from the player camera and the HUD panel.
+- Theater host: a plain (non-Unity) window and a Godot 4.5 game captured onto the Theater screen on the SteamVR test
+  headset, colours exact.
+- Gate 6c: a 50% white square in every fixture's UI must reach the VR panel at about 50% opacity, also where the
+  game camera had to move off screen (F5, F7).
+- The VR menu captures cover all six tabs and the first-run card.
 - Test sessions turn off SteamVR's startup overlay apps and leftover desktop windows (no "already running" dialogs,
   no Settings window over the test headset); the player's settings come back after.
 

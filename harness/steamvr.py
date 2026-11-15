@@ -70,9 +70,36 @@ def stop():
         time.sleep(0.2)
 
 
+def copy_durable(src, dst):
+    """Copies and flushes to disk: a power cut can leave a file its size in zeros when only its length was written."""
+    shutil.copy2(src, dst)
+    with open(dst, "rb+") as f:
+        os.fsync(f.fileno())
+
+
+def readable(path):
+    """A backup worth restoring: present and valid JSON (a power cut leaves zeros)."""
+    try:
+        with open(path, "rb") as f:
+            json.loads(f.read())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def restore(backup, path):
+    """Puts a backup back if it is readable, and removes it either way (a zeroed one would replace a good file)."""
+    if readable(backup):
+        copy_durable(backup, path)
+    else:
+        print(f"warning: {backup} is unreadable (power cut?); {path} left as it is")
+    os.remove(backup)
+
+
 @contextlib.contextmanager
-def null_driver(window=None):
-    """window: (x, y, w, h) for the null HMD's desktop window, e.g. secondary_monitor()."""
+def null_driver(window=None, extra=None):
+    """window: (x, y, w, h) for the null HMD's desktop window, e.g. secondary_monitor(). extra: more settings for the
+    session, {section: {key: value}}."""
     if running():
         raise RuntimeError("SteamVR is running; close it so its settings can be swapped safely")
     path = os.path.join(steam_root(), "config", "steamvr.vrsettings")
@@ -81,16 +108,16 @@ def null_driver(window=None):
     chaperone_backup = chaperone + ".parallax-backup"
     if os.path.exists(backup):
         # A previous run was killed before it could clean up: its backups are the user's real files.
-        shutil.copy2(backup, path)
+        restore(backup, path)
         if os.path.exists(chaperone_backup):
-            shutil.move(chaperone_backup, chaperone)
+            restore(chaperone_backup, chaperone)
         elif os.path.exists(chaperone):
             os.remove(chaperone)
     # Overlay apps set to start with SteamVR (a desktop or fitness overlay) would start again with every test session,
     # and some show an "already running" dialog. Autolaunch is off for the session and put back after it.
     apps = os.path.join(steam_root(), "config", "vrappconfig")
     for left in glob.glob(os.path.join(apps, "*.vrappconfig.parallax-backup")):
-        shutil.move(left, left[: -len(".parallax-backup")])
+        restore(left, left[: -len(".parallax-backup")])
     paused = []
     for app in glob.glob(os.path.join(apps, "*.vrappconfig")):
         try:
@@ -99,15 +126,15 @@ def null_driver(window=None):
         except (OSError, ValueError):
             continue
         if conf.get("autolaunch"):
-            shutil.copy2(app, app + ".parallax-backup")
+            copy_durable(app, app + ".parallax-backup")
             conf["autolaunch"] = False
             with open(app, "w", encoding="utf-8") as f:
                 json.dump(conf, f, indent=3)
             paused.append(app)
     had_chaperone = os.path.exists(chaperone)
     if had_chaperone:
-        shutil.copy2(chaperone, chaperone_backup)
-    shutil.copy2(path, backup)
+        copy_durable(chaperone, chaperone_backup)
+    copy_durable(path, backup)
     try:
         with open(path, encoding="utf-8") as f:
             settings = json.load(f)
@@ -131,6 +158,8 @@ def null_driver(window=None):
             "turnOffScreensTimeout": 86400.0,
             "turnOffControllersTimeout": 0.0,
         })
+        for section, values in (extra or {}).items():
+            settings.setdefault(section, {}).update(values)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=3)
         # Without a calibrated play area SteamVR launches Room Setup as a scene app, which evicts the game.
@@ -145,11 +174,10 @@ def null_driver(window=None):
             time.sleep(3)
             if not running():
                 break
-        shutil.copy2(backup, path)
-        os.remove(backup)
+        restore(backup, path)
         for app in paused:
-            shutil.move(app + ".parallax-backup", app)
+            restore(app + ".parallax-backup", app)
         if had_chaperone:
-            shutil.move(chaperone_backup, chaperone)
+            restore(chaperone_backup, chaperone)
         elif os.path.exists(chaperone):
             os.remove(chaperone)

@@ -160,6 +160,10 @@ public static partial class FixtureBuild
         labelText.alignment = TextAnchor.MiddleCenter;
         labelText.color = Color.black;
 
+        // A 50% white square, left of middle: the VR panel must keep the opacity it has on the monitor (harness gate 6c).
+        var veil = Rect("Translucent", canvasGo.transform, new Vector2(0f, 0.5f), new Vector2(100, 0), new Vector2(120, 120));
+        veil.gameObject.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.5f);
+
         var es = new GameObject("EventSystem");
         es.AddComponent<EventSystem>();
         es.AddComponent<StandaloneInputModule>();

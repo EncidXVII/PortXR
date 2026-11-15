@@ -38,6 +38,16 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
     if (encode > 0.5) c.rgb = toSrgb(saturate(c.rgb));
     // The panel's middle, shown on its own layer at the aim point instead (PrxFrame::aimPatch).
     if (hole.z > 0 && at.x >= hole.x && at.x <= hole.z && at.y >= hole.y && at.y <= hole.w) c = 0;
+    // A panel the game left see-through (key < 0). Colour with no coverage at all (HDRP grain, bloom or exposure over
+    // the cleared camera) would be added over the game by the runtime's premultiplied blend; it fades out. Older
+    // Unity UI shaders (2018: SrcAlpha, OneMinusSrcAlpha on alpha too) store alpha squared while the colour is
+    // premultiplied by the true alpha, so a 50% HUD square came out 25%. Premultiplied colour is never brighter
+    // than its alpha, so where it is the alpha is raised to it: bright UI and crosshairs get their coverage back,
+    // and games that store it right (Unity 2022 and later, 50% stays 50%) are left as they are.
+    if (key < 0) {
+        c.rgb *= saturate(c.a * 64);
+        c.a = max(c.a, saturate(max(c.r, max(c.g, c.b))));
+    }
     // Comfort vignette: the clear centre shrinks as the strength rises; a wide smoothstep keeps the edge soft.
     if (vignette > 0) {
         float inner = lerp(1.25, 0.45, vignette);

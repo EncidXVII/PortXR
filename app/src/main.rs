@@ -104,8 +104,8 @@ fn cli(cmd: &str, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         "uninstall" => installer::uninstall(dir),
         "update" => installer::update(dir).map(|changed| println!("{}", if changed { "updated" } else { "up to date" })),
         "detect" => {
-            let g = games::detect(dir).ok_or("not a Unity game")?;
-            println!("{}: {}, Unity {}, {}, loader {}", g.name, g.badge(), g.unity, g.backend(), g.other_loader.unwrap_or("none"));
+            let g = games::inspect(dir).ok_or("no game found")?;
+            println!("{}: {}, {}, loader {}", g.name, g.badge(), g.engine_label(), g.other_loader.unwrap_or("none"));
             Ok(())
         }
         "export" => {

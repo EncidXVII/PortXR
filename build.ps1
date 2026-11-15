@@ -63,5 +63,8 @@ if ($il2cpp) {
     Set-Content "$il\BepInEx\config\BepInEx.cfg" "[Logging.Console]`r`nEnabled = false`r`n" -Encoding ascii
 }
 Copy-Item "$build\app\release\Parallax.exe" $dist
+# Theater for games Parallax cannot go inside: the window-capture host and the VR core it drives.
+New-Item -ItemType Directory -Force "$dist\theater" | Out-Null
+Copy-Item (@("$build\native\$Config\ParallaxTheater.exe") + $native) "$dist\theater"
 Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
 Write-Host "dist ready: $dist"

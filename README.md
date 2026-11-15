@@ -82,7 +82,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
 - Head aim: in first-person games the game camera turns to where you look, so you aim with your head; the right stick turns your body. Auto (the default) turns it on while you play (cursor hidden), tries it briefly on each new camera, and keeps it off for third-person cameras that orbit the player, where the right stick turns the game camera as on a flat screen; **Aim** On or Off in the VR menu's Quick tab or the app.
-- Hand aim: **Aim with: Right hand** (VR menu Quick, or the app) steers the same way from the right controller instead: the game camera points where the controller points while your view stays on your head. The game still walks where its camera faces, so forward follows your hand. **Weapon in hand** (VR menu Game tab) moves the gun and arms an FPS hangs under its camera into your hand while the view is drawn.
+- Hand aim (the default): **Aim with: Right hand** (VR menu Quick, or the app) steers the same way from the right controller instead of your head: the game camera points where the controller points while your view stays on your head. The game still walks where its camera faces, so forward follows your hand. **Weapon in hand** (VR menu Game tab) moves the gun and arms an FPS hangs under its camera into your hand while the view is drawn.
 - Crosshair: the game's own crosshair sits in the middle of its UI panel, which stays put while the camera follows your head or hand. While aiming, Parallax moves the middle of the game's UI (the crosshair with its grab and use icons, prompts and hit markers) to what the camera aims at, at its depth. **Crosshair** (VR menu Game tab): Game's, Lime for a plain lime crosshair there instead, or Off.
 - The game's UI floats on a see-through panel. When a game paints that panel solid (a full-screen effect on its UI camera), Parallax notices and makes the black see-through, dim tints translucent (View, UI black: Auto, See-through or Keep).
 - Intro and cutscene videos that a game draws straight onto its camera play on the theater screen, then the view returns to stereo.
@@ -98,6 +98,15 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
 - The VR menu's Library tab quits the game, or starts another game with VR added without taking the headset off.
 - Theater and Parallax can show your room around the screen instead of black (**Around the screen: Your room**), on headset software that shares its passthrough with apps; SteamVR does not.
+- **Godot 4 games** get full VR from the engine's own OpenXR: **Add VR** puts an `override.cfg` and one script beside
+  the game's exe (Remove VR takes them out again). The headset follows the game's camera, also where the game draws its
+  3D in a SubViewport (a retro resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad
+  inside the game. Play in VR wakes the headset runtime first, since Godot gets no VR from a runtime still starting.
+  Not yet: a gun or arms layer drawn in its own viewport, the laser pointer, the VR menu.
+- **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the Theater screen: Parallax
+  shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
+  laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
+  the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
 - Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them. Multiplayer-only games without anti-cheat, games with their own VR mode and trimmed games have **Add VR anyway**, after a caution.
 - See [COMPAT.md](COMPAT.md).
 
@@ -169,6 +178,12 @@ Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`
 | F9 | 2022.3 | Mono, code trimming on | D3D11 | built-in (detection only: the app refuses it) |
 | F10 | 2022.3 | Mono | D3D11 | HDRP + Bloom |
 | F11 | 2022.3 | Mono | D3D11 | built-in + Post Processing v2 (Bloom) |
+
+Godot VR has its own gate: `python harness\godot.py --secondary` runs fixture G1 (`fixtures/G1`, a Godot 4.5 project:
+a room of coloured boxes, a HUD, a splash camera before the player's) with the app's `override.cfg` and checks what
+SteamVR's compositor shows the test headset: the world in the player camera's view and the HUD on its panel. It needs
+the Godot 4.5 editor (`GODOT`, default `E:\Godot\Godot_v4.5-stable_win64_console.exe`); G1 runs as a project, so no
+export templates.
 
 The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 

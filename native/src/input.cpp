@@ -36,6 +36,7 @@ LARGE_INTEGER g_lastUpdate;
 bool g_pointerDown;
 int g_lastPointer[2] = {-1, -1};
 HWND g_window;
+bool g_windowSet;  // the Theater host names the game window; the plugin finds its own
 
 XrPath path(const char* s) {
     XrPath p = XR_NULL_PATH;
@@ -162,7 +163,7 @@ BOOL CALLBACK find_window(HWND hwnd, LPARAM) {
 HWND game_window() {
     if (!g_window || !IsWindow(g_window)) {
         g_window = nullptr;
-        EnumWindows(find_window, 0);
+        if (!g_windowSet) EnumWindows(find_window, 0);
     }
     return g_window;
 }
@@ -523,6 +524,12 @@ PRX_API int32_t prx_key_down(int32_t vk) {
     DWORD pid = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
     return pid == GetCurrentProcessId();
+}
+
+// The Theater host, which runs beside the game rather than in it: the window keys, mouse and pointer go to.
+PRX_API void prx_set_game_window(HWND hwnd) {
+    g_window = hwnd;
+    g_windowSet = true;
 }
 
 PRX_API int32_t prx_game_in_front() { return game_in_front(game_window()); }

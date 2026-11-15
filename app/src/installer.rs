@@ -67,6 +67,9 @@ pub fn install_anyway(game_dir: &Path) -> Result<(), Box<dyn Error>> {
 
 fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     let game = checked(game_dir, force)?;
+    if game.godot_vr() {
+        return install_godot(&game);
+    }
     if force && game.caution().is_none() {
         return Err("Parallax can't run in this game, so it can't be added anyway.".into());
     }
@@ -125,6 +128,60 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// The script Godot 4 games load for VR (godot/parallax_vr.gd), built into the app.
+const GODOT_SCRIPT: &str = include_str!("../../godot/parallax_vr.gd");
+
+/// Godot 4: the engine's own OpenXR, switched on by override.cfg beside the exe (which Godot reads over the game's
+/// project settings), and our script loaded as an autoload from beside it. An override.cfg the game already has is
+/// kept: backed up, and ours appended after it so its settings stay unless VR needs them changed.
+fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
+    let game_dir = game.dir.as_path();
+    if receipt_path(game_dir).exists() {
+        uninstall(game_dir)?;
+    }
+    // A game exported with a custom engine build may have left OpenXR out; it would just start flat.
+    let needle = b"xrCreateInstance";
+    if !fs::read(&game.exe)?.windows(needle.len()).any(|w| w == needle) {
+        return Err("This game's Godot build has no OpenXR, so it can't open VR itself. Play it on the Theater screen instead.".into());
+    }
+    let exe_dir = game.exe.parent().ok_or("no game folder")?;
+    let rel = |name: &str| exe_dir.join(name).strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into());
+    let script = exe_dir.join("parallax_vr.gd");
+    let existing = fs::read_to_string(exe_dir.join("override.cfg")).unwrap_or_default();
+    // Vulkan, Godot's main renderer: with OpenXR on, Godot otherwise switched one game from Vulkan to Direct3D 12.
+    let ours = format!(
+        "\n[xr]\n\nopenxr/enabled=true\nshaders/enabled=true\n\n[rendering]\n\nrendering_device/driver.windows=\"vulkan\"\n\n\
+         [autoload]\n\nParallaxVR=\"*{}\"\n",
+        script.to_string_lossy().replace('\\', "/")
+    );
+    let files: Vec<(String, Vec<u8>)> =
+        vec![(rel("override.cfg"), format!("{existing}{ours}").into_bytes()), (rel("parallax_vr.gd"), GODOT_SCRIPT.as_bytes().to_vec())];
+    install_files(game_dir, &files)
+}
+
+/// Writes `files` (paths relative to the game folder) with a receipt and backups first, as install() does.
+fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), Box<dyn Error>> {
+    let mut entries = Vec::new();
+    for (rel, data) in files {
+        let target = games::native(game_dir, rel);
+        let backed_up = target.exists();
+        if backed_up {
+            let backup = games::native(&game_dir.join(BACKUP_DIR), rel);
+            fs::create_dir_all(backup.parent().unwrap())?;
+            fs::copy(&target, &backup)?;
+            fs::OpenOptions::new().write(true).open(&backup)?.sync_all()?;
+        }
+        let sha256 = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
+        entries.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
+    }
+    let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting: false, created_dirs: Vec::new(), files: entries, forced: false };
+    write_durable(&receipt_path(game_dir), &serde_json::to_vec(&receipt)?)?;
+    for (rel, data) in files {
+        fs::write(games::native(game_dir, rel), data)?;
+    }
+    Ok(())
+}
+
 /// Written beside and renamed over, flushed first: a crash leaves the old file or the new one, never a torn or
 /// zero-filled one.
 fn write_durable(path: &Path, data: &[u8]) -> std::io::Result<()> {
@@ -152,6 +209,14 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     if game.blocker.is_some() && !(game.caution().is_some() && forced(&game.dir)) {
         uninstall(&game.dir)?;
         return Err("blocked".into());
+    }
+    if game.godot_vr() {
+        let installed = fs::read(game.exe.with_file_name("parallax_vr.gd")).unwrap_or_default();
+        if installed == GODOT_SCRIPT.as_bytes() {
+            return Ok(false);
+        }
+        install_godot(game)?;
+        return Ok(true);
     }
     let game_dir = game.dir.as_path();
     let path = receipt_path(game_dir);
@@ -186,7 +251,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
 /// added anti-cheat since the install) and it is refused. Install, every update and every Play pass through here.
 // Anti-cheat is refused whatever the player chose; a multiplayer-only game only when it was not added anyway.
 fn checked(game_dir: &Path, force: bool) -> Result<games::Game, Box<dyn Error>> {
-    let game = games::inspect(game_dir).ok_or("No Unity game found in this folder.")?;
+    let game = games::inspect(game_dir).ok_or("No game Parallax can add VR to was found in this folder.")?;
     let Some(b) = game.blocker else { return Ok(game) };
     if force && game.caution().is_some() {
         return Ok(game);
