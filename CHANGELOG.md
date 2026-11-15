@@ -20,8 +20,8 @@
   in), **VR screen** (the game on a big screen in VR, any engine), or why Parallax can't run it. Tabs: Full VR, VR
   screen, Not installed and Unsupported; All leaves the unsupported games out. A line under the tabs says what the
   words mean.
-- **Not installed** lists the whole Steam library, not only its Unity games: Unity games are marked Full VR, the rest
-  VR screen.
+- **Not installed** shows only Steam library games that would get Full VR; games Parallax can't run (anti-cheat,
+  multiplayer only, their own VR mode, 32-bit) are left off it. Any game you install plays on the VR screen anyway.
 - No more sweeping line under the title each time the window comes back into focus; the list just updates.
 
 ### Look and motion

@@ -62,7 +62,7 @@ fn main() -> ExitCode {
         }
         println!("scan took {:?}", t.elapsed());
         for o in games::steam_library() {
-            println!("{}	{}	{}	{}	{}", o.app_id, if o.full_vr { "full" } else { "screen" }, o.blocker.unwrap_or("ok"), o.last_played, o.name);
+            println!("{}	{}	{}", o.app_id, o.last_played, o.name);
         }
         return ExitCode::SUCCESS;
     }

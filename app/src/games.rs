@@ -771,17 +771,12 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
     Ok(to)
 }
 
-/// A game in the Steam library, installed or not.
+/// A game in the Steam library, installed or not, that gets full VR (a Unity game Parallax can run).
 #[derive(Clone)]
 pub struct Owned {
     pub app_id: u32,
     pub name: String,
-    /// A Unity game (Wikidata's list): full VR once installed; the rest play on the VR screen.
-    pub full_vr: bool,
     pub cover: Option<PathBuf>,
-    /// Why Parallax will not run it, known before it is installed: "Anti-cheat", "Multiplayer only", "Already VR" or
-    /// "32-bit".
-    pub blocker: Option<&'static str>,
     /// Unix seconds, from Steam's per-account play records (kept after an uninstall); 0 if never played.
     pub last_played: u64,
 }
@@ -993,31 +988,30 @@ fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
     Some(map.into_iter().filter_map(|(id, name)| Some((id.parse().ok()?, name))).collect())
 }
 
-/// Games the Steam account has: Steam keeps library art for every app in the library, one folder (or file prefix, on
-/// older clients) per app ID; its app cache names them and says which are games. Network: the first call of the week
-/// downloads Wikidata's list of Unity games, which says which of them get full VR.
+/// Steam library games that would get full VR: Steam keeps library art for every app in the library, one folder (or
+/// file prefix, on older clients) per app ID; Wikidata's list of Unity games picks the Unity ones, and the app cache
+/// drops what Parallax can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the library is
+/// left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the list.
 pub fn steam_library() -> Vec<Owned> {
     let Some(steam) = steam_root() else { return Vec::new() };
-    let unity = unity_games().unwrap_or_default();
+    let Some(unity) = unity_games() else { return Vec::new() };
     let cache = steam.join("appcache").join("librarycache");
     let ids = fs::read_dir(&cache)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().to_string_lossy().split(['_', '.']).next()?.parse().ok())
+        .filter(|id| unity.contains_key(id))
         .collect();
     let facts = steam_facts(&steam, &ids);
     let played = steam_last_played(&steam);
     let mut owned: Vec<Owned> = ids
         .into_iter()
         .filter_map(|id| {
-            let f = facts.get(&id).filter(|f| f.kind == "game")?;
-            let full_vr = unity.contains_key(&id);
-            let name = unity.get(&id).cloned().or_else(|| (!f.name.is_empty()).then(|| f.name.clone()))?;
-            // 32-bit only stops the plugin; the VR screen shows any window.
-            let blocker = f.blocker().or(f.vr.then_some("Own VR mode")).or((full_vr && f.osarch == "32").then_some("32-bit"));
+            let f = facts.get(&id).filter(|f| f.kind == "game" && f.blocker().is_none() && !f.vr && f.osarch != "32")?;
+            let name = unity.get(&id).cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| f.name.clone());
             let last_played = played.get(&id).copied().unwrap_or(0);
-            Some(Owned { app_id: id, name, full_vr, cover: cover_in(&cache.join(id.to_string())), blocker, last_played })
+            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), last_played })
         })
         .collect();
     owned.sort_by_key(|o| o.name.to_lowercase());

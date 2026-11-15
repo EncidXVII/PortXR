@@ -205,10 +205,6 @@ fn filter_of(g: &Game) -> Filter {
     }
 }
 
-fn owned_filter(o: &games::Owned) -> Filter {
-    if o.blocker.is_some() { Filter::Unsupported } else { Filter::NotInstalled }
-}
-
 impl App {
     fn new(cc: &eframe::CreationContext, open: Option<PathBuf>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -339,7 +335,7 @@ impl App {
     // Every card the library can show, with the status tab it belongs to; each card is in exactly one tab.
     fn entries(&self) -> Vec<(Filter, Entry)> {
         let here = (0..self.games.len()).map(|i| (filter_of(&self.games[i]), Entry::Here(i)));
-        let steam = self.missing().unwrap_or_default().into_iter().map(|o| (owned_filter(&o), Entry::Steam(o)));
+        let steam = self.missing().unwrap_or_default().into_iter().map(|o| (Filter::NotInstalled, Entry::Steam(o)));
         here.chain(steam).collect()
     }
 
@@ -437,8 +433,7 @@ impl App {
                             }
                         }
                         Entry::Steam(o) => {
-                            let hint = if o.blocker.is_some() { "Parallax cannot run this game" } else { "Install with Steam" };
-                            if owned_card(ui, o, w).on_hover_text(hint).clicked() {
+                            if owned_card(ui, o, w).on_hover_text("Install with Steam").clicked() {
                                 install = Some(o.clone());
                             }
                         }
@@ -457,15 +452,9 @@ impl App {
 
     // A click on a game that is not installed asks Steam to install it; it joins the library when done.
     fn install_owned(&mut self, o: &games::Owned) {
-        self.status = match o.blocker {
-            Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
-            Some("Own VR mode") => (format!("{} has its own VR mode: play it in VR from Steam.", o.name), Tone::Info),
-            Some("Multiplayer only") => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
-            Some(_) => (format!("{} uses anti-cheat. Injecting into it risks a ban, so Parallax never runs in it.", o.name), Tone::Bad),
-            None => match games::steam_install(o.app_id) {
-                Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
-                Err(e) => (e.to_string(), Tone::Bad),
-            },
+        self.status = match games::steam_install(o.app_id) {
+            Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
+            Err(e) => (e.to_string(), Tone::Bad),
         };
     }
 
@@ -1543,14 +1532,7 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
     let name = ui.painter().layout_job(job);
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
-    let (text, kind) = match o.blocker {
-        // Ban risks are red; the rest are just unsupported.
-        Some(b @ ("Own VR mode" | "32-bit")) => (b, ChipKind::Unsupported),
-        Some(b) => (b, ChipKind::Blocked),
-        None if o.full_vr => ("Full VR", ChipKind::FullVr),
-        None => ("VR screen", ChipKind::Screen),
-    };
-    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, kind);
+    paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), "Full VR", ChipKind::FullVr);
     focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
