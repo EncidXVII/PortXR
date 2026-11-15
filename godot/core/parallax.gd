@@ -26,6 +26,8 @@ var _pad_game := false
 var _pad_sent := {}
 var _aiming := false
 var _udp: PacketPeerUDP
+var _pointer := Vector2(-1, -1)
+var _pointer_down := false
 # XInput button bits to Godot's pad buttons.
 const PAD_BUTTONS := {0x1000: JOY_BUTTON_A, 0x2000: JOY_BUTTON_B, 0x4000: JOY_BUTTON_X, 0x8000: JOY_BUTTON_Y,
 	0x10: JOY_BUTTON_START, 0x20: JOY_BUTTON_BACK, 0x40: JOY_BUTTON_LEFT_STICK, 0x80: JOY_BUTTON_RIGHT_STICK,
@@ -92,6 +94,7 @@ func _process(_delta: float) -> void:
 		"camera_key": (str(get_tree().current_scene.scene_file_path) if get_tree().current_scene else "") + "/" + (str(_game.name) if _game else ""),
 		"cursor_free": Input.mouse_mode == Input.MOUSE_MODE_VISIBLE or Input.mouse_mode == Input.MOUSE_MODE_CONFINED,
 		"pad_game": _pad_game, "carried": _carried(_game), "menu_open": false,
+		"ui_aspect": _ui_aspect(root),
 	}
 	if _game != null:
 		game["camera"] = _game.global_transform.orthonormalized()
@@ -100,6 +103,7 @@ func _process(_delta: float) -> void:
 	_aiming = result.get("aiming", false)
 	_placed = eyes.size() == 2
 	_send_pad()
+	_send_pointer(result)
 	if _placed:
 		var world := _game.get_world_3d() if _game != null else root.find_world_3d()
 		for e in 2:
@@ -131,8 +135,7 @@ func _after_draw() -> void:
 		return
 	if _placed:
 		var root := get_tree().root
-		var size := root.get_texture().get_size()
-		core.submit_view(left, _views[1].get_texture().get_rid(), root.get_texture().get_rid(), size.x / maxf(size.y, 1.0))
+		core.submit_view(left, _views[1].get_texture().get_rid(), root.get_texture().get_rid(), _ui_aspect(root))
 
 
 func _log() -> void:
@@ -197,6 +200,44 @@ func _show_picture(picture: CanvasItem) -> void:
 		_hidden_alpha = picture.self_modulate.a
 		picture.self_modulate.a = 0
 		print(LOG, "the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel")
+
+
+func _ui_aspect(root: Window) -> float:
+	var size := root.get_texture().get_size()
+	return size.x / maxf(size.y, 1.0)
+
+
+# The core's laser pointer on the UI panel, delivered as Godot's own mouse events at window pixels (Godot maps them
+# through the game's stretch settings, as a real mouse): the game's buttons and sliders work with it, and the player's
+# real cursor is never moved.
+func _send_pointer(result: Dictionary) -> void:
+	if not result.has("pointer"):
+		if _pointer_down:
+			_mouse_button(_pointer, false)
+		_pointer = Vector2(-1, -1)
+		_pointer_down = false
+		return
+	var at: Vector2 = result["pointer"] * Vector2(DisplayServer.window_get_size())
+	if at.distance_to(_pointer) > 0.5:
+		var m := InputEventMouseMotion.new()
+		m.position = at
+		m.global_position = at
+		m.relative = at - _pointer if _pointer.x >= 0 else Vector2.ZERO
+		Input.parse_input_event(m)
+		_pointer = at
+	var down: bool = result.get("pointer_down", false)
+	if down != _pointer_down:
+		_mouse_button(at, down)
+		_pointer_down = down
+
+
+func _mouse_button(at: Vector2, pressed: bool) -> void:
+	var b := InputEventMouseButton.new()
+	b.button_index = MOUSE_BUTTON_LEFT
+	b.pressed = pressed
+	b.position = at
+	b.global_position = at
+	Input.parse_input_event(b)
 
 
 # Controls Auto: a gamepad where the game's input map has gamepad events (its own, not Godot's ui_ actions).
@@ -290,6 +331,7 @@ func _command(cmd: String) -> Variant:
 				var f := -_game.global_basis.z
 				yaw = rad_to_deg(atan2(f.x, -f.z))
 			return {"state": core.state(), "camera": str(_game.get_path()) if _game else "", "aiming": _aiming,
+				"pointer": [_pointer.x, _pointer.y], "pointer_down": _pointer_down,
 				"heading": yaw, "frames": _frames, "pad_game": _pad_game, "game": get_tree().root.get_meta("g1", {})}
 		"set":
 			var kv := parts[1].split(" ", false, 1)
@@ -298,6 +340,10 @@ func _command(cmd: String) -> Variant:
 			return {"ok": true}
 		"controllers":
 			core.test_controllers(JSON.parse_string(parts[1]) if parts.size() > 1 else {})
+			return {"ok": true}
+		"point":
+			var uv := parts[1].split(" ")
+			core.test_point(float(uv[0]), float(uv[1]))
 			return {"ok": true}
 		"recenter":
 			core.recenter()

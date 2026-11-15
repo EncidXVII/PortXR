@@ -106,15 +106,27 @@ def main():
                     check("world", red > 0.003 and green > 0.003, f"red box {red:.1%}, green box {green:.1%}: eyes placed by the core")
                     check("ui panel", yellow > 0, f"crosshair pixels {yellow}: the game's UI on the core's panel")
 
+                # Laser pointer: the fake right hand points at G1's PLAY button on the UI panel; the trigger clicks it
+                # through Godot's own input (the real cursor is not touched).
+                ch.cmd('controllers {"rt": 0.0}')
+                ch.cmd("point 0.5 0.667")
+                s = ch.wait(lambda s: s["pointer"][0] >= 0, 5, "the pointer on the panel")
+                ch.cmd('controllers {"rt": 1.0}')
+                time.sleep(0.3)
+                ch.cmd('controllers {"rt": 0.0}')
+                s = ch.wait(lambda s: s["game"].get("clicks", 0) >= 1, 5, "PLAY clicked by the laser")
+                check("laser pointer", s["game"].get("captured", False), f"the laser at {s['pointer']} clicked PLAY")
+                ch.cmd("point -1 0")
+                ch.cmd('controllers {}')
+
                 # Gamepad mode: the core's emulated pad reaches the game as pad 0.
                 ch.cmd('controllers {"buttons": 1}')
                 s = ch.wait(lambda s: 0 in s["game"].get("buttons", []), 5, "pad A in the game")
                 ch.cmd('controllers {}')
                 check("gamepad", True, f"A on the right controller reached the game as pad button A ({s['game']['buttons']})")
 
-                # Head aim: the core steers the game camera back to where the head looks. PLAY first: G1 looks with the
-                # stick only while playing (mouse captured), as first-person games do.
-                ch.cmd("play")
+                # Head aim: the core steers the game camera back to where the head looks (G1 is playing now: PLAY
+                # captured the mouse, and it looks with the stick only then, as first-person games do).
                 ch.cmd("set Controls/HeadAim On")
                 s = ch.wait(lambda s: s["aiming"], 10, "aiming")
                 start = s["heading"]

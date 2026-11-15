@@ -24,19 +24,41 @@ struct GameFrame {
     bool padGame = false;     // Controls Auto picks the gamepad (the game reads one)
     bool carried = false;     // the camera rides on a player body (first person until its turns say otherwise)
     bool menuOpen = false;    // the VR menu takes the controllers
+    float uiAspect = 16.f / 9.f;  // the game's UI (width / height): the panel's shape
+    bool pointerAuto = true;      // Laser pointer: with the game's cursor (Auto) or the menu only
+};
+
+// The laser pointer on the UI panel: where (UV, top-left origin, eased against hand tremor) and the trigger.
+struct Pointer {
+    bool active = false;  // on the panel while wanted: the adapter moves the game's cursor there
+    float u = 0, v = 0;
+    bool down = false;
+    bool entered = false;  // just arrived on the panel this frame
+};
+
+struct Watch {
+    bool shown = false;
+    mathx::V3 at;  // tracking space
+    float alpha = 0, lit = 0;
 };
 
 struct Result {
     Pose eyes[2];      // in the game world
     bool aiming = false;
     float vignette = 0;
-    uint32_t events = 0;  // PrxEvent bits from the controllers (EvMenuToggle)
+    uint32_t events = 0;  // PrxEvent bits (EvMenuToggle: a double tap on the menu button, or a wrist glance and trigger)
     PrxControllers controllers{};
+    Pointer pointer;
+    bool beam = false;
+    mathx::V3 beamFrom, beamTo;  // tracking space
+    Watch watch;
 };
 
 void recenter();
 // Tests: controller input to use instead of the headset's (null: the real controllers).
 void set_test_controllers(const PrxControllers* c);
+// Tests: the fake right hand at the head, pointing at (u, v) on the UI panel; u < 0 stops pointing.
+void set_test_point(float u, float v);
 // views: this frame's eye poses in tracking space (prx_locate). Runs input (prx_input_update) and places the eyes.
 Result frame(const GameFrame& game, const PrxPose views[2]);
 // The UI panel in tracking space; width in metres (height follows the UI's aspect).

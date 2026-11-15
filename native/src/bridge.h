@@ -35,12 +35,17 @@ struct Game {
     Pose camera{};          // the game camera in the world (right-handed, Y up, -Z forward)
     std::string cameraKey;  // scene and camera name
     bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
+    float uiAspect = 16.f / 9.f;  // the game's UI, width / height
 };
 struct Frame {
     Pose eyes[2];  // where to render the eyes, in the game world
     Fov fovs[2];
     bool aiming = false;
-    uint32_t events = 0;  // 1: the VR menu button was double-tapped
+    uint32_t events = 0;  // 1: the VR menu was asked for (double tap on the menu button, or the wrist watch)
+    // The laser pointer on the UI panel: the adapter moves the game's cursor to (u, v) (top-left origin) and clicks
+    // with `down`, through the engine's own input.
+    bool pointer = false, pointerDown = false;
+    float pointerU = 0, pointerV = 0;
 };
 // After begin(): locates the headset, runs the controllers (aim, snap turning, keyboard & mouse or gamepad) and places
 // the eyes. False while the headset has no pose.
@@ -53,6 +58,8 @@ struct Pad { uint16_t buttons; uint8_t leftTrigger, rightTrigger; int16_t lx, ly
 bool pad(Pad& out);
 // Tests: sticks (lx ly rx ry), triggers and buttons (PrxButton bits) instead of the controllers; off restores them.
 void test_controllers(bool on, float lx, float ly, float rx, float ry, float lt, float rt, uint32_t buttons);
+// Tests: the fake right hand points at (u, v) on the UI panel (u < 0: not pointing).
+void test_point(float u, float v);
 // End of frame: the eyes rendered at those poses, and the game's UI (straight alpha, uiAspect = width / height) on the
 // panel in front.
 void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY);

@@ -28,6 +28,17 @@ struct Q {
 };
 
 constexpr float kPi = 3.14159265358979f;
+// The rotation turning -Z (forward) onto the unit vector `to`.
+inline Q look(const V3& to) {
+    V3 from{0, 0, -1};
+    float d = from.dot(to);
+    if (d < -0.9999f) return {0, 1, 0, 0};
+    V3 c{from.y * to.z - from.z * to.y, from.z * to.x - from.x * to.z, from.x * to.y - from.y * to.x};
+    Q q{c.x, c.y, c.z, 1 + d};
+    float n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    return {q.x / n, q.y / n, q.z / n, q.w / n};
+}
+
 inline Q yaw(float radians) { return {0, std::sin(radians / 2), 0, std::cos(radians / 2)}; }
 // Heading of a rotation about +Y: 0 looks down -Z, positive turns left (towards -X).
 inline float heading(const Q& q) {

@@ -5,6 +5,7 @@
 #include <map>
 
 extern "C" PRX_API uint32_t prx_input_update(const PrxInputConfig* cfg, const PrxControllers* test, PrxControllers* out);
+extern "C" PRX_API void prx_haptic_pulse(int32_t hand, float amplitude, float seconds);
 
 using namespace mathx;
 
@@ -48,6 +49,11 @@ float g_stepAt, g_stepLen = 0.02f, g_lastMoveAt;
 int g_stepMoved, g_stepStill, g_stepFrames;
 bool g_stepSmoothing;
 bool g_testOn;
+// Laser pointer and wrist watch.
+float g_pointerU, g_pointerV;
+bool g_pointerOn, g_pointerDown;
+bool g_watchLooked, g_glancing, g_glanceTrigger;
+float g_watchHeld, g_watchFade, g_watchGlow;
 PrxControllers g_test{};
 
 float clamp01(float v) { return std::clamp(v, 0.f, 1.f); }
@@ -272,6 +278,105 @@ void update_vignette(bool hasCamera) {
     g_vignette = target > g_vignette ? std::min(target, g_vignette + rate) : std::max(target, g_vignette - rate);
 }
 
+// Where a ray meets the UI panel (tracking space): UV with a top-left origin and the point; false when it misses.
+bool hit_panel(const V3& from, const V3& dir, const V3& center, const Q& rot, float w, float h, float& u, float& v, V3& at) {
+    V3 n = rot * V3{0, 0, 1};
+    float denom = dir.dot(n);
+    if (std::fabs(denom) < 1e-4f) return false;
+    float t = (center - from).dot(n) / denom;
+    if (t <= 0) return false;
+    at = from + dir * t;
+    V3 local = rot.inverse() * (at - center);
+    u = local.x / w + 0.5f;
+    v = 0.5f - local.y / h;
+    return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+}
+
+V3 aim_from(const PrxPose& p) { return {p.px, p.py, p.pz}; }
+V3 aim_dir(const PrxPose& p) { return Q{p.qx, p.qy, p.qz, p.qw} * V3{0, 0, -1}; }
+
+// The pointer, as the plugin's UpdatePointer: wanted with the VR menu open, or (Laser pointer: with game cursor) while
+// the game shows a free cursor; small moves eased against tremor, more so while the trigger is being pulled.
+void update_pointer(const rig::GameFrame& g, rig::Result& r, const V3& center, const Q& rot, float w, float h) {
+    const PrxControllers& c = g_controllers;
+    bool wanted = g.menuOpen || (g.pointerAuto && g.cursorFree);
+    float u = -1, v = -1;
+    V3 at, from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]);
+    bool on = c.aimValid[1] && hit_panel(from, dir, center, rot, w, h, u, v, at);
+    if (on && g_pointerOn && wanted) {
+        float d = std::sqrt((u - g_pointerU) * (u - g_pointerU) + (v - g_pointerV) * (v - g_pointerV));
+        float follow = std::clamp(d * 60.f, c.rTrigger > 0.15f ? 0.04f : 0.15f, 1.f);
+        g_pointerU += (u - g_pointerU) * follow;
+        g_pointerV += (v - g_pointerV) * follow;
+    } else if (on) {
+        g_pointerU = u, g_pointerV = v;
+    }
+    bool active = on && wanted;
+    r.pointer.entered = active && !g_pointerOn;
+    if (r.pointer.entered) prx_haptic_pulse(1, 0.25f, 0.02f);
+    g_pointerOn = active;
+    g_pointerDown = active && (g_pointerDown ? c.rTrigger > 0.4f : c.rTrigger > 0.6f);
+    r.pointer.active = active;
+    r.pointer.u = g_pointerU, r.pointer.v = g_pointerV;
+    r.pointer.down = g_pointerDown;
+    r.beam = wanted && c.aimValid[1];
+    if (r.beam) {
+        r.beamFrom = from;
+        // The beam ends on the panel at the eased point, else a metre out.
+        r.beamTo = active ? center + rot * V3{(g_pointerU - 0.5f) * w, (0.5f - g_pointerV) * h, 0} : from + dir;
+    }
+}
+
+// The wrist watch, as the plugin's WristGlance (and DesktopVR's clock): the back of the left hand turned toward the
+// eyes, close to the face, with the eyes on it. Shows wide, stays wider, held at least 0.3 s so it never blinks at the
+// edge. Lit when turned toward the eyes or under the laser; then the right trigger opens the VR menu (returns true).
+bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2]) {
+    constexpr float ShowFacing = 0.4f, ShowLooking = 0.7f, KeepFacing = 0.15f, KeepLooking = 0.45f, HoldS = 0.3f;
+    constexpr float ShowS = 0.08f, HideS = 0.18f, GlowS = 0.1f;
+    const PrxControllers& c = g_controllers;
+    bool shown = settings::getb("Controls", "WristMenu", true) && c.aimValid[0] && !g.menuOpen;
+    bool looked = false, glance = false;
+    V3 at;
+    if (shown) {
+        Q hand{c.aim[0].qx, c.aim[0].qy, c.aim[0].qz, c.aim[0].qw};
+        at = aim_from(c.aim[0]) + hand * V3{-0.035f, 0.01f, 0.12f};
+        V3 toHead = (v_of(views[0]) + v_of(views[1])) * 0.5f - at;
+        float dist = toHead.length();
+        if (dist <= 0.7f && dist > 1e-4f) {
+            V3 toEye = toHead * (1 / dist);
+            float facing = (hand * V3{-1, 0, 0}).dot(toEye);
+            float looking = (q_of(views[0]) * V3{0, 0, -1}).dot(toEye * -1.f);
+            looked = g_watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
+            glance = looked && facing > 0.6f;
+            if (!glance && looked && c.aimValid[1]) {
+                V3 from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]), to = at - from;
+                float along = to.dot(dir);
+                glance = along > 0 && along < 0.6f && (to - dir * along).length() < 0.06f;
+            }
+        }
+    }
+    g_watchHeld += g_dt;
+    if (looked != g_watchLooked && (looked || g_watchHeld >= HoldS)) {
+        g_watchLooked = looked;
+        g_watchHeld = 0;
+    }
+    float target = shown && g_watchLooked ? 1.f : 0.f;
+    g_watchFade = target > g_watchFade ? std::min(target, g_watchFade + g_dt / ShowS) : std::max(target, g_watchFade - g_dt / HideS);
+    float glow = glance ? 1.f : 0.f;
+    g_watchGlow += (glow - g_watchGlow) * std::min(1.f, g_dt / GlowS);
+    if (std::fabs(glow - g_watchGlow) < 0.002f) g_watchGlow = glow;
+    r.watch.shown = shown && g_watchFade > 0.004f;
+    r.watch.at = at;
+    r.watch.alpha = g_watchFade;
+    r.watch.lit = g_watchGlow;
+    bool trigger = c.rTrigger > 0.6f;
+    if (glance && !g_glancing) prx_haptic_pulse(0, 0.2f, 0.02f);
+    bool open = glance && trigger && !g_glanceTrigger;
+    g_glancing = glance;
+    g_glanceTrigger = trigger;
+    return open;
+}
+
 V3 smoothed(V3 pos) {
     if ((pos - g_stepTo).dot(pos - g_stepTo) > 0) {
         g_stepFrom = (pos - g_stepTo).dot(pos - g_stepTo) > 4.f ? pos : g_stepTo;  // a jump: no line to it
@@ -295,6 +400,12 @@ V3 smoothed(V3 pos) {
 
 namespace rig {
 void recenter() { g_recenterPending = true; }
+
+float g_testPointU = -1, g_testPointV;
+
+void set_test_point(float u, float v) {
+    g_testPointU = u, g_testPointV = v;
+}
 
 void set_test_controllers(const PrxControllers* c) {
     g_testOn = c != nullptr;
@@ -334,7 +445,10 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     cfg.mode = mode;
     cfg.neutral = game.menuOpen ? 1 : 0;
     cfg.mouseSpeed = settings::getf("Controls", "MouseSpeed", 1200.f, 100.f, 6000.f);
-    cfg.pointerClick = 1;
+    // The pointer's click reaches the game through the adapter (the engine's own UI events), never the OS mouse.
+    cfg.pointerClick = 0;
+    // While it points at the panel, the right trigger is the pointer's, not the game's.
+    cfg.pointerActive = g_pointerOn ? 1 : 0;
     g_aiming = aim_wanted(game, mode);
     if (g_aiming) {
         cfg.snap = 1;
@@ -350,12 +464,26 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     }
     bindings(cfg);
     Result r;
+    if (g_testOn && g_testPointU >= 0) {
+        float pw = 1;
+        Pose p = panel(pw);
+        float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
+        V3 target = p.p + p.q * V3{(g_testPointU - 0.5f) * pw, (0.5f - g_testPointV) * ph, 0};
+        V3 from = (v_of(views[0]) + v_of(views[1])) * 0.5f, d = target - from;
+        Q q = look(d * (1 / d.length()));
+        g_test.aim[1] = {from.x, from.y, from.z, q.x, q.y, q.z, q.w};
+        g_test.aimValid[1] = 1;
+    }
     r.events = prx_input_update(&cfg, g_testOn ? &g_test : nullptr, &g_controllers);
     r.controllers = g_controllers;
     r.aiming = g_aiming;
     if (game.hasCamera) g_camPos = smoothed(game.camera.p);
     update_vignette(game.hasCamera);
     r.vignette = g_vignette;
+    float w = 1;
+    Pose at = panel(w);
+    update_pointer(game, r, at.p, at.q, w, w / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f));
+    if (update_watch(game, r, views)) r.events |= EvMenuToggle;
 
     // The eyes: the headset's movement since recentring, turned with the body, scaled, from the game camera.
     Q b = body(), unYaw = g_originYaw.inverse();
