@@ -129,10 +129,10 @@ impl Game {
     pub fn caution(&self) -> Option<&'static str> {
         match self.compat() {
             Compat::Blocked if self.blocker == Some("Multiplayer only") => Some(
-                "No single-player mode was found. Play only offline or in private modes: online play with mods can get accounts banned.",
+                "Play only offline or in private modes: mods online can get accounts banned.",
             ),
-            Compat::NativeVr => Some("This game has its own VR mode, which is usually better. If you try Parallax, start the game flat (not in VR mode) or the two may clash."),
-            Compat::Stripped => Some("Built with Unity's code trimming: the mod loader most likely cannot start, and the game then runs flat. Remove VR puts the folder back."),
+            Compat::NativeVr => Some("Start the game flat, not in its own VR mode, or the two clash."),
+            Compat::Stripped => Some("The mod loader most likely won't start, and the game runs flat."),
             _ => None,
         }
     }

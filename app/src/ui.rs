@@ -364,19 +364,17 @@ impl App {
         }
         ui.add_space(22.0);
         if self.games.is_empty() && self.scanning {
-            ui.label(RichText::new("Looking for games in Steam, Epic, GOG, itch and your game folders…").color(INK2));
+            ui.label(RichText::new("Looking for games…").color(INK2));
             ui.add_space(32.0);
             skeleton_grid(ui, 12);
             return;
         }
         if self.games.is_empty() {
-            self.empty(ui, "NO GAMES FOUND.", "Parallax looks in Steam, Epic Games, GOG, itch and the usual game folders. Games from anywhere else: add their folder, or a folder that holds several games.", "Add game +");
+            self.empty(ui, "NO GAMES FOUND.", "Nothing in Steam, Epic, GOG or itch. Add a game's folder.", "Add game +");
             return;
         }
         self.toolbar(ui);
-        ui.add_space(14.0);
-        ui.label(RichText::new("Full VR: you stand inside the game.   VR screen: the game plays on a big screen around you.").color(INK3));
-        ui.add_space(24.0);
+        ui.add_space(32.0);
         if self.filter == Filter::NotInstalled && self.missing().is_none() {
             skeleton_grid(ui, 6);
             return;
@@ -412,7 +410,7 @@ impl App {
         let unsupported = self.entries().iter().filter(|(f, _)| *f == Filter::Unsupported).count();
         let shown: Vec<Entry> = shown.into_iter().map(|(_, e)| e).collect();
         if shown.is_empty() {
-            ui.label(RichText::new("Nothing matches this search and these filters.").color(INK2));
+            ui.label(RichText::new("No matches.").color(INK2));
             ui.add_space(12.0);
             if secondary(ui, "Show all games").clicked() {
                 self.query.clear();
@@ -429,8 +427,7 @@ impl App {
             if !here.is_empty() {
                 ui.add_space(24.0);
                 eyebrow(ui, "", "Full VR after install");
-                ui.label(RichText::new("In your Steam library, not on this PC. Click one to install it with Steam.").color(INK2));
-                ui.add_space(24.0);
+                ui.add_space(16.0);
             }
             self.grid(ui, &steam, &mut open, &mut install);
         }
@@ -440,7 +437,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
                 let n = if unsupported == 1 { "1 game".to_string() } else { format!("{unsupported} games") };
-                ui.label(RichText::new(format!("{n} Parallax can't run (anti-cheat, multiplayer only and the like).")).color(INK3));
+                ui.label(RichText::new(format!("{n} Parallax can't run")).color(INK3));
                 if tertiary(ui, "Show them").clicked() {
                     self.filter = Filter::Unsupported;
                 }
@@ -481,7 +478,7 @@ impl App {
     // A click on a game that is not installed asks Steam to install it; it joins the library when done.
     fn install_owned(&mut self, o: &games::Owned) {
         self.status = match games::steam_install(o.app_id) {
-            Ok(()) => (format!("Steam is installing {}. It joins your games when it is done.", o.name), Tone::Good),
+            Ok(()) => (format!("Installing {} in Steam.", o.name), Tone::Good),
             Err(e) => (e.to_string(), Tone::Bad),
         };
     }
@@ -596,9 +593,9 @@ impl App {
                     // Checked before Play: without a runtime the game just starts flat.
                     let last = games::last_vr(&g).map(|t| format!(" Last played in VR {}.", ago(t))).unwrap_or_default();
                     match games::openxr_runtime() {
-                        Some(name) if g.compat() == Compat::Theater => status_line(ui, &format!("Plays on the VR screen through {name}: the game runs as usual and Parallax shows its window on a big screen around you, with your controllers as keyboard and mouse. Nothing is added to the game.{last}"), Tone::Info),
+                        Some(name) if g.compat() == Compat::Theater => status_line(ui, &format!("Plays on the VR screen through {name}. Controllers work as keyboard and mouse.{last}"), Tone::Info),
                         Some(name) => status_line(ui, &format!("Starts in VR through {name}. Put your headset on first.{last}"), Tone::Info),
-                        None => status_line(ui, "No VR runtime is set up, so the game would start flat. Install and start SteamVR, Virtual Desktop or Meta Quest Link.", Tone::Bad),
+                        None => status_line(ui, "No VR runtime found. Start SteamVR, Virtual Desktop or Meta Quest Link.", Tone::Bad),
                     }
                 }
             });
@@ -624,12 +621,10 @@ impl App {
                 }
             });
         });
-        let text = match changed {
-            0 => "Follows your settings for all games. Change one here for this game only; it applies on the next start.".to_string(),
-            1 => "1 setting changed for this game only. Changes apply on the next start.".to_string(),
-            n => format!("{n} settings changed for this game only. Changes apply on the next start."),
-        };
-        ui.add(egui::Label::new(RichText::new(text).color(INK2)).wrap());
+        if changed > 0 {
+            let n = if changed == 1 { "1 setting".to_string() } else { format!("{changed} settings") };
+            ui.label(RichText::new(format!("{n} changed for this game.")).color(INK2));
+        }
         ui.add_space(24.0);
         self.settings(ui, settings::QUICK, true);
         self.advanced_section(ui, true);
@@ -666,7 +661,7 @@ impl App {
                     let _ = std::os::windows::process::CommandExt::raw_arg(&mut std::process::Command::new("explorer"), format!("/select,\"{}\"", zip.display())).spawn();
                     #[cfg(not(windows))]
                     let _ = zip.parent().map(games::open);
-                    "Logs saved to your desktop. Attach the zip to a report: Settings → Report a problem.".into()
+                    "Logs saved to your desktop.".into()
                 }));
             }
             if g.file(LOG).exists() && tertiary(ui, "Open log").clicked() {
@@ -679,7 +674,7 @@ impl App {
                     match games::remove_folder(root) {
                         Ok(()) => {
                             self.rescan();
-                            self.status = (format!("Removed {} from the library. Its folder was not touched.", g.name), Tone::Good);
+                            self.status = (format!("Removed {} from the library.", g.name), Tone::Good);
                         }
                         Err(e) => self.status = (e.to_string(), Tone::Bad),
                     }
@@ -693,8 +688,6 @@ impl App {
                         self.report(uninstall(g));
                         self.cfg = load_cfg(g);
                         games::write_vr_list(&self.games);
-                    } else {
-                        self.status = ("Remove VR puts the game folder back as it was; your settings for it are kept. Press again to remove.".into(), Tone::Info);
                     }
                     self.confirm_uninstall = !self.confirm_uninstall;
                 }
@@ -714,7 +707,7 @@ impl App {
             ui.add_space(16.0);
         }
         ui.label(RichText::new("SETTINGS.").font(display(TITLE)).color(INK));
-        ui.label(RichText::new("For every game. A game's page can change any of them for that game only.").color(INK2));
+        ui.label(RichText::new("For every game. Each game's page can override them.").color(INK2));
         section_break(ui);
         ui.horizontal(|ui| {
             eyebrow(ui, "01", "Basics");
@@ -726,14 +719,12 @@ impl App {
                 }
             });
         });
-        ui.label(RichText::new("Changes save at once and apply on a game's next start.").color(INK2));
         ui.add_space(24.0);
         self.settings(ui, settings::QUICK, false);
         self.advanced_section(ui, false);
         self.buttons_section(ui, false);
         section_break(ui);
         eyebrow(ui, "04", "Look");
-        ui.label(RichText::new("The accent colour, here and in the VR menu of every game.").color(INK2));
         ui.add_space(16.0);
         if let Some(i) = theme_picker(ui)
             && let Err(e) = set_theme(ui.ctx(), i)
@@ -772,7 +763,7 @@ impl App {
             return;
         }
         ui.add_space(8.0);
-        let note = "What each controller input presses in Keyboard & mouse mode. Double press, hold and grip + button add more keys to a button; left at None they do nothing.";
+        let note = "Keys each controller button presses in keyboard & mouse mode.";
         ui.add(egui::Label::new(RichText::new(note).color(INK2)).wrap());
         ui.add_space(24.0);
         egui::Grid::new(("buttons", game)).num_columns(1 + settings::GESTURES.len()).spacing(vec2(16.0, 12.0)).show(ui, |ui| {
@@ -865,7 +856,7 @@ impl App {
         if !fold(ui, "04", "Scripts", list.len(), &mut self.scripts_open) {
             return;
         }
-        ui.add(egui::Label::new(RichText::new("Lua scripts fix what this game needs: pick a camera, hide an object, move the eyes. Sandboxed: they cannot touch your files. They reload while the game runs.").color(INK2)).wrap());
+        ui.add(egui::Label::new(RichText::new("Lua fixes for this game. They reload while it runs.").color(INK2)).wrap());
         ui.add_space(12.0);
         let mut remove = None;
         for path in &list {
@@ -881,7 +872,7 @@ impl App {
             });
         }
         if let Some(path) = remove {
-            self.report(fs::remove_file(&path).map(|_| "Script removed. The game drops it within a few seconds.".into()).map_err(Into::into));
+            self.report(fs::remove_file(&path).map(|_| "Script removed.".into()).map_err(Into::into));
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -917,7 +908,7 @@ impl App {
         if waited >= 90 {
             self.launched = None;
             let runtime = games::openxr_runtime().unwrap_or_else(|| "your VR runtime".into());
-            self.status = (format!("No VR yet. If the game runs flat, check that {runtime} is running and the headset is awake, then restart the game. Still flat? Export logs and attach them to a report (Settings → Report a problem)."), Tone::Bad);
+            self.status = (format!("No VR yet. If the game runs flat, wake the headset, check {runtime} is running and restart the game."), Tone::Bad);
             return;
         }
         // The launch message stays readable for its first seconds.
@@ -1056,13 +1047,13 @@ fn warning(g: &Game) -> (String, Tone) {
         return (format!("VR was added anyway. {caution}"), Tone::Bad);
     }
     match (g.compat(), g.other_loader) {
-        (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("No single-player mode was found, so Parallax leaves it alone: online play with mods can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
-        (Compat::Blocked, _) => (format!("{} found. Injecting into anti-cheat games can get accounts banned, so this game is refused.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
-        (Compat::NativeVr, _) => ("Already runs in VR on its own: start it in VR from Steam or its launcher. To try Parallax instead, Add VR anyway.".into(), Tone::Info),
-        (Compat::LinuxBuild, _) => ("Steam installed the Linux version. Parallax needs the Windows one: in Steam, Properties → Compatibility → force Proton, let it download, then come back.".into(), Tone::Info),
+        (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("Multiplayer only: mods online can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
+        (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so Parallax stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
+        (Compat::NativeVr, _) => ("Has its own VR mode: start it in VR from Steam. Add VR anyway to try Parallax instead.".into(), Tone::Info),
+        (Compat::LinuxBuild, _) => ("Steam installed the Linux version. In Steam: Properties → Compatibility → force Proton, then come back.".into(), Tone::Info),
         (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
-        (Compat::Stripped, _) => ("Built with Unity's code trimming, which removes engine code the mod loader needs. Not supported yet; Add VR anyway to try.".into(), Tone::Info),
+        (Compat::Stripped, _) => ("Built with Unity code trimming, which usually stops the mod loader. Add VR anyway to try.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
         _ => (String::new(), Tone::Info),
     }
@@ -1603,13 +1594,13 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
 fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install(&g.dir)?;
     configure(g, defaults)?;
-    Ok("VR added. Start the game from here or from Steam with your headset on.".into())
+    Ok("VR added.".into())
 }
 
 fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install_anyway(&g.dir)?;
     configure(g, defaults)?;
-    Ok("VR added anyway. If it doesn't work, Remove VR puts the game folder back.".into())
+    Ok("VR added anyway. Remove VR undoes it.".into())
 }
 
 fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
@@ -1629,7 +1620,7 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
         return play_theater(g);
     }
     if games::steam_update_pending(&g.dir) {
-        return Err("Steam has an update waiting for this game. Let Steam finish it, then press Play again: Parallax checks every update for anti-cheat first.".into());
+        return Err("Steam has an update waiting. Let it finish, then press Play again.".into());
     }
     if !g.installed() {
         install(g, defaults)?;
@@ -1646,7 +1637,7 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     if games::needs_launch_options(g) {
         return Ok(format!("Launching. If the game starts flat, its Steam launch options are missing: {}", games::LAUNCH_OPTIONS));
     }
-    Ok("Launching. Put on your headset; double-tap the left menu button for the VR menu.".into())
+    Ok("Launching.".into())
 }
 
 // Games Parallax cannot go inside: ParallaxTheater.exe (beside the app, in theater\) waits for the game's window and
@@ -1659,7 +1650,7 @@ fn play_theater(g: &Game) -> Result<String, Box<dyn Error>> {
     std::process::Command::new(&host).arg("--dir").arg(&g.dir).spawn()?;
     g.launch()?;
     games::mark_played(&g.dir);
-    Ok("Launching. The game shows on the VR screen once its window opens; double-tap the left menu button to bring the screen in front.".into())
+    Ok("Launching. Double-tap the left menu button to bring the screen in front.".into())
 }
 
 // Godot opens VR itself as it starts, and gets none from a runtime that is still starting (SteamVR from cold): the
@@ -1672,7 +1663,7 @@ fn play_godot(g: &Game) -> Result<String, Box<dyn Error>> {
         let _ = game.launch();
     });
     games::mark_played(&g.dir);
-    Ok("Starting VR, then the game. Its own VR mode is switched on; the controllers work as a gamepad.".into())
+    Ok("Starting VR, then the game.".into())
 }
 
 fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {
@@ -1681,7 +1672,7 @@ fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {
         write(&saved_path(g), &cfg)?;
     }
     installer::uninstall(&g.dir)?;
-    Ok("VR removed. The game folder is back to its original files.".into())
+    Ok("VR removed.".into())
 }
 
 // Settings live in the game's BepInEx config while installed; a copy in %APPDATA% survives uninstalls.

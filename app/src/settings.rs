@@ -31,15 +31,15 @@ const fn slider(lo: f32, hi: f32, step: f32, unit: &'static str) -> Kind {
 
 // Names, ranges, steps and order match the VR menu, so a setting reads the same in both places.
 pub const QUICK: &[Def] = &[
-    def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen"), ("Theater", "VR screen")]), "Full VR: you stand in the game. 3D screen: the game in 3D inside a big screen, played as on a monitor. VR screen: the flat game on a big screen."),
-    def("View", "Background", "Around the screen", "Dark", Kind::Choice(&[("Dark", "Dark"), ("Passthrough", "Your room")]), "Theater and Parallax. Your room: passthrough, where the headset software shares it with apps (Meta, Virtual Desktop and others; not SteamVR). Elsewhere it stays dark."),
-    def("View", "Depth", "3D depth", "1", slider(0.0, 1.0, 0.25, "×"), "Parallax only: how strong the 3D is inside the screen. 1× is the most that stays comfortable."),
+    def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen"), ("Theater", "VR screen")]), "Full VR: inside the game. 3D screen: the game in 3D on a big screen. VR screen: flat on a big screen."),
+    def("View", "Background", "Around the screen", "Dark", Kind::Choice(&[("Dark", "Dark"), ("Passthrough", "Your room")]), "Your room needs passthrough (Meta, Virtual Desktop; not SteamVR)."),
+    def("View", "Depth", "3D depth", "1", slider(0.0, 1.0, 0.25, "×"), "3D screen only. 1× is the comfortable maximum."),
     def("View", "WorldScale", "World scale", "1", slider(0.5, 3.0, 0.1, "×"), "Above 1 you feel bigger and the world smaller."),
     def("Comfort", "Turning", "Turning", "Smooth", Kind::Choice(&[("Smooth", "Smooth"), ("Snap15", "Snap 15°"), ("Snap30", "Snap 30°"), ("Snap45", "Snap 45°")]), ""),
     def("Comfort", "Vignette", "Comfort vignette", "Off", Kind::Choice(&[("Off", "Off"), ("Low", "Low"), ("High", "High")]), "Darkens the edges of your view while you move or turn."),
-    def("Controls", "Mode", "Controls", "Auto", Kind::Choice(&[("Auto", "Auto"), ("Gamepad", "Gamepad"), ("KeyboardMouse", "Keyboard & mouse"), ("Off", "Off")]), "Auto: gamepad in games made for one, else keyboard & mouse. Off: play with your own devices; controllers only work the VR menu."),
-    def("Controls", "HeadAim", "Aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "The game camera follows your head, or your right hand, so you aim in VR. Auto: first-person games, while you play."),
-    def("Controls", "AimWith", "Aim with", "Hand", Kind::Choice(&[("Head", "Head"), ("Hand", "Right hand")]), "Aim follows where you look, or where the right controller points. The view always follows your head."),
+    def("Controls", "Mode", "Controls", "Auto", Kind::Choice(&[("Auto", "Auto"), ("Gamepad", "Gamepad"), ("KeyboardMouse", "Keyboard & mouse"), ("Off", "Off")]), "Auto picks gamepad in games made for one. Off: controllers only work the VR menu."),
+    def("Controls", "HeadAim", "Aim", "Auto", Kind::Choice(&[("Auto", "Auto"), ("On", "On"), ("Off", "Off")]), "Auto: in first-person games."),
+    def("Controls", "AimWith", "Aim with", "Hand", Kind::Choice(&[("Head", "Head"), ("Hand", "Right hand")]), ""),
 ];
 
 pub const ADVANCED: &[Def] = &[
@@ -48,13 +48,13 @@ pub const ADVANCED: &[Def] = &[
     def("View", "AutoRenderScale", "Auto resolution", "true", Kind::Toggle, "Lowers resolution while the headset misses frames."),
     def("View", "UiDistance", "UI distance", "1.2", slider(0.5, 3.0, 0.1, " m"), ""),
     def("View", "UiWidth", "UI width", "1.6", slider(0.5, 4.0, 0.1, " m"), ""),
-    def("View", "UiBlack", "UI black", "Auto", Kind::Choice(&[("Auto", "Auto"), ("SeeThrough", "See-through"), ("Keep", "Keep")]), "Auto: when a game paints the whole UI panel opaque, its black turns see-through."),
+    def("View", "UiBlack", "UI black", "Auto", Kind::Choice(&[("Auto", "Auto"), ("SeeThrough", "See-through"), ("Keep", "Keep")]), "Auto: see-through when a game fills the whole panel."),
     def("Controls", "MouseSpeed", "Look speed", "1200", Kind::Slider { lo: 240.0, hi: 3840.0, step: 60.0, per: 12.0, unit: "%" }, "Keyboard & mouse: how fast the right stick turns."),
     def("Controls", "Pointer", "Laser pointer", "Auto", Kind::Choice(&[("Auto", "With game cursor"), ("MenuOnly", "Menu only")]), ""),
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
     def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
-    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "While aiming, the middle of the game's UI (crosshair, grab and use icons, prompts) moves to what you aim at, at its depth. Parallax's: its own crosshair there instead, in the theme colour."),
-    def("Game", "CameraName", "Game camera", "", Kind::Text, "The camera your view follows. Pick one in the VR menu's Game tab, which shows each with a live preview."),
+    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "Game's: the game's own crosshair moves to where you aim. Parallax's: ours instead."),
+    def("Game", "CameraName", "Game camera", "", Kind::Text, "Easier in the VR menu's Game tab, with live previews."),
 ];
 
 /// What a controller input can press, as the plugin names them.

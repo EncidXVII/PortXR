@@ -719,7 +719,7 @@ private:
             ui.begin_row();
             ui.gap(360);
             label(unlocked ? "Point at its corners to resize it, at the bar under it to move it."
-                           : "Locked while you play. Unlock it to move or resize the screen.",
+                           : "Unlock to move or resize it.",
                   muted(), 0, 40);
             ui.end();
             ui.gap(12);
@@ -912,7 +912,7 @@ private:
             ui.end();
             ui.gap(16);
         }
-        label("Game camera: the camera your view follows.", muted(), 0);
+        label("Game camera", muted(), 0);
         std::string chosen = settings::get("Game", "CameraName", "");
         bool automatic = chosen.empty();
         const int columns = 3;
