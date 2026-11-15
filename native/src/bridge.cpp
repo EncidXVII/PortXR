@@ -1,5 +1,7 @@
 #include "bridge.h"
 #include "common.h"
+#include "settings.h"
+#include "view.h"
 
 extern "C" {
 PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedWidth, int32_t* recommendedHeight);
@@ -15,10 +17,14 @@ namespace {
 enum Event { EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4 };
 void event(int id) { ((void(__stdcall*)(int))prx_render_event_func())(id); }
 int g_slot;
+PrxPose g_views[2];
+PrxFov g_fovs[2];
+bool g_located;
+float g_accent[3];
+bool g_accentRead;
 PrxPose pose(const bridge::Pose& p) { return {p.p[0], p.p[1], p.p[2], p.q[0], p.q[1], p.q[2], p.q[3]}; }
 void submit(PrxFrame& f) {
     f.accent[0] = 0.776f, f.accent[1] = 1.f, f.accent[2] = 0.102f;
-    f.uiKey = 2;
     prx_set_frame(g_slot, &f);
     event(EvSubmit | (g_slot << 8));
     g_slot = (g_slot + 1) % 4;
@@ -83,4 +89,52 @@ std::string poll_log() {
 }
 
 void shutdown() { event(EvShutdown); }
+
+void settings_open(const std::wstring& gameFile) { settings::open(gameFile, L""); }
+std::string setting(const char* section, const char* key, const char* fallback) { return settings::get(section, key, fallback); }
+void set_setting(const char* section, const char* key, const std::string& value) { settings::set(section, key, value); }
+void recenter() { view::recenter(); }
+
+bool place_eyes(bool hasCamera, const Pose& camera, Pose eyesWorld[2], Fov fovs[2]) {
+    if (settings::refresh() || !g_accentRead) settings::accent(g_accent), g_accentRead = true;
+    g_located = prx_locate(g_views, g_fovs) != 0;
+    if (!g_located) return false;
+    view::Pose views[2], eyes[2];
+    for (int e = 0; e < 2; ++e) {
+        views[e] = {{g_views[e].px, g_views[e].py, g_views[e].pz}, {g_views[e].qx, g_views[e].qy, g_views[e].qz, g_views[e].qw}};
+        fovs[e] = {g_fovs[e].left, g_fovs[e].right, g_fovs[e].up, g_fovs[e].down};
+    }
+    view::Pose cam{{camera.p[0], camera.p[1], camera.p[2]}, {camera.q[0], camera.q[1], camera.q[2], camera.q[3]}};
+    view::update(hasCamera, cam, views, eyes);
+    for (int e = 0; e < 2; ++e)
+        eyesWorld[e] = {{eyes[e].p.x, eyes[e].p.y, eyes[e].p.z}, {eyes[e].q.x, eyes[e].q.y, eyes[e].q.z, eyes[e].q.w}};
+    return true;
+}
+
+void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY) {
+    if (!g_located) return;
+    PrxFrame f{};
+    f.stereo = 1;
+    f.eye[0] = {left, flipY ? 1 : 0};
+    f.eye[1] = {right, flipY ? 1 : 0};
+    for (int e = 0; e < 2; ++e) {
+        f.eyePose[e] = g_views[e];
+        f.eyeFov[e] = g_fovs[e];
+    }
+    if (ui) {
+        float width = 1;
+        view::Pose at = view::panel(width);
+        f.quad = 1;
+        f.quadAlpha = 1;
+        f.uiKey = 2;  // the engine gives the UI with its real alpha: nothing to key
+        f.quadLayer = {ui, flipY ? 1 : 0};
+        f.quadPose = {at.p.x, at.p.y, at.p.z, at.q.x, at.q.y, at.q.z, at.q.w};
+        f.quadWidth = width;
+        f.quadHeight = width / (uiAspect > 0 ? uiAspect : 16.f / 9.f);
+    }
+    for (int i = 0; i < 3; ++i) f.accent[i] = g_accent[i];
+    prx_set_frame(g_slot, &f);
+    event(EvSubmit | (g_slot << 8));
+    g_slot = (g_slot + 1) % 4;
+}
 }  // namespace bridge

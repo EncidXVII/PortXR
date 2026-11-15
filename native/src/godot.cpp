@@ -45,6 +45,12 @@ protected:
         ClassDB::bind_method(D_METHOD("submit_eyes", "left", "right", "flip_y"), &ParallaxCore::submit_eyes);
         ClassDB::bind_method(D_METHOD("native_texture", "texture"), &ParallaxCore::native_texture);
         ClassDB::bind_method(D_METHOD("poll_log"), &ParallaxCore::poll_log);
+        ClassDB::bind_method(D_METHOD("open_settings", "path"), &ParallaxCore::open_settings);
+        ClassDB::bind_method(D_METHOD("setting", "section", "key", "fallback"), &ParallaxCore::setting);
+        ClassDB::bind_method(D_METHOD("set_setting", "section", "key", "value"), &ParallaxCore::set_setting);
+        ClassDB::bind_method(D_METHOD("recenter"), &ParallaxCore::recenter);
+        ClassDB::bind_method(D_METHOD("place_eyes", "has_camera", "camera"), &ParallaxCore::place_eyes);
+        ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &ParallaxCore::submit_view);
     }
 
     bridge::Pose eyes_[2]{};
@@ -113,6 +119,46 @@ public:
     int64_t native_texture(const RID& texture) { return (int64_t)native(texture); }
 
     String poll_log() { return String::utf8(bridge::poll_log().c_str()); }
+
+    // --- The shared behaviour: settings and the view, computed by the core for every engine ---
+
+    void open_settings(const String& path) { bridge::settings_open(std::wstring((const wchar_t*)path.utf16().get_data())); }
+    String setting(const String& section, const String& key, const String& fallback) {
+        return String::utf8(bridge::setting(section.utf8().get_data(), key.utf8().get_data(), fallback.utf8().get_data()).c_str());
+    }
+    void set_setting(const String& section, const String& key, const String& value) {
+        bridge::set_setting(section.utf8().get_data(), key.utf8().get_data(), value.utf8().get_data());
+    }
+    void recenter() { bridge::recenter(); }
+
+    // [left, right] eyes in the game world ({transform, fov}), placed by the core from the game camera; empty while
+    // the headset has no pose.
+    Array place_eyes(bool hasCamera, const Transform3D& camera) {
+        Array out;
+        bridge::Pose eyes[2];
+        bridge::Fov fovs[2];
+        if (!bridge::place_eyes(hasCamera, pose(camera), eyes, fovs)) return out;
+        for (int e = 0; e < 2; ++e) {
+            Dictionary d;
+            const bridge::Pose& p = eyes[e];
+            d["transform"] = Transform3D(Basis(Quaternion(p.q[0], p.q[1], p.q[2], p.q[3])), Vector3(p.p[0], p.p[1], p.p[2]));
+            Array fov;
+            fov.append(fovs[e].left);
+            fov.append(fovs[e].right);
+            fov.append(fovs[e].up);
+            fov.append(fovs[e].down);
+            d["fov"] = fov;
+            out.append(d);
+        }
+        return out;
+    }
+
+    bool submit_view(const RID& left, const RID& right, const RID& ui, float uiAspect) {
+        void *l = native(left), *r = native(right), *u = ui.is_valid() ? native(ui) : nullptr;
+        if (!l || !r) return false;
+        bridge::submit_view(l, r, u, uiAspect, false);
+        return true;
+    }
 };
 
 namespace {

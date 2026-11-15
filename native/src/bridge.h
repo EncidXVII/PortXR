@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+
 namespace bridge {
 struct Pose { float p[3], q[4]; };
 struct Fov { float left, right, up, down; };
@@ -21,5 +22,18 @@ void submit_quad(void* texture, const Pose& pose, float width, float height, boo
 // Eye images rendered at the poses from locate().
 void submit_eyes(void* left, void* right, const Pose eyes[2], const Fov fovs[2], bool flipY);
 std::string poll_log();
+
+// --- The shared behaviour (view.h, settings.h) -------------------------------------------------------------------
+// This game's settings file; the all-games defaults come from %APPDATA%\Parallax\defaults.cfg.
+void settings_open(const std::wstring& gameFile);
+std::string setting(const char* section, const char* key, const char* fallback);
+void set_setting(const char* section, const char* key, const std::string& value);
+void recenter();
+// After begin(): locates the headset and places the eyes in the game world (camera: the game's camera in the world,
+// right-handed, Y up, -Z forward). False while the headset has no pose.
+bool place_eyes(bool hasCamera, const Pose& camera, Pose eyesWorld[2], Fov fovs[2]);
+// End of frame: the eyes rendered at those poses, and the game's UI (straight alpha, uiAspect = width / height) on the
+// panel in front.
+void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY);
 void shutdown();
 }  // namespace bridge

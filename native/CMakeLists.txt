@@ -23,7 +23,9 @@ add_library(parallax_core OBJECT
     src/gpu.cpp
     src/d3d11.cpp
     src/d3d12.cpp
-    src/input.cpp)
+    src/input.cpp
+    src/settings.cpp
+    src/view.cpp)
 add_library(parallax_core_deps INTERFACE)
 target_include_directories(parallax_core_deps INTERFACE ${openxr_sdk_SOURCE_DIR}/include)
 target_compile_definitions(parallax_core_deps INTERFACE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_USE_GRAPHICS_API_D3D12 WIN32_LEAN_AND_MEAN NOMINMAX)
