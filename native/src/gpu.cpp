@@ -192,7 +192,8 @@ void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UIN
                 format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     bool bgra = format == DXGI_FORMAT_B8G8R8A8_TYPELESS || format == DXGI_FORMAT_B8G8R8A8_UNORM ||
                 format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    if (!rgba && !bgra) {
+    bool tenBit = format == DXGI_FORMAT_R10G10B10A2_TYPELESS || format == DXGI_FORMAT_R10G10B10A2_UNORM;
+    if (!rgba && !bgra && !tenBit) {
         prx_log("capture: unsupported format %d", (int)format);
         return;
     }
@@ -201,6 +202,12 @@ void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UIN
         const uint8_t* row = data + y * pitch;
         uint8_t* out = pixels.data() + y * w * 4;
         for (UINT x = 0; x < w; ++x) {
+            if (tenBit) {  // Unreal's default backbuffer and scene target
+                uint32_t v = ((const uint32_t*)row)[x];
+                out[x * 4 + 0] = (uint8_t)(((v >> 20) & 1023) >> 2), out[x * 4 + 1] = (uint8_t)(((v >> 10) & 1023) >> 2);
+                out[x * 4 + 2] = (uint8_t)((v & 1023) >> 2), out[x * 4 + 3] = (uint8_t)((v >> 30) * 85);
+                continue;
+            }
             out[x * 4 + 0] = row[x * 4 + (rgba ? 2 : 0)];
             out[x * 4 + 1] = row[x * 4 + 1];
             out[x * 4 + 2] = row[x * 4 + (rgba ? 0 : 2)];
@@ -226,8 +233,11 @@ void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UIN
     fclose(f);
 }
 
+void (*gpu_present_observer)(IDXGISwapChain*);
+std::atomic<bool> gpu_grab_present, gpu_no_vsync;
+
 namespace {
-using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+using PresentFn =HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
 PresentFn g_present;
 Present1Fn g_present1;
@@ -236,17 +246,22 @@ Gpu* g_target;
 
 void on_present(IDXGISwapChain* sc, UINT flags) {
     if (flags & DXGI_PRESENT_TEST) return;
-    std::lock_guard lock(g_targetMutex);
-    if (g_target) g_target->present(sc);
+    {
+        std::lock_guard lock(g_targetMutex);
+        if (g_target) g_target->present(sc);
+    }
+    if (gpu_present_observer) gpu_present_observer(sc);
 }
 
 HRESULT STDMETHODCALLTYPE hook_present(IDXGISwapChain* sc, UINT sync, UINT flags) {
     on_present(sc, flags);
+    if (gpu_no_vsync) sync = 0;
     return g_present(sc, sync, flags);
 }
 
 HRESULT STDMETHODCALLTYPE hook_present1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
     on_present(sc, flags);
+    if (gpu_no_vsync) sync = 0;
     return g_present1(sc, sync, flags, p);
 }
 }  // namespace

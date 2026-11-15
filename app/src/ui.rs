@@ -600,8 +600,8 @@ impl App {
                 }
             });
         });
-        // VR screen games use the all-games screen settings; the per-game ones below are the VR core's (Unity, Godot 4.3+).
-        if !g.usable() || !(g.unity() || g.godot_core()) {
+        // VR screen games use the all-games screen settings; the per-game ones below are the VR core's (Unity, Godot 4.3+, Unreal).
+        if !g.usable() || !g.core_vr() {
             self.troubleshooting(ui, &g);
             return;
         }
@@ -842,8 +842,8 @@ impl App {
         if playable {
             ui.add_space(16.0);
         }
-        // The button section is the VR core's (Unity, Godot 4.3+); the VR screen keeps fixed keys.
-        if playable && (g.unity() || g.godot_core()) && tertiary(ui, "Button layout").clicked() {
+        // The button section is the VR core's (Unity, Godot 4.3+, Unreal); the VR screen keeps fixed keys.
+        if playable && g.core_vr() && tertiary(ui, "Button layout").clicked() {
             self.buttons = true;
             self.scroll_to_buttons = true;
         }
@@ -1605,7 +1605,7 @@ fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 
 fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
     // Unity's plugin and the Godot core read the same settings; older Godot games take their VR from the engine.
-    if !g.unity() && !g.godot_core() {
+    if !g.core_vr() {
         return Ok(());
     }
     // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the plugin;

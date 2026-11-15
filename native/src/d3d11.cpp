@@ -178,7 +178,10 @@ public:
         ComPtr<ID3D11Resource> res;
         rtv->GetResource(&res);
         ComPtr<ID3D11Texture2D> src;
-        if (FAILED(res.As(&src))) return;
+        if (SUCCEEDED(res.As(&src))) grab(src.Get());
+    }
+
+    void grab(ID3D11Texture2D* src) {
         D3D11_TEXTURE2D_DESC desc;
         src->GetDesc(&desc);
         D3D11_TEXTURE2D_DESC have{};
@@ -198,8 +201,8 @@ public:
                 return;
             }
         }
-        if (desc.SampleDesc.Count > 1) ctx_->ResolveSubresource(backbufferCopy_.Get(), 0, src.Get(), 0, desc.Format);
-        else ctx_->CopySubresourceRegion(backbufferCopy_.Get(), 0, 0, 0, 0, src.Get(), 0, nullptr);
+        if (desc.SampleDesc.Count > 1) ctx_->ResolveSubresource(backbufferCopy_.Get(), 0, src, 0, desc.Format);
+        else ctx_->CopySubresourceRegion(backbufferCopy_.Get(), 0, 0, 0, 0, src, 0, nullptr);
     }
 
     void* backbuffer_copy() override { return backbufferCopy_.Get(); }
@@ -208,12 +211,14 @@ public:
 
     void present(IDXGISwapChain* swapchain) override {
         auto* eye = (ID3D11Texture2D*)mirror_.load();
-        if (!eye) return;
+        if (!eye && !gpu_grab_present) return;
         ComPtr<ID3D11Device> owner;
         ComPtr<ID3D11Texture2D> back;
         if (FAILED(swapchain->GetDevice(IID_PPV_ARGS(&owner))) || owner.Get() != device_.Get() ||
             FAILED(swapchain->GetBuffer(0, IID_PPV_ARGS(&back))))
             return;
+        if (gpu_grab_present) grab(back.Get());
+        if (!eye) return;
         D3D11_TEXTURE2D_DESC bd, ed;
         back->GetDesc(&bd);
         eye->GetDesc(&ed);

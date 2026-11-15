@@ -69,5 +69,8 @@ Copy-Item (@("$build\native\$Config\ParallaxTheater.exe") + $native) "$dist\thea
 # Godot 4.3+ games: the VR core as a GDExtension, its OpenXR loader and the adapter script (copied into a ParallaxVR folder).
 New-Item -ItemType Directory -Force "$dist\godot" | Out-Null
 Copy-Item @("$build\native\$Config\parallax_godot.dll", "$build\native\$Config\openxr_loader.dll", "$root\godot\core\parallax.gd", "$root\godot\core\parallax.gdextension") "$dist\godot"
+# Unreal games: the VR core as dwmapi.dll and its OpenXR loader, copied beside the game's Shipping exe.
+New-Item -ItemType Directory -Force "$dist\unreal" | Out-Null
+Copy-Item @("$build\native\$Config\dwmapi.dll", "$build\native\$Config\openxr_loader.dll") "$dist\unreal"
 Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
 Write-Host "dist ready: $dist"

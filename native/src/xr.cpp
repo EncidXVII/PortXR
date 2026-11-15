@@ -223,6 +223,8 @@ bool copy_layer(Swapchain& sc, const PrxLayer& layer, const std::wstring& captur
     int w, h;
     if (!g_gpu->size(layer.texture, w, h)) return false;
     if (width > 0) w = width, h = height;
+    else if (overlay.crop[2] > 0)
+        w = (int)(w * (overlay.crop[2] - overlay.crop[0])), h = (int)(h * (overlay.crop[3] - overlay.crop[1]));
     if (!ensure_swapchain(sc, w, h)) return false;
     uint32_t index;
     if (!xr_ok(xrAcquireSwapchainImage(sc.handle, nullptr, &index), "xrAcquireSwapchainImage")) return false;
@@ -483,6 +485,7 @@ void do_submit(int slot) {
         Overlay over[2];
         for (int e = 0; e < 2; ++e) {
             over[e].vignette = f.vignette;
+            std::copy(f.eyeCrop[e], f.eyeCrop[e] + 4, over[e].crop);
             // A frame from an older managed side leaves it zero: keep lime.
             if (f.accent[0] + f.accent[1] + f.accent[2] > 0)
                 for (int i = 0; i < 3; ++i) over[e].accent[i] = f.accent[i];

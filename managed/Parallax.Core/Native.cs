@@ -47,6 +47,7 @@ namespace Parallax
         public float aimW, aimH;
         public float accentR, accentG, accentB;
         public int passthrough;
+        public float cropL0, cropL1, cropL2, cropL3, cropR0, cropR1, cropR2, cropR3;  // Unreal only; mirrored so the sizes match
     }
 
     [Flags]

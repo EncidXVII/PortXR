@@ -64,6 +64,11 @@ Gpu* gpu_create_d3d12(ID3D12Device* device);
 // Hooks IDXGISwapChain::Present/Present1 through a throwaway swapchain made on the game's device (or queue).
 bool gpu_hook_present(IUnknown* deviceOrQueue);
 void gpu_set_present_target(Gpu* gpu);
+// Engines the core drives from Present (Unreal): called after the backend's own Present work, outside its lock.
+extern void (*gpu_present_observer)(IDXGISwapChain*);
+// D3D11: grab the swapchain's image at every Present into backbuffer_copy() (D3D12 always does). No vsync: the headset
+// paces frames, and a 60 Hz desktop would halve them.
+extern std::atomic<bool> gpu_grab_present, gpu_no_vsync;
 // Hooks ID3D12CommandQueue::ExecuteCommandLists so Present can learn which queue the game renders on.
 bool gpu_hook_queue(ID3D12CommandQueue* probe);
 

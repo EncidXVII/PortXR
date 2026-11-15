@@ -63,6 +63,9 @@ struct PrxFrame {
     float accent[3];
     // Theater and Parallax: the room around the screen instead of black, where the runtime shares its passthrough.
     int32_t passthrough;
+    // Each eye's UV rect of its texture (x0 y0 x1 y1, top-left origin; all zero: the whole of it). Unreal renders both
+    // eyes side by side into one texture.
+    float eyeCrop[2][4];
 };
 
 enum PrxButton : uint32_t {

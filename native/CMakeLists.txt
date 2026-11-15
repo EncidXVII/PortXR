@@ -55,6 +55,14 @@ target_link_libraries(parallax_xr PRIVATE parallax_core_deps)
 add_custom_command(TARGET parallax_xr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_xr>)
 
+# Unreal Engine games: the core inside the game, loaded as dwmapi.dll from beside its Shipping exe.
+add_library(parallax_unreal SHARED src/unreal.cpp $<TARGET_OBJECTS:parallax_core>)
+set_target_properties(parallax_unreal PROPERTIES OUTPUT_NAME dwmapi)
+target_link_libraries(parallax_unreal PRIVATE parallax_core_deps)
+target_compile_options(parallax_unreal PRIVATE /W4 /permissive- /EHsc)
+add_custom_command(TARGET parallax_unreal POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_unreal>)
+
 # Theater for games Parallax cannot go inside: captures the game's window and shows it through parallax_xr.dll.
 add_executable(parallax_theater WIN32 src/screen.cpp)
 set_target_properties(parallax_theater PROPERTIES OUTPUT_NAME ParallaxTheater)

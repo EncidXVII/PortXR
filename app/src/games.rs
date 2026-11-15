@@ -41,6 +41,9 @@ pub struct Game {
     /// A Godot build without Direct3D 12 (custom engine builds): VR from the engine's own OpenXR, not the core.
     #[serde(default)]
     pub no_d3d12: bool,
+    /// Unreal: the Shipping exe that really runs the game (Binaries\Win64), where the VR core goes as dwmapi.dll.
+    #[serde(default)]
+    pub unreal_exe: Option<PathBuf>,
     #[serde(deserialize_with = "leak_opt")]
     pub blocker: Option<&'static str>,
     #[serde(deserialize_with = "leak_opt")]
@@ -65,6 +68,16 @@ impl Game {
         self.engine == "Unity"
     }
 
+    /// An Unreal game with its Shipping exe found: full VR, the core loaded beside that exe.
+    pub fn unreal_vr(&self) -> bool {
+        self.engine == "Unreal" && self.unreal_exe.is_some()
+    }
+
+    /// The VR core runs inside the game: its per-game settings and button layout apply.
+    pub fn core_vr(&self) -> bool {
+        self.unity() || self.godot_core() || self.unreal_vr()
+    }
+
     /// A Godot 4 game: full VR (override.cfg and Parallax beside the exe).
     pub fn godot_vr(&self) -> bool {
         self.engine == "Godot" && self.unity.starts_with("4.")
@@ -78,10 +91,12 @@ impl Game {
 
     /// This game's settings file while VR is added: the Unity plugin's BepInEx config, or the Godot core's beside it.
     pub fn config_rel(&self) -> String {
-        if !self.godot_core() {
-            return crate::installer::CONFIG.into();
-        }
-        let dir = self.exe.parent().unwrap_or(&self.dir);
+        let exe = match &self.unreal_exe {
+            Some(exe) if self.unreal_vr() => exe,
+            _ if self.godot_core() => &self.exe,
+            _ => return crate::installer::CONFIG.into(),
+        };
+        let dir = exe.parent().unwrap_or(&self.dir);
         let rel = dir.strip_prefix(&self.dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_default();
         if rel.is_empty() { r"ParallaxVR\parallax.cfg".into() } else { format!(r"{rel}\ParallaxVR\parallax.cfg") }
     }
@@ -95,7 +110,7 @@ impl Game {
             Compat::Blocked
         } else if self.native_vr {
             Compat::NativeVr
-        } else if self.godot_vr() {
+        } else if self.godot_vr() || self.unreal_vr() {
             Compat::Supported
         } else if !self.unity() {
             Compat::Theater
@@ -322,6 +337,7 @@ pub fn detect(root: &Path) -> Option<Game> {
         linux_build: exe.extension().is_some_and(|x| x == "x86_64"),
         native_vr: false,
         no_d3d12: false,
+        unreal_exe: None,
         stripped: !il2cpp && is_stripped(&dir, &data_dir(&exe).join("Managed")),
         blocker,
         other_loader,
@@ -348,7 +364,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     let size = |p: &PathBuf| fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let main = exes.iter().min_by_key(|p| (depth(p), std::cmp::Reverse(size(p)))).cloned();
     let (engine, exe) = if shipping.is_some() || root.join("Engine").is_dir() {
-        ("Unreal", main.or(shipping)?)
+        ("Unreal", main.or(shipping.clone())?)
     } else if let Some(g) = godot {
         ("Godot", g)
     } else {
@@ -376,6 +392,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         linux_build: false,
         native_vr: false,
         no_d3d12,
+        unreal_exe: shipping.filter(|p| engine == "Unreal" && p.to_string_lossy().ends_with("-Win64-Shipping.exe")),
         blocker: anti_cheat_files(&files),
         other_loader: None,
         app_id: 0,

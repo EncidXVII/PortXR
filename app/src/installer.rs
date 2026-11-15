@@ -70,6 +70,9 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     if game.godot_vr() {
         return install_godot(&game);
     }
+    if game.unreal_vr() {
+        return install_unreal(&game);
+    }
     if force && game.caution().is_none() {
         return Err("Parallax can't run in this game, so it can't be added anyway.".into());
     }
@@ -205,6 +208,45 @@ fn install_godot_core(game: &games::Game) -> Result<(), Box<dyn Error>> {
     install_files(game_dir, &files, created)
 }
 
+/// The Unreal adapter (dist\unreal): the VR core named dwmapi.dll and its OpenXR loader.
+const UNREAL_CORE: [&str; 2] = ["dwmapi.dll", "openxr_loader.dll"];
+
+fn unreal_dir(game: &games::Game) -> Result<&Path, Box<dyn Error>> {
+    Ok(game.unreal_exe.as_deref().and_then(Path::parent).ok_or("This Unreal game's Shipping exe wasn't found.")?)
+}
+
+/// Unreal: the VR core goes beside the Shipping exe as dwmapi.dll, which the game loads from there before System32 (all
+/// of dwmapi's own functions forward to the real one). Its settings and log live in a ParallaxVR folder beside it, which
+/// goes whole on Remove VR; the settings stay through an update (a reinstall).
+fn install_unreal(game: &games::Game) -> Result<(), Box<dyn Error>> {
+    let game_dir = game.dir.as_path();
+    let settings = fs::read(game.config_file()).ok();
+    if receipt_path(game_dir).exists() {
+        uninstall(game_dir)?;
+    }
+    let exe_dir = unreal_dir(game)?;
+    if exe_dir.join("dwmapi.dll").exists() {
+        return Err("Another mod loader (a dwmapi.dll, such as UE4SS) is in this game. Remove it first, then add VR.".into());
+    }
+    let rel = |name: &str| {
+        let p = exe_dir.join(name);
+        p.strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into())
+    };
+    let payload = std::env::current_exe()?.with_file_name("unreal");
+    let mut files = Vec::new();
+    for name in UNREAL_CORE {
+        files.push((rel(name), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside Parallax.exe: {e}"))?));
+    }
+    let created = if exe_dir.join(GODOT_DIR).exists() { Vec::new() } else { vec![rel(GODOT_DIR)] };
+    install_files(game_dir, &files, created)?;
+    if let Some(settings) = settings {
+        let config = game.config_file();
+        fs::create_dir_all(config.parent().unwrap())?;
+        fs::write(config, settings)?;
+    }
+    Ok(())
+}
+
 /// Writes `files` (paths relative to the game folder) with a receipt and backups first, as install() does. Folders in
 /// `created` were made for us and go whole on uninstall.
 fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)], created: Vec<String>) -> Result<(), Box<dyn Error>> {
@@ -258,6 +300,14 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     if game.blocker.is_some() && !(game.caution().is_some() && forced(&game.dir)) {
         uninstall(&game.dir)?;
         return Err("blocked".into());
+    }
+    if game.unreal_vr() {
+        let (dir, payload) = (unreal_dir(game)?, std::env::current_exe()?.with_file_name("unreal"));
+        if UNREAL_CORE.iter().all(|n| fs::read(dir.join(n)).ok().is_some_and(|a| fs::read(payload.join(n)).is_ok_and(|b| a == b))) {
+            return Ok(false);
+        }
+        install_unreal(game)?;
+        return Ok(true);
     }
     if game.godot_vr() {
         let current = if game.godot_core() {
