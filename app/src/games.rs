@@ -62,9 +62,29 @@ impl Game {
         self.engine == "Unity"
     }
 
-    /// A Godot 4 game: full VR through the engine's own OpenXR (override.cfg and a script beside the exe).
+    /// A Godot 4 game: full VR (override.cfg and Parallax beside the exe).
     pub fn godot_vr(&self) -> bool {
         self.engine == "Godot" && self.unity.starts_with("4.")
+    }
+
+    /// Godot 4.3 and later (the GDExtension's minimum): the shared VR core, as Unity games have it. Older Godot 4 games
+    /// take their VR from the engine's own OpenXR.
+    pub fn godot_core(&self) -> bool {
+        self.godot_vr() && self.unity.split('.').nth(1).and_then(|m| m.parse::<u32>().ok()).is_some_and(|m| m >= 3)
+    }
+
+    /// This game's settings file while VR is added: the Unity plugin's BepInEx config, or the Godot core's beside it.
+    pub fn config_rel(&self) -> String {
+        if !self.godot_core() {
+            return crate::installer::CONFIG.into();
+        }
+        let dir = self.exe.parent().unwrap_or(&self.dir);
+        let rel = dir.strip_prefix(&self.dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_default();
+        if rel.is_empty() { r"ParallaxVR\parallax.cfg".into() } else { format!(r"{rel}\ParallaxVR\parallax.cfg") }
+    }
+
+    pub fn config_file(&self) -> PathBuf {
+        self.file(&self.config_rel())
     }
 
     pub fn compat(&self) -> Compat {
@@ -1124,7 +1144,7 @@ pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let opts = zip::write::SimpleFileOptions::default();
     let files = [
         g.file(r"BepInEx\LogOutput.log"),
-        g.file(r"BepInEx\config\parallax.core.cfg"),
+        g.config_file(),
         installer::receipt_path(&g.dir),
     ];
     for file in files.into_iter().chain(player_log(g)) {

@@ -1,6 +1,8 @@
-"""Godot on the shared VR core: fixture G1 with the Godot adapter (godot/core) and parallax_godot.dll, on Direct3D 12,
-SteamVR null driver. Checks what the compositor shows the test headset and the shared behaviour through the adapter's
-test channel. No real keyboard or mouse input: controllers are faked in the core and the gamepad goes into the game.
+"""Godot on the shared VR core: fixture G1 exported as a game (the Godot 4.5 binary beside G1.pck; a pack needs no
+export templates), VR added by the app as for a player (dist\\Parallax.exe install: the ParallaxVR folder and
+override.cfg), Direct3D 12, SteamVR null driver. Checks what the compositor shows the test headset and the shared
+behaviour through the adapter's test channel, then that Remove VR leaves the game folder byte-identical. No real
+keyboard or mouse input: controllers are faked in the core and the gamepad goes into the game.
 
     python harness/godot_core.py [--secondary]
 """
@@ -19,7 +21,9 @@ import windows
 from godot import GODOT, G1, ROOT, headset_view
 
 OUT = os.path.join(run.OUT, "g1core")
-PACK = os.path.join(OUT, "ParallaxVR")
+GAME = os.path.join(OUT, "game")
+EXE = os.path.join(GAME, "G1.exe")
+PACK = os.path.join(GAME, "ParallaxVR")
 PORT = 47812
 results = []
 
@@ -77,31 +81,29 @@ def main():
     ap.add_argument("--secondary", action="store_true")
     args = ap.parse_args()
     shutil.rmtree(OUT, ignore_errors=True)
-    os.makedirs(PACK)
-    build = os.path.join(ROOT, "build", "native", "Release")
-    for f in ("parallax_godot.dll", "openxr_loader.dll"):
-        shutil.copy2(os.path.join(build, f), PACK)
-    for f in ("parallax.gd", "parallax.gdextension"):
-        shutil.copy2(os.path.join(ROOT, "godot", "core", f), PACK)
+    os.makedirs(GAME)
+    # The game as a player has it: the engine binary (the plain one, without a console window) beside its pack.
+    if not os.path.isdir(os.path.join(G1, ".godot")):
+        subprocess.run([GODOT, "--headless", "--path", G1, "--editor", "--quit"], capture_output=True, timeout=300)
+    subprocess.run([GODOT, "--headless", "--path", G1, "--export-pack", "Windows Desktop", os.path.join(GAME, "G1.pck")],
+                   capture_output=True, timeout=300, check=True)
+    shutil.copy2(GODOT.replace("_console.exe", ".exe"), EXE)
+    pristine = run.tree_hash(GAME)
+    subprocess.run([run.APP, "install", GAME], check=True)
     # This game's settings, as the app writes them on Add VR; the tests change them through the core.
     with open(os.path.join(PACK, "parallax.cfg"), "w") as f:
         f.write("[Controls]\nMode = Gamepad\nHeadAim = Off\nAimWith = Head\n\n[Comfort]\nTurning = Smooth\n\n[Menu]\nFirstRun = false\n")
-    if not os.path.isdir(os.path.join(G1, ".godot")):
-        subprocess.run([GODOT, "--headless", "--path", G1, "--editor", "--quit"], capture_output=True, timeout=300)
-    with open(os.path.join(G1, "override.cfg"), "w") as f:
-        f.write('[rendering]\n\nrendering_device/driver.windows="d3d12"\n\n'
-                f'[autoload]\n\nParallaxVR="*{os.path.join(PACK, "parallax.gd").replace(os.sep, "/")}"\n')
     screen = steamvr.secondary_monitor() if args.secondary else None
     _, hmd = run.placement(secondary=args.secondary)
     x, y = (screen[0] + 40, screen[1] + 40) if screen else (40, 40)
     env = dict(os.environ, XR_RUNTIME_JSON=steamvr.runtime_json(), PARALLAX_TEST_PORT=str(PORT),
                PARALLAX_LOG_FILE=os.path.join(OUT, "core.log"))
     log = os.path.join(OUT, "stdout.log")
-    names = {os.path.basename(GODOT).lower()} | {p + ".exe" for p in steamvr.PROCESSES}
+    names = {"g1.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
     ch = Channel()
     try:
         with steamvr.null_driver(hmd, {"dashboard": {"enableDashboard": False}}), windows.keep_on(screen, names), open(log, "w") as out:
-            game = subprocess.Popen([GODOT, "--path", G1, "--windowed", "--position", f"{x},{y}"] + (["--screen", "1"] if screen else []),
+            game = subprocess.Popen([EXE, "--windowed", "--position", f"{x},{y}"] + (["--screen", "1"] if screen else []),
                                     stdout=out, stderr=subprocess.STDOUT, env=env)
             try:
                 s = ch.wait(lambda s: s["state"] == 3 and s["camera"].endswith("Player") and s["frames"] > 200, 90, "the core running")
@@ -291,8 +293,10 @@ def main():
                 game.wait(20)
     except RuntimeError as e:
         check("run", False, str(e))
-    finally:
-        os.remove(os.path.join(G1, "override.cfg"))
+    subprocess.run([run.APP, "uninstall", GAME], check=True)
+    after = run.tree_hash(GAME)
+    changed = sorted(k for k in set(pristine) | set(after) if pristine.get(k) != after.get(k))
+    check("remove VR", not changed, f"game folder byte-identical after the app's Remove VR (differs: {changed or 'none'})")
     print("\n".join(l for l in open(log, encoding="utf-8", errors="replace").read().splitlines() if "SCRIPT ERROR" in l or "Crash" in l)[:2000])
     print(f"{sum(results)}/{len(results)} passed", flush=True)
     sys.exit(0 if results and all(results) else 1)

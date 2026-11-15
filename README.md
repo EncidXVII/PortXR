@@ -98,11 +98,13 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 - IL2CPP games may have stripped engine calls; affected extras switch off with a log line instead of breaking the game.
 - The VR menu's Library tab quits the game, or starts another game with VR added without taking the headset off.
 - Theater and Parallax can show your room around the screen instead of black (**Around the screen: Your room**), on headset software that shares its passthrough with apps; SteamVR does not.
-- **Godot 4 games** get full VR from the engine's own OpenXR: **Add VR** puts an `override.cfg` and one script beside
-  the game's exe (Remove VR takes them out again). The headset follows the game's camera, also where the game draws its
-  3D in a SubViewport (a retro resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad
-  inside the game. Play in VR wakes the headset runtime first, since Godot gets no VR from a runtime still starting.
-  Not yet: a gun or arms layer drawn in its own viewport, the laser pointer, the VR menu.
+- **Godot 4 games** get full VR. From Godot 4.3, Parallax runs inside the game as it does in Unity games: **Add VR**
+  puts a `ParallaxVR` folder and an `override.cfg` beside the game's exe (Remove VR takes them out again), and the game
+  gets the same controls, head and hand aim, laser pointer, wrist watch, VR menu, Theater and Parallax modes and
+  per-game settings. The headset follows the game's camera, also where the game draws its 3D in a SubViewport (a retro
+  resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad inside the game. It runs the
+  game on Direct3D 12, which Godot's official builds include. Godot 4.0 to 4.2 games get VR from the engine's own
+  OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
 - **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the Theater screen: Parallax
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
@@ -180,11 +182,13 @@ Fixtures are generated from `fixtures/shared` with `fixtures\build.ps1 -Name F1`
 | F10 | 2022.3 | Mono | D3D11 | HDRP + Bloom |
 | F11 | 2022.3 | Mono | D3D11 | built-in + Post Processing v2 (Bloom) |
 
-Godot VR has its own gate: `python harness\godot.py --secondary` runs fixture G1 (`fixtures/G1`, a Godot 4.5 project:
-a room of coloured boxes, a HUD, a splash camera before the player's) with the app's `override.cfg` and checks what
-SteamVR's compositor shows the test headset: the world in the player camera's view and the HUD on its panel. It needs
-the Godot 4.5 editor (`GODOT`, default `E:\Godot\Godot_v4.5-stable_win64_console.exe`); G1 runs as a project, so no
-export templates.
+Godot VR has its own gates. `python harness\godot_core.py --secondary` runs fixture G1 (`fixtures/G1`, a Godot 4.5
+project: a room of coloured boxes, a HUD, a PLAY button, a splash camera before the player's) as an exported game (the
+Godot binary beside a `G1.pck`; a pack needs no export templates), adds VR with `dist\Parallax.exe install` as a player
+would, checks the shared core through the adapter (laser, gamepad, aim, snap turning, the VR menu, Theater, Parallax,
+screen handles) and what SteamVR's compositor shows the test headset, then that Remove VR leaves the folder
+byte-identical. `python harness\godot.py --secondary` checks the Godot 4.0 to 4.2 path (the engine's own OpenXR). Both
+need the Godot 4.5 editor (`GODOT`, default `E:\Godot\Godot_v4.5-stable_win64_console.exe`).
 
 The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a game's first launch. After building F3, `fixtures\interop.ps1` runs a scratch copy once without a window and fills `build\deps\interop-f3`.
 

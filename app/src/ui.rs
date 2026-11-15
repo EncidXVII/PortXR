@@ -600,8 +600,8 @@ impl App {
                 }
             });
         });
-        // Theater games use the all-games screen settings; the per-game ones below belong to the plugin.
-        if !g.usable() || !g.unity() {
+        // Theater games use the all-games screen settings; the per-game ones below are the VR core's (Unity, Godot 4.3+).
+        if !g.usable() || !(g.unity() || g.godot_core()) {
             return;
         }
         section_break(ui);
@@ -630,8 +630,10 @@ impl App {
         self.settings(ui, settings::QUICK, true);
         self.advanced_section(ui, true);
         self.buttons_section(ui, true);
-        self.scripts_section(ui, &g);
-        let file = g.file(installer::CONFIG);
+        if g.unity() {
+            self.scripts_section(ui, &g);
+        }
+        let file = g.config_file();
         if self.advanced && file.exists() {
             ui.add_space(8.0);
             if tertiary(ui, "Open settings file").clicked() {
@@ -1604,14 +1606,14 @@ fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
-    // The plugin's settings file is Unity's; Godot games take their VR from the engine.
-    if !g.unity() {
+    // Unity's plugin and the Godot core read the same settings; older Godot games take their VR from the engine.
+    if !g.unity() && !g.godot_core() {
         return Ok(());
     }
     // The game's own settings (chosen before the first install, or kept from an earlier one) go in with the plugin;
     // everything else comes from the all-games values.
     let saved = fs::read_to_string(saved_path(g)).unwrap_or_default();
-    write(&g.file(installer::CONFIG), settings::fill(&saved, defaults).as_bytes())?;
+    write(&g.config_file(), settings::fill(&saved, defaults).as_bytes())?;
     Ok(())
 }
 
@@ -1627,7 +1629,8 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     } else {
         installer::update(&g.dir).map_err(|e| format!("Couldn't update the plugin (is the game still running?): {e}"))?;
     }
-    if g.godot_vr() {
+    // Godot 4.0 to 4.2: the engine's own OpenXR, which needs the runtime up before the game starts.
+    if g.godot_vr() && !g.godot_core() {
         return play_godot(g);
     }
     g.launch()?;
@@ -1667,7 +1670,7 @@ fn play_godot(g: &Game) -> Result<String, Box<dyn Error>> {
 
 fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {
     // Keep the settings (including changes made in the VR menu) for the next install.
-    if let Ok(cfg) = fs::read(g.file(installer::CONFIG)) {
+    if let Ok(cfg) = fs::read(g.config_file()) {
         write(&saved_path(g), &cfg)?;
     }
     installer::uninstall(&g.dir)?;
@@ -1685,14 +1688,14 @@ fn defaults_path() -> PathBuf {
 }
 
 fn load_cfg(g: &Game) -> String {
-    let live = g.file(installer::CONFIG);
+    let live = g.config_file();
     fs::read_to_string(if g.installed() && live.exists() { live } else { saved_path(g) }).unwrap_or_default()
 }
 
 fn save_cfg(g: &Game, text: &str) -> std::io::Result<()> {
     write(&saved_path(g), text.as_bytes())?;
     if g.installed() {
-        write(&g.file(installer::CONFIG), text.as_bytes())?;
+        write(&g.config_file(), text.as_bytes())?;
     }
     Ok(())
 }

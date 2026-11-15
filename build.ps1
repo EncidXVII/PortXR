@@ -66,5 +66,8 @@ Copy-Item "$build\app\release\Parallax.exe" $dist
 # Theater for games Parallax cannot go inside: the window-capture host and the VR core it drives.
 New-Item -ItemType Directory -Force "$dist\theater" | Out-Null
 Copy-Item (@("$build\native\$Config\ParallaxTheater.exe") + $native) "$dist\theater"
+# Godot 4.3+ games: the VR core as a GDExtension, its OpenXR loader and the adapter script (copied into a ParallaxVR folder).
+New-Item -ItemType Directory -Force "$dist\godot" | Out-Null
+Copy-Item @("$build\native\$Config\parallax_godot.dll", "$build\native\$Config\openxr_loader.dll", "$root\godot\core\parallax.gd", "$root\godot\core\parallax.gdextension") "$dist\godot"
 Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
 Write-Host "dist ready: $dist"

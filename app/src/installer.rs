@@ -128,16 +128,34 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The script Godot 4 games load for VR (godot/parallax_vr.gd), built into the app.
+/// The script Godot 4.0 to 4.2 games load for VR (godot/parallax_vr.gd), built into the app.
 const GODOT_SCRIPT: &str = include_str!("../../godot/parallax_vr.gd");
 
-/// Godot 4: the engine's own OpenXR, switched on by override.cfg beside the exe (which Godot reads over the game's
-/// project settings), and our script loaded as an autoload from beside it. An override.cfg the game already has is
-/// kept: backed up, and ours appended after it so its settings stay unless VR needs them changed.
+/// The Godot adapter on the shared VR core (dist\godot: the GDExtension, the OpenXR loader, the adapter script and
+/// its .gdextension), copied into a ParallaxVR folder beside the game's exe.
+const GODOT_CORE: [&str; 4] = ["parallax_godot.dll", "openxr_loader.dll", "parallax.gd", "parallax.gdextension"];
+const GODOT_DIR: &str = "ParallaxVR";
+
+fn godot_payload() -> Result<PathBuf, Box<dyn Error>> {
+    Ok(std::env::current_exe()?.with_file_name("godot"))
+}
+
+/// Godot 4: Parallax's VR core for 4.3 and later, else the engine's own OpenXR. Either way override.cfg beside the exe
+/// (which Godot reads over the game's project settings) loads our script as an autoload. An override.cfg the game
+/// already has is kept: backed up, and ours appended after it so its settings stay unless VR needs them changed.
 fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
     let game_dir = game.dir.as_path();
+    // The game's settings stay through an update (a reinstall), as a Unity game's do.
+    let settings = if game.godot_core() { fs::read(game.config_file()).ok() } else { None };
     if receipt_path(game_dir).exists() {
         uninstall(game_dir)?;
+    }
+    if game.godot_core() {
+        install_godot_core(game)?;
+        if let Some(settings) = settings {
+            fs::write(game.config_file(), settings)?;
+        }
+        return Ok(());
     }
     // A game exported with a custom engine build may have left OpenXR out; it would just start flat.
     let needle = b"xrCreateInstance";
@@ -156,11 +174,40 @@ fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
     );
     let files: Vec<(String, Vec<u8>)> =
         vec![(rel("override.cfg"), format!("{existing}{ours}").into_bytes()), (rel("parallax_vr.gd"), GODOT_SCRIPT.as_bytes().to_vec())];
-    install_files(game_dir, &files)
+    install_files(game_dir, &files, Vec::new())
 }
 
-/// Writes `files` (paths relative to the game folder) with a receipt and backups first, as install() does.
-fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), Box<dyn Error>> {
+/// Godot 4.3+: the VR core runs inside the game on Direct3D 12 (Godot's own OpenXR stays off), loaded by the adapter
+/// script as a GDExtension from the ParallaxVR folder; the folder goes whole on Remove VR, with the settings in it.
+fn install_godot_core(game: &games::Game) -> Result<(), Box<dyn Error>> {
+    let game_dir = game.dir.as_path();
+    // The VR core needs Godot's Direct3D 12 renderer; a custom engine build may have left it out.
+    let needle = b"D3D12CreateDevice";
+    if !fs::read(&game.exe)?.windows(needle.len()).any(|w| w == needle) {
+        return Err("This game's Godot build has no Direct3D 12, which Parallax needs inside Godot games. Play it on the Theater screen instead.".into());
+    }
+    let exe_dir = game.exe.parent().ok_or("no game folder")?;
+    let rel = |name: &str| {
+        let p = exe_dir.join(name);
+        p.strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into())
+    };
+    let folder = rel(GODOT_DIR);
+    let created = if exe_dir.join(GODOT_DIR).exists() { Vec::new() } else { vec![folder.clone()] };
+    let payload = godot_payload()?;
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for name in GODOT_CORE {
+        files.push((format!("{folder}\\{name}"), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside Parallax.exe: {e}"))?));
+    }
+    let script = exe_dir.join(GODOT_DIR).join("parallax.gd").to_string_lossy().replace('\\', "/");
+    let existing = fs::read_to_string(exe_dir.join("override.cfg")).unwrap_or_default();
+    let ours = format!("\n[rendering]\n\nrendering_device/driver.windows=\"d3d12\"\n\n[autoload]\n\nParallaxVR=\"*{script}\"\n");
+    files.push((rel("override.cfg"), format!("{existing}{ours}").into_bytes()));
+    install_files(game_dir, &files, created)
+}
+
+/// Writes `files` (paths relative to the game folder) with a receipt and backups first, as install() does. Folders in
+/// `created` were made for us and go whole on uninstall.
+fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)], created: Vec<String>) -> Result<(), Box<dyn Error>> {
     let mut entries = Vec::new();
     for (rel, data) in files {
         let target = games::native(game_dir, rel);
@@ -174,10 +221,12 @@ fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), Box
         let sha256 = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
         entries.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
     }
-    let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting: false, created_dirs: Vec::new(), files: entries, forced: false };
+    let receipt = Receipt { version: env!("CARGO_PKG_VERSION").into(), loader_preexisting: false, created_dirs: created, files: entries, forced: false };
     write_durable(&receipt_path(game_dir), &serde_json::to_vec(&receipt)?)?;
     for (rel, data) in files {
-        fs::write(games::native(game_dir, rel), data)?;
+        let target = games::native(game_dir, rel);
+        fs::create_dir_all(target.parent().unwrap())?;
+        fs::write(target, data)?;
     }
     Ok(())
 }
@@ -211,8 +260,13 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
         return Err("blocked".into());
     }
     if game.godot_vr() {
-        let installed = fs::read(game.exe.with_file_name("parallax_vr.gd")).unwrap_or_default();
-        if installed == GODOT_SCRIPT.as_bytes() {
+        let current = if game.godot_core() {
+            let (dir, payload) = (game.exe.with_file_name(GODOT_DIR), godot_payload()?);
+            GODOT_CORE.iter().all(|n| fs::read(dir.join(n)).ok().is_some_and(|a| fs::read(payload.join(n)).is_ok_and(|b| a == b)))
+        } else {
+            fs::read(game.exe.with_file_name("parallax_vr.gd")).unwrap_or_default() == GODOT_SCRIPT.as_bytes()
+        };
+        if current {
             return Ok(false);
         }
         install_godot(game)?;
