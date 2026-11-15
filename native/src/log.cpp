@@ -19,6 +19,12 @@ void prx_log(const char* fmt, ...) {
     va_end(args);
     std::lock_guard lock(g_mutex);
     if (g_lines.size() < 256) g_lines.emplace_back(buf);
+    // Tests: PARALLAX_LOG_FILE gets every line at once, so the last one before a crash survives.
+    static FILE* file = [] {
+        char path[MAX_PATH];
+        return GetEnvironmentVariableA("PARALLAX_LOG_FILE", path, MAX_PATH) ? fopen(path, "a") : nullptr;
+    }();
+    if (file) fprintf(file, "%s\n", buf), fflush(file);
 }
 
 bool xr_ok(XrResult r, const char* what) {

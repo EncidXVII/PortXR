@@ -251,6 +251,7 @@ void create_session() {
 void do_init() {
     void* texture = g_initTexture.exchange(nullptr);
     if (g_xr.state != StateInstance || !texture || g_gpu) return;
+    prx_log("init on Direct3D %d", g_api);
     if (g_api == 12) {
         ComPtr<ID3D12Device> device;
         ComPtr<ID3D12CommandQueue> probe;

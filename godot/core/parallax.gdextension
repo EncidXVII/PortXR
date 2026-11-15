@@ -1,0 +1,10 @@
+[configuration]
+
+entry_symbol = "parallax_godot_init"
+compatibility_minimum = "4.3"
+reloadable = false
+
+[libraries]
+
+windows.debug.x86_64 = "parallax_godot.dll"
+windows.release.x86_64 = "parallax_godot.dll"
