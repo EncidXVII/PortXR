@@ -111,15 +111,16 @@ impl Game {
     }
 
     pub fn badge(&self) -> &'static str {
+        // What the player gets in VR: inside the game, the game on a screen, or why neither.
         match self.compat() {
-            Compat::Supported if self.installed() => "VR added",
-            Compat::Supported => "Installed",
+            Compat::Theater => "VR screen",
+            _ if self.usable() => "Full VR",
+            Compat::Supported => "Full VR",
             Compat::Blocked => self.blocker.unwrap_or("Anti-cheat"),
-            Compat::NativeVr => "Already VR",
+            Compat::NativeVr => "Own VR mode",
             Compat::LinuxBuild => "Linux build",
             Compat::X86 => "32-bit",
             Compat::Stripped => "Trimmed engine",
-            Compat::Theater => "Theater",
         }
     }
 
@@ -770,11 +771,13 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
     Ok(to)
 }
 
-/// A Unity game in the Steam library, installed or not.
+/// A game in the Steam library, installed or not.
 #[derive(Clone)]
 pub struct Owned {
     pub app_id: u32,
     pub name: String,
+    /// A Unity game (Wikidata's list): full VR once installed; the rest play on the VR screen.
+    pub full_vr: bool,
     pub cover: Option<PathBuf>,
     /// Why Parallax will not run it, known before it is installed: "Anti-cheat", "Multiplayer only", "Already VR" or
     /// "32-bit".
@@ -828,6 +831,7 @@ struct Facts {
     osarch: String,
     /// common/type: "Game", "Demo", "Tool", "Application", ...
     kind: String,
+    name: String,
 }
 
 impl Facts {
@@ -843,7 +847,7 @@ impl Facts {
     }
 }
 
-fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Facts> {
+fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::collections::HashMap<u32, Facts> {
     let mut out = std::collections::HashMap::new();
     let Ok(b) = fs::read(steam.join("appcache").join("appinfo.vdf")) else { return out };
     let u32_at = |p: usize| b.get(p..p + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()));
@@ -911,6 +915,8 @@ fn steam_facts(steam: &Path, ids: &[u32]) -> std::collections::HashMap<u32, Fact
                         found.osarch = v;
                     } else if path.len() == 2 && path[1] == "common" && k == "type" {
                         found.kind = v.to_lowercase();
+                    } else if path.len() == 2 && path[1] == "common" && k == "name" {
+                        found.name = v;
                     }
                 }
                 2 | 3 => {
@@ -987,34 +993,33 @@ fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
     Some(map.into_iter().filter_map(|(id, name)| Some((id.parse().ok()?, name))).collect())
 }
 
-/// Unity games the Steam account has: Steam keeps library art for every app in the library, one folder (or file
-/// prefix, on older clients) per app ID. Network: the first call of the week downloads the Unity list.
-pub fn steam_unity_library() -> Vec<Owned> {
+/// Games the Steam account has: Steam keeps library art for every app in the library, one folder (or file prefix, on
+/// older clients) per app ID; its app cache names them and says which are games. Network: the first call of the week
+/// downloads Wikidata's list of Unity games, which says which of them get full VR.
+pub fn steam_library() -> Vec<Owned> {
     let Some(steam) = steam_root() else { return Vec::new() };
-    let Some(unity) = unity_games() else { return Vec::new() };
+    let unity = unity_games().unwrap_or_default();
     let cache = steam.join("appcache").join("librarycache");
-    let mut ids: Vec<u32> = fs::read_dir(&cache)
+    let ids = fs::read_dir(&cache)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().to_string_lossy().split(['_', '.']).next()?.parse().ok())
         .collect();
-    ids.sort();
-    ids.dedup();
+    let facts = steam_facts(&steam, &ids);
+    let played = steam_last_played(&steam);
     let mut owned: Vec<Owned> = ids
         .into_iter()
         .filter_map(|id| {
-            let name = unity.get(&id)?.clone();
-            Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), blocker: None, last_played: 0 })
+            let f = facts.get(&id).filter(|f| f.kind == "game")?;
+            let full_vr = unity.contains_key(&id);
+            let name = unity.get(&id).cloned().or_else(|| (!f.name.is_empty()).then(|| f.name.clone()))?;
+            // 32-bit only stops the plugin; the VR screen shows any window.
+            let blocker = f.blocker().or(f.vr.then_some("Own VR mode")).or((full_vr && f.osarch == "32").then_some("32-bit"));
+            let last_played = played.get(&id).copied().unwrap_or(0);
+            Some(Owned { app_id: id, name, full_vr, cover: cover_in(&cache.join(id.to_string())), blocker, last_played })
         })
         .collect();
-    let ids: Vec<u32> = owned.iter().map(|o| o.app_id).collect();
-    let facts = steam_facts(&steam, &ids);
-    let played = steam_last_played(&steam);
-    for o in &mut owned {
-        o.last_played = played.get(&o.app_id).copied().unwrap_or(0);
-        o.blocker = facts.get(&o.app_id).and_then(|f| f.blocker().or(f.vr.then_some("Already VR")).or((f.osarch == "32").then_some("32-bit")));
-    }
     owned.sort_by_key(|o| o.name.to_lowercase());
     owned
 }
@@ -1078,7 +1083,7 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
         0 => fs::read_to_string(g.dir.join("steam_appid.txt")).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
         id => id,
     };
-    let ids: Vec<u32> = games.iter().map(id_of).filter(|&id| id > 0).collect();
+    let ids = games.iter().map(id_of).filter(|&id| id > 0).collect();
     let facts = steam_facts(steam, &ids);
     for g in games.iter_mut() {
         let Some(f) = facts.get(&id_of(g)) else { continue };

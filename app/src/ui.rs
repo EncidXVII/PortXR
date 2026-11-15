@@ -113,8 +113,8 @@ struct Release {
 #[derive(Clone, Copy, PartialEq)]
 enum Filter {
     All,
-    VrAdded,
-    Installed,
+    FullVr,
+    Screen,
     NotInstalled,
     Unsupported,
 }
@@ -198,10 +198,9 @@ fn body(size: f32) -> FontId {
 }
 
 fn filter_of(g: &Game) -> Filter {
-    match (g.compat(), g.installed()) {
-        (Compat::Supported, true) => Filter::VrAdded,
-        (Compat::Supported | Compat::Theater, false) => Filter::Installed,
-        (_, true) if g.usable() => Filter::VrAdded,
+    match g.compat() {
+        Compat::Theater => Filter::Screen,
+        _ if g.usable() => Filter::FullVr,
         _ => Filter::Unsupported,
     }
 }
@@ -226,7 +225,7 @@ impl App {
         let steam_unity = Arc::new(Mutex::new(None));
         let (slot, ctx) = (steam_unity.clone(), cc.egui_ctx.clone());
         std::thread::spawn(move || {
-            *slot.lock().unwrap() = Some(games::steam_unity_library());
+            *slot.lock().unwrap() = Some(games::steam_library());
             ctx.request_repaint();
         });
         let defaults = fs::read_to_string(defaults_path()).unwrap_or_default();
@@ -331,7 +330,7 @@ impl App {
         }
     }
 
-    // Unity games in the Steam library with no copy on this PC; None while the list is still loading.
+    // Steam library games with no copy on this PC; None while the list is still loading.
     fn missing(&self) -> Option<Vec<games::Owned>> {
         let owned = self.steam_unity.lock().unwrap();
         owned.as_ref().map(|list| list.iter().filter(|o| !self.games.iter().any(|g| g.app_id == o.app_id)).cloned().collect())
@@ -363,11 +362,6 @@ impl App {
                 });
             }
         });
-        // A scan refreshing the games already shown: a thin line sweeps under the title, and nothing else moves.
-        let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
-        if self.scanning && !self.games.is_empty() {
-            sweep(ui, line);
-        }
         if !self.status.0.is_empty() {
             status_line(ui, &self.status.0, self.status.1);
         }
@@ -383,7 +377,9 @@ impl App {
             return;
         }
         self.toolbar(ui);
-        ui.add_space(32.0);
+        ui.add_space(14.0);
+        ui.label(RichText::new("Full VR: you stand inside the game.   VR screen: the game on a big screen in VR.   Lime: VR is set up, press Play.").color(INK3));
+        ui.add_space(24.0);
         if self.filter == Filter::NotInstalled && self.missing().is_none() {
             skeleton_grid(ui, 6);
             return;
@@ -402,7 +398,8 @@ impl App {
                     Entry::Here(i) => self.games[*i].store,
                     Entry::Steam(_) => "Steam",
                 };
-                (self.filter == Filter::All || *f == self.filter) && self.store.is_none_or(|s| store == s) && name(e).contains(&query)
+                // All is what can be played; the games Parallax can't run stay in their own tab.
+                (if self.filter == Filter::All { *f != Filter::Unsupported } else { *f == self.filter }) && self.store.is_none_or(|s| store == s) && name(e).contains(&query)
             })
             .collect();
         shown.sort_by_key(|(_, e)| name(e));
@@ -415,8 +412,6 @@ impl App {
                 })
             });
         }
-        // The library opens on what can be played: games Parallax cannot run go last in every order.
-        shown.sort_by_key(|(f, _)| *f == Filter::Unsupported);
         let shown: Vec<Entry> = shown.into_iter().map(|(_, e)| e).collect();
         if shown.is_empty() {
             ui.label(RichText::new("Nothing matches this search and these filters.").color(INK2));
@@ -464,7 +459,7 @@ impl App {
     fn install_owned(&mut self, o: &games::Owned) {
         self.status = match o.blocker {
             Some("32-bit") => (format!("{} is 32-bit only; Parallax runs 64-bit games.", o.name), Tone::Bad),
-            Some("Already VR") => (format!("{} has its own VR mode: play it in VR from Steam.", o.name), Tone::Info),
+            Some("Own VR mode") => (format!("{} has its own VR mode: play it in VR from Steam.", o.name), Tone::Info),
             Some("Multiplayer only") => (format!("{} has no single-player mode. Parallax is for offline single-player games: online play risks a ban.", o.name), Tone::Bad),
             Some(_) => (format!("{} uses anti-cheat. Injecting into it risks a ban, so Parallax never runs in it.", o.name), Tone::Bad),
             None => match games::steam_install(o.app_id) {
@@ -480,17 +475,17 @@ impl App {
         let mut wrap = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(16.0, 12.0);
-            // The tabs split the library: each card is in one, and the counts add up to All.
+            // The tabs split the library: each card is in one; All is every tab but Unsupported.
             let entries = self.entries();
-            let count = |f: Filter| entries.iter().filter(|(e, _)| f == Filter::All || *e == f).count();
-            let labels: Vec<(Filter, String)> = [Filter::All, Filter::VrAdded, Filter::Installed, Filter::NotInstalled, Filter::Unsupported]
+            let count = |f: Filter| entries.iter().filter(|(e, _)| if f == Filter::All { *e != Filter::Unsupported } else { *e == f }).count();
+            let labels: Vec<(Filter, String)> = [Filter::All, Filter::FullVr, Filter::Screen, Filter::NotInstalled, Filter::Unsupported]
                 .into_iter()
                 .filter(|&f| f == Filter::All || count(f) > 0 || f == self.filter)
                 .map(|f| {
                     let name = match f {
                         Filter::All => "All",
-                        Filter::VrAdded => "VR added",
-                        Filter::Installed => "Installed",
+                        Filter::FullVr => "Full VR",
+                        Filter::Screen => "VR screen",
                         Filter::NotInstalled => "Not installed",
                         Filter::Unsupported => "Unsupported",
                     };
@@ -502,7 +497,7 @@ impl App {
                 self.filter = f;
             }
             // The two menus' width, measured at 100 %.
-            wrap = ui.available_width() < 310.0;
+            wrap = ui.available_width() < 450.0;
             if !wrap {
                 self.menus(ui);
             }
@@ -1397,18 +1392,23 @@ fn paint_label(p: &Painter, rect: Rect, text: &str, color: Color32) {
 #[derive(Clone, Copy)]
 enum ChipKind {
     Plain,
-    VrAdded,
-    Installed,
+    /// Full VR, set up: Play in VR goes straight in.
+    Ready,
+    /// Full VR, one Add VR away.
+    FullVr,
+    /// The game on the VR screen.
+    Screen,
     NotInstalled,
     Blocked,
     Unsupported,
 }
 
 fn chip_kind(g: &Game) -> ChipKind {
-    match (g.compat(), g.installed()) {
-        (Compat::Supported, true) => ChipKind::VrAdded,
-        (Compat::Supported | Compat::Theater, false) => ChipKind::Installed,
-        (Compat::Blocked, _) => ChipKind::Blocked,
+    match g.compat() {
+        Compat::Theater => ChipKind::Screen,
+        _ if g.usable() && g.installed() => ChipKind::Ready,
+        _ if g.usable() => ChipKind::FullVr,
+        Compat::Blocked => ChipKind::Blocked,
         _ => ChipKind::Unsupported,
     }
 }
@@ -1417,9 +1417,10 @@ fn chip_kind(g: &Game) -> ChipKind {
 fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
     let (dot, ink, fill) = match kind {
         ChipKind::Plain => (None, INK2, RAISED),
-        // Strongest to weakest: VR added (lime), installed (lime dot), not on this PC (grey, no dot).
-        ChipKind::VrAdded => (None, ON_LIME, lime()),
-        ChipKind::Installed => (Some(lime()), INK2, RAISED),
+        // Strongest to weakest: full VR set up (lime), full VR (lime dot), VR screen (white dot), not on this PC (grey).
+        ChipKind::Ready => (None, ON_LIME, lime()),
+        ChipKind::FullVr => (Some(lime()), INK2, RAISED),
+        ChipKind::Screen => (Some(INK), INK2, RAISED),
         ChipKind::NotInstalled => (None, INK3, RAISED),
         ChipKind::Blocked => (Some(DANGER), DANGER_INK, DANGER_BG),
         ChipKind::Unsupported => (Some(INK3), INK3, RAISED),
@@ -1436,7 +1437,7 @@ fn paint_chip(p: &Painter, at: egui::Pos2, text: &str, kind: ChipKind) -> f32 {
 }
 
 fn chip(ui: &mut Ui, text: &str, kind: ChipKind) {
-    let width = ui.painter().layout_no_wrap(text.to_uppercase(), mono(LABEL), INK).size().x + if matches!(kind, ChipKind::Plain | ChipKind::VrAdded | ChipKind::NotInstalled) { 20.0 } else { 32.0 };
+    let width = ui.painter().layout_no_wrap(text.to_uppercase(), mono(LABEL), INK).size().x + if matches!(kind, ChipKind::Plain | ChipKind::Ready | ChipKind::NotInstalled) { 20.0 } else { 32.0 };
     let (rect, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     paint_chip(ui.painter(), rect.min, text, kind);
 }
@@ -1477,17 +1478,6 @@ fn skeleton_grid(ui: &mut Ui, n: usize) {
 
 fn lerp(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * t).round() as u8
-}
-
-// A lime segment sweeping along `rect`, for work that refreshes what is already on screen.
-fn sweep(ui: &mut Ui, rect: Rect) {
-    let t = (ui.input(|i| i.time) as f32 / 1.4).fract();
-    let w = rect.width() * 0.25;
-    let x = rect.left() - w + (rect.width() + w) * t;
-    let seg = Rect::from_x_y_ranges(x.max(rect.left())..=(x + w).min(rect.right()), rect.y_range());
-    ui.painter().rect_filled(rect, 0.0, LINE);
-    ui.painter().rect_filled(seg, 0.0, lime());
-    ui.ctx().request_repaint();
 }
 
 fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
@@ -1545,8 +1535,9 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &o.name));
     let image = Rect::from_min_size(rect.min, vec2(w, h));
     cover_image(ui, &o.cover, &o.name, image);
-    // Dimmed: not on this PC yet.
+    // Dimmed and marked: not on this PC yet.
     ui.painter_at(image).rect_filled(image, RADIUS, Color32::from_black_alpha(110));
+    paint_chip(&ui.painter_at(image), image.min + vec2(10.0, 10.0), "Not installed", ChipKind::NotInstalled);
     hover_card(ui, &resp, image);
     let mut job = egui::text::LayoutJob::simple_singleline(o.name.clone(), body(BODY), INK);
     job.wrap = egui::text::TextWrapping::truncate_at_width(w);
@@ -1554,9 +1545,10 @@ fn owned_card(ui: &mut Ui, o: &games::Owned, w: f32) -> egui::Response {
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
     let (text, kind) = match o.blocker {
         // Ban risks are red; the rest are just unsupported.
-        Some(b @ ("Already VR" | "32-bit")) => (b, ChipKind::Unsupported),
+        Some(b @ ("Own VR mode" | "32-bit")) => (b, ChipKind::Unsupported),
         Some(b) => (b, ChipKind::Blocked),
-        None => ("Not installed", ChipKind::NotInstalled),
+        None if o.full_vr => ("Full VR", ChipKind::FullVr),
+        None => ("VR screen", ChipKind::Screen),
     };
     paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), text, kind);
     focus_ring(ui, &resp);

@@ -15,6 +15,15 @@
 - Godot: the real mouse cursor no longer jumps to the window's corner while the laser points at the game.
 - The VR menu repaints about 15 times faster (1.6 ms instead of 24 ms), so opening it no longer costs frames.
 
+### Library
+- Every game says what you get: **Full VR** (you stand inside the game; lime once VR is set up, so Play goes straight
+  in), **VR screen** (the game on a big screen in VR, any engine), or why Parallax can't run it. Tabs: Full VR, VR
+  screen, Not installed and Unsupported; All leaves the unsupported games out. A line under the tabs says what the
+  words mean.
+- **Not installed** lists the whole Steam library, not only its Unity games: Unity games are marked Full VR, the rest
+  VR screen.
+- No more sweeping line under the title each time the window comes back into focus; the list just updates.
+
 ### Look and motion
 - Themes: Lime, Mint, Aqua, Sky, Violet, Pink, Amber or White as the accent, the same eight as DesktopVR and
   FitnessVR. Pick it in the app (Settings > Look) or the VR menu (View > Theme); one choice for every game and the

@@ -56,8 +56,13 @@ fn main() -> ExitCode {
     // The Steam library's Unity games and what is known about them before install, for checking the library scan.
     if args.len() == 1 && args[0] == "owned" {
         attach_console();
-        for o in games::steam_unity_library() {
-            println!("{}	{}	{}	{}", o.app_id, o.blocker.unwrap_or("ok"), o.last_played, o.name);
+        let t = std::time::Instant::now();
+        for g in games::scan() {
+            println!("here\t{}\t{}\t{}\t{}", g.engine, g.unity, g.badge(), g.name);
+        }
+        println!("scan took {:?}", t.elapsed());
+        for o in games::steam_library() {
+            println!("{}	{}	{}	{}	{}", o.app_id, if o.full_vr { "full" } else { "screen" }, o.blocker.unwrap_or("ok"), o.last_played, o.name);
         }
         return ExitCode::SUCCESS;
     }
