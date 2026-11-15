@@ -172,6 +172,26 @@ def main():
                 v = ch.cmd("setting View/Display")["value"]
                 check("menu click", v == "Theater", f"the laser on Display > Theater set View/Display = {v!r} in the game's settings")
                 ch.cmd("set View/Display Stereo")
+                # Every tab, clicked by the laser and captured as the headset gets it (tab words on the tab row).
+                tabs = {"quick": 0.075, "view": 0.157, "controls": 0.264, "game": 0.373, "library": 0.47, "diagnostics": 0.61}
+                drawn = []
+                for name, u in tabs.items():
+                    ch.cmd(f"point {u} 0.076")
+                    time.sleep(0.3)
+                    ch.cmd('controllers {"rt": 1.0}')
+                    time.sleep(0.2)
+                    ch.cmd('controllers {"rt": 0.0}')
+                    ch.cmd(f"point 0.5 0.98")  # off the controls, so no hover ring in the picture
+                    time.sleep(0.8)
+                    ch.cmd("capture " + cap)
+                    time.sleep(0.8)
+                    if os.path.exists(shot):
+                        m = load_bmp(shot)
+                        from PIL import Image
+                        Image.fromarray(m[..., :3].astype("uint8")).save(os.path.join(OUT, f"menu-{name}.png"))
+                        drawn.append(int((m[..., :3].min(axis=2) > 200).sum()))
+                        os.remove(shot)
+                check("menu tabs", len(drawn) == 6 and min(drawn) > 500, f"six tabs captured, ink pixels {drawn}")
                 ch.cmd("point -1 0")
                 ch.cmd('controllers {}')
                 ch.cmd("menu")

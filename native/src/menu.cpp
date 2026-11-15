@@ -255,11 +255,12 @@ public:
             canvas.fade = 1 - (1 - canvas.fade) * (1 - canvas.fade);
             canvas.round({0, 0, W, H}, Bg, PanelRadius);
             hovered = 0;
+            // Cleared first: drawing may ask for another paint (a cover still to decode).
+            dirty = false;
             body();
             painting = false;
             version++;
             paintedAt = now;
-            dirty = false;
         }
         lastTrigger = triggerDown;
         return req;
@@ -513,7 +514,13 @@ private:
         };
         if (button("\xE2\x88\x92", false, 96, false, &s)) store(v - step);
         std::string shown = fmt(format, v);
-        if (std::string(format).find("%+") != std::string::npos && std::fabs(v) < 0.005f) shown = fmt(format + 1, 0.0);
+        // Zero without a sign ("0.00 m", not "+0.00 m").
+        if (std::fabs(v) < 0.005f) {
+            std::string unsigned_ = format;
+            size_t plus = unsigned_.find("%+");
+            if (plus != std::string::npos) unsigned_.erase(plus + 1, 1);
+            shown = fmt(unsigned_.c_str(), 0.0);
+        }
         label(shown, value(), 200);
         if (button("+", false, 96, false, &s)) store(v + step);
     }
@@ -971,7 +978,7 @@ private:
         if (it != covers.end()) return it->second.w > 0 ? &it->second : nullptr;
         // One cover decoded per frame, so opening the tab never stalls the headset.
         if (coverLoaded) {
-            animating = true;
+            dirty = true;  // the next frame decodes the next one
             return nullptr;
         }
         coverLoaded = true;
