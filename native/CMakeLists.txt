@@ -20,6 +20,13 @@ FetchContent_Declare(stb
     GIT_TAG 9600522de53973336fa033a289858a4354cbb04c)
 FetchContent_MakeAvailable(openxr_sdk minhook stb)
 
+# Lua 5.4.7 (MIT, lua.org) for per-game scripts, built as C++ so its errors unwind our calls' destructors.
+file(GLOB lua_sources ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua/*.c)
+set_source_files_properties(${lua_sources} PROPERTIES LANGUAGE CXX)
+add_library(lua STATIC ${lua_sources})
+target_include_directories(lua PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lua)
+target_compile_options(lua PRIVATE /EHsc /W0)
+
 # The app's fonts, embedded in the core for the VR menu.
 include(${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake)
 set(assets ${CMAKE_CURRENT_SOURCE_DIR}/../app/assets)
@@ -41,11 +48,12 @@ add_library(parallax_core OBJECT
     src/canvas.cpp
     src/menu.cpp
     src/bridge.cpp
+    src/script.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/fonts.cpp)
 add_library(parallax_core_deps INTERFACE)
 target_include_directories(parallax_core_deps INTERFACE ${openxr_sdk_SOURCE_DIR}/include ${stb_SOURCE_DIR})
 target_compile_definitions(parallax_core_deps INTERFACE XR_NO_PROTOTYPES XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11 XR_USE_GRAPHICS_API_D3D12 WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(parallax_core_deps INTERFACE minhook d3d11 d3d12 dxgi d3dcompiler)
+target_link_libraries(parallax_core_deps INTERFACE minhook lua d3d11 d3d12 dxgi d3dcompiler)
 target_link_libraries(parallax_core PRIVATE parallax_core_deps)
 target_compile_options(parallax_core PRIVATE /W4 /permissive-)
 
@@ -56,7 +64,7 @@ add_custom_command(TARGET parallax_xr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${openxr_sdk_SOURCE_DIR}/x64/bin/openxr_loader.dll $<TARGET_FILE_DIR:parallax_xr>)
 
 # Unreal Engine games: the core inside the game, loaded as dwmapi.dll from beside its Shipping exe.
-add_library(parallax_unreal SHARED src/unreal.cpp $<TARGET_OBJECTS:parallax_core>)
+add_library(parallax_unreal SHARED src/unreal.cpp src/uobject.cpp $<TARGET_OBJECTS:parallax_core>)
 set_target_properties(parallax_unreal PROPERTIES OUTPUT_NAME dwmapi)
 target_link_libraries(parallax_unreal PRIVATE parallax_core_deps)
 target_compile_options(parallax_unreal PRIVATE /W4 /permissive- /EHsc)

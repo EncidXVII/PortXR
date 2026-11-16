@@ -36,6 +36,7 @@ struct Game {
     bool noTheater = false;   // no VR screen: Full VR there instead (Unreal)
     Pose camera{};          // the game camera in the world (right-handed, Y up, -Z forward)
     std::string cameraKey;  // scene and camera name
+    std::string scene, cameraName;  // for the core's game scripts (script.h): on_scene, on_camera
     bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
     float uiAspect = 16.f / 9.f;  // the game's UI, width / height
     float fovY = 1.f, nearClip = 0.05f;  // the game camera's vertical field of view (radians) and near plane
@@ -111,5 +112,8 @@ void test_point(float u, float v, bool screen = false);
 // End of frame: the eyes rendered at those poses, and the game's UI (straight alpha, uiAspect = width / height) on the
 // panel in front.
 void submit_view(void* left, void* right, void* ui, float uiAspect, bool flipY);
+// The eyes' size as a fraction of the headset's recommended size: Resolution, lowered while the headset misses frames
+// (Auto resolution) as Unity's plugin does. For engines that size their own eye images (Godot, Unreal); asked every frame.
+float render_scale();
 void shutdown();
 }  // namespace bridge

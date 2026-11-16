@@ -14,15 +14,31 @@
   Shipping exe (Remove VR puts the folder back): the engine renders both eyes itself, the game's UI sits on a panel in
   front, and the controllers act as a gamepad. Full VR and 3D screen (no VR screen: Full VR there instead), head and hand
   aim, the crosshair, laser pointer, watch and VR menu. Play starts the VR runtime first; started without a headset, the
-  game runs untouched. Runs on SteamVR's test headset in Direct3D 12; not yet tried on a real one. From UE 5.5 the game's
-  UI shows inside the eyes. No camera picker, hide objects, weapon in hand or scripts there yet (they need the game's
-  objects).
+  game runs untouched. Runs on SteamVR's test headset in Direct3D 12; not yet tried on a real one. UE 5.5 and newer,
+  which dropped the engine's switch for keeping the UI out of the eyes, draw it into a texture of its own the size of
+  the window, so it shows whole on the panel as in older versions.
+- **Unreal games' own objects** (UE 4.25 and newer): Parallax now reads the engine's object list, names, classes,
+  properties and functions, found and checked in each game rather than per version. With it, Unreal games get the VR
+  menu's **Game camera** picker, **Hide objects** and **Weapon in hand** as Unity and Godot games have, and scripts reach
+  the game's actors and components: find, hide, move, read or set any property, call any function (SCRIPTING.md).
+  `on_scene` gets the map's name and `on_camera` the camera the view follows. Tried on UE 5.0, 5.4 and 5.5 games.
 - The crosshair (Game's or Parallax's) now comes from the core, so Godot and Unreal games have it too. Godot games also
   get **Hide objects** and **Weapon in hand** in the VR menu's Game tab, as Unity games have.
 - Godot games get what Unity games had: the body's heading stays steady when the game camera looks straight up or
   down, and the screen handles pause the game's input.
 - Godot: the real mouse cursor no longer jumps to the window's corner while the laser points at the game.
 - The VR menu repaints about 15 times faster (1.6 ms instead of 24 ms), so opening it no longer costs frames.
+
+- **Game scripts in every engine.** Godot and Unreal games now run the same per-game Lua scripts as Unity games (same
+  folder, callbacks and `parallax` calls), from a Lua 5.4 inside the core. Godot scripts also reach the game's nodes:
+  find, show and hide, move, read or set any property, call a method. A script stuck in a loop is stopped after a second instead of freezing the game.
+  The app's **Scripts** section is on every Full VR game's page.
+- **Auto resolution** in Godot and Unreal games, as in Unity's: the eyes drop 10% at a time while the headset misses
+  frames, come back with headroom, and stop trying when the game is CPU-bound. It now lives in the core.
+- Godot games keep the **Game camera** picked in the VR menu or the app across starts (it applied only until the game
+  closed). The VR menu's **Library** tab knows a running Unreal game as the current one (it offered to start it again),
+  and its Game tab no longer shows an empty camera picker. The app hides **UI black** for Godot and Unreal games, where
+  it doesn't apply.
 
 ### Library
 - Every game says what you get: **Full VR** (you stand inside the game; lime once VR is set up, so Play goes straight
@@ -35,6 +51,12 @@
 - Steam apps that aren't games (VTube Studio, XSOverlay) are no longer listed. Unreal games whose game exe sits deeper
   or beside a launcher of the same kind (Marvel Rivals, WARDOGS) are recognised, and the anti-cheat installer or a
   developer console is no longer taken for a game's exe.
+- Cover art for games newer Steam clients cache under new names (`library_capsule.jpg`, `library_header.jpg`): about
+  160 games in a large library showed only their initial.
+- The name in the top bar lines up with the page under it, and the store and order menus stay beside the status tabs
+  whenever they fit (they dropped to a row of their own at most window sizes), wrapping under the tabs from the left.
+- **Open log** and **Export logs** work for Godot and Unreal games too (`ParallaxVR\parallax.log` beside the exe, where
+  script errors land); the exported `game.txt` names the real engine instead of calling every game Unity.
 - No more sweeping line under the title each time the window comes back into focus; the list just updates.
 - One set of words everywhere: the display modes are now **Full VR**, **3D screen** and **VR screen** (were Stereo,
   Parallax and Theater) in the app, the VR menu and the library. Saved settings carry over.

@@ -12,6 +12,8 @@ std::string get(const char* section, const char* key, const char* fallback);
 float getf(const char* section, const char* key, float fallback, float lo, float hi);
 bool getb(const char* section, const char* key, bool fallback);
 void set(const char* section, const char* key, const std::string& value);
+// The section that holds `key` (the app writes every key into the game's file); empty if none does.
+std::string section_of(const char* key);
 // The theme accent (sRGB 0..1) from %APPDATA%\Parallax\theme.txt.
 void accent(float rgb[3]);
 }  // namespace settings

@@ -10,6 +10,7 @@ extends Node
 const LOG := "Parallax: "
 
 var core: RefCounted
+var _log_file: FileAccess  # ParallaxVR/parallax.log, which the app opens (Open log)
 var _views: Array[SubViewport] = []
 var _cams: Array[Camera3D] = []
 var _attached := false
@@ -58,12 +59,13 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	process_priority = 10000  # after the game has moved its camera this frame
 	var dir := (get_script() as Script).resource_path.get_base_dir()
+	_log_file = FileAccess.open(dir.path_join("parallax.log"), FileAccess.WRITE)
 	GDExtensionManager.load_extension(dir.path_join("parallax.gdextension"))
 	if not ClassDB.class_exists("ParallaxCore"):
-		print(LOG, "the VR core did not load; the game stays flat")
+		_say(str("the VR core did not load; the game stays flat"))
 		return
 	if RenderingServer.get_current_rendering_driver_name() != "d3d12":
-		print(LOG, "VR needs Direct3D 12 (this game runs ", RenderingServer.get_current_rendering_driver_name(), "); the game stays flat")
+		_say(str("VR needs Direct3D 12 (this game runs ", RenderingServer.get_current_rendering_driver_name(), "); the game stays flat"))
 		return
 	core = ClassDB.instantiate("ParallaxCore")
 	core.open_settings(dir.path_join("parallax.cfg"))
@@ -73,7 +75,7 @@ func _ready() -> void:
 	if not info["ok"]:
 		core = null
 		return
-	var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
+	var scale := float(core.render_scale())
 	for e in 2:
 		var v := SubViewport.new()
 		v.size = Vector2i(int(info["width"] * scale), int(info["height"] * scale))
@@ -97,7 +99,7 @@ func _ready() -> void:
 	if port != "":
 		_udp = PacketPeerUDP.new()
 		_udp.bind(int(port), "127.0.0.1")
-	print(LOG, "VR core on, eyes ", _views[0].size, ", controls (auto): ", "gamepad" if _pad_game else "keyboard and mouse")
+	_say(str("VR core on, eyes ", _views[0].size, ", controls (auto): ", "gamepad" if _pad_game else "keyboard and mouse"))
 
 
 func _process(_delta: float) -> void:
@@ -124,6 +126,7 @@ func _process(_delta: float) -> void:
 		"ui_aspect": _ui_aspect(root),
 		"fov_y": deg_to_rad(_game.fov) if _game else 1.0, "near": _game.near if _game else 0.05,
 		"focus": _focus, "aim_distance": _aim_distance(), "world_pointer": _hiding, "world_reach": _hide_reach,
+		"scene": _scene_name(), "camera_name": str(_game.name) if _game else "",
 	}
 	if _game != null:
 		game["camera"] = _game.global_transform.orthonormalized()
@@ -160,7 +163,7 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	if now - _last_report > 5000:
 		_last_report = now
-		print(LOG, "frame ", _frames, " state ", core.state(), " camera ", _game.get_path() if _game else "none")
+		_say(str("frame ", _frames, " state ", core.state(), " camera ", _game.get_path() if _game else "none"))
 	_log()
 
 
@@ -183,11 +186,19 @@ func _after_draw() -> void:
 		core.submit_view(left, _views[1].get_texture().get_rid(), root.get_texture().get_rid(), _ui_aspect(root))
 
 
+# The game's own log and Parallax's, where script errors land too.
+func _say(text: String) -> void:
+	print(LOG, text)
+	if _log_file != null:
+		_log_file.store_line(text)
+		_log_file.flush()
+
+
 func _log() -> void:
 	var t: String = core.poll_log()
 	if t != "":
 		for line in t.strip_edges().split("\n"):
-			print(LOG, "core: ", line)
+			_say(str("core: ", line))
 
 
 # The game's camera: the root viewport's, else the one in the SubViewport the game shows across most of the screen.
@@ -200,6 +211,7 @@ func _game_camera(root: Window) -> Camera3D:
 	var searching := now - _searched_at > 2000
 	if searching:
 		_searched_at = now
+		_picked_camera = core.setting("Game", "CameraName", "")
 		_camera_names.clear()
 		for c in root.find_children("*", "Camera3D", true, false):
 			if not _cams.has(c) and not _camera_names.has(str(c.name)):
@@ -260,7 +272,7 @@ func _show_picture(picture: CanvasItem) -> void:
 	if picture != null:
 		_hidden_alpha = picture.self_modulate.a
 		picture.self_modulate.a = 0
-		print(LOG, "the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel")
+		_say(str("the game's view ", picture.get_path(), " is in the headset; hidden from the UI panel"))
 
 
 # Parallax: the two window cameras, from the game camera moved along its right, looking where it looks, through the
@@ -313,21 +325,29 @@ func _aim_distance() -> float:
 	return 0.0 if hit.is_empty() else from.distance_to(hit["position"])
 
 
+# The scene as game scripts know it (on_scene): its file's name ("level_2" for res://levels/level_2.tscn), else its root's.
+func _scene_name() -> String:
+	var s := get_tree().current_scene
+	if s == null:
+		return ""
+	return s.scene_file_path.get_file().get_basename() if s.scene_file_path != "" else str(s.name)
+
+
 func _stereo_size() -> Vector2i:
-	var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
+	var scale := float(core.render_scale())
 	return Vector2i(int(_eye_size.x * scale), int(_eye_size.y * scale))
 
 
 # What the VR menu asks of the game: quit, follow another camera, new eye resolution.
 func _menu_requests(result: Dictionary) -> void:
 	if result.get("quit", false):
-		print(LOG, "quit from the VR menu")
+		_say(str("quit from the VR menu"))
 		get_tree().quit()
 	if result.has("camera_picked"):
 		_picked_camera = result["camera_picked"]
 		_searched_at = -10000
 	if result.get("render_scale", false):
-		var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
+		var scale := float(core.render_scale())
 		for v in _views:
 			v.size = Vector2i(int(_eye_size.x * scale), int(_eye_size.y * scale))
 
@@ -561,7 +581,7 @@ func _aim_hider(result: Dictionary) -> void:
 		core.set_setting("Game", "Hidden", ";".join(paths))
 		_hide_target.visible = false
 		_hid.append(_hide_target)
-		print(LOG, "hid ", _hide_target.get_path())
+		_say(str("hid ", _hide_target.get_path()))
 	_trigger_was = trigger
 
 

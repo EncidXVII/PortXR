@@ -14,6 +14,8 @@
 #include "unreal_dwmapi.h"
 
 #include "bridge.h"
+#include "script.h"
+#include "uobject.h"
 #include "common.h"
 #include "gpu.h"
 #include "mathx.h"
@@ -29,6 +31,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -48,6 +51,7 @@ enum Event { EvInit = 1, EvBegin = 2, EvSubmit = 3 };
 void event(int id) { ((void(__stdcall*)(int))prx_render_event_func())(id); }
 
 std::wstring g_dir;   // the game's Shipping exe folder (ours too)
+DWORD g_mainThread;
 std::wstring g_test;  // tests: run without a headset, write what the engine renders into this folder
 FILE* g_log;
 
@@ -355,6 +359,24 @@ int eye_of(int32_t index) {
     return fromOne ? index - 1 : index % 2;
 }
 
+// The game's objects (section 2, below): what the tools found and keep.
+struct Box {
+    double c[3], e[3];  // centre, half size (Unreal units)
+};
+struct Tools {
+    int frames = 0;
+    std::string scene, camera, autoCamera;  // the world's name; the view's camera (picked, or the player's own)
+    std::vector<std::string> cameras;      // the world's cameras, for the menu's picker
+    bool hiding = false, triggerWas = false;
+    float reach = 3;                       // metres along the laser to what it would hide
+    std::vector<ue::Obj*> hid, shown;      // hidden here; drawn primitives (while hiding)
+    std::unordered_map<ue::Obj*, Box> bounds;
+    size_t cursor = 0;
+    std::vector<std::pair<ue::Obj*, std::vector<double>>> held;  // moved to the hand: their relative locations
+    ULONGLONG listedAt = 0, rehiddenAt = 0;
+} g_tools;
+bridge::MenuHost g_host;
+
 bridge::Game game_now() {
     bridge::Game g;
     CURSORINFO ci{sizeof(ci)};
@@ -371,6 +393,8 @@ bridge::Game game_now() {
     g.nearClip = g_near;
     g.pointerClick = true;
     g.crosshair = true;
+    g.scene = g_tools.scene, g.cameraName = g_tools.camera;
+    g.worldPointer = g_tools.hiding, g.worldReach = g_tools.reach;
     return g;
 }
 
@@ -391,9 +415,224 @@ bool test_frame(const double loc[3], const double rot[3], bridge::Frame& f) {
     return true;
 }
 
+// --- 2. The game's objects (uobject.h): the VR menu's game camera, hide objects and weapon in hand ---------------------
+
+bool flag(const ue::Obj* o, const char* property) {
+    double v = 0;
+    return ue::get_numbers(o, property, &v, 1) && v != 0;
+}
+bool drawn(const ue::Obj* c) { return flag(c, "bVisible") && !flag(c, "bHiddenInGame"); }
+
+bool in_world(const ue::Obj* o, const ue::Obj* world) {
+    for (int i = 0; o && i < 8; ++i, o = ue::outer(o))
+        if (o == world) return true;
+    return false;
+}
+
+void set_hidden(ue::Obj* o, bool hidden) {
+    ue::Invoke(o, "SetHiddenInGame").set("NewHidden", {hidden ? 1. : 0.}).set("bPropagateToChildren", {1}).run();
+}
+
+std::vector<std::string> hidden_paths() {
+    std::vector<std::string> out;
+    std::string all = bridge::setting("Game", "Hidden", "");
+    for (size_t a = 0, b; a < all.size(); a = b + 1) {
+        b = all.find(';', a);
+        if (b == std::string::npos) b = all.size();
+        if (b > a) out.push_back(all.substr(a, b - a));
+    }
+    return out;
+}
+
+// Every two seconds: the world's cameras for the picker, the primitives the laser can hide, hidden ones hidden again
+// (levels load, games show things again); the menu told.
+void list_objects(ue::Obj* world) {
+    Tools& t = g_tools;
+    static ue::Obj *cameraClass = ue::find_class("CameraComponent"), *primClass = ue::find_class("PrimitiveComponent");
+    t.cameras.clear();
+    t.autoCamera.clear();
+    ue::Obj* pawn = ue::pawn();
+    for (ue::Obj* c : ue::objects_of(cameraClass)) {
+        if (!in_world(c, world)) continue;
+        t.cameras.push_back(ue::path(c));
+        if (t.autoCamera.empty() && pawn && ue::outer(c) == pawn) t.autoCamera = t.cameras.back();
+    }
+    if (t.cameras != g_host.cameras) {
+        std::string all;
+        for (const std::string& c : t.cameras) all += (all.empty() ? "" : ", ") + c;
+        note("Unreal: cameras in %s: %s", ue::name(world).c_str(), all.empty() ? "none" : all.c_str());
+    }
+    t.shown.clear();
+    if (t.hiding)
+        for (ue::Obj* c : ue::objects_of(primClass))
+            if (in_world(c, world) && drawn(c)) t.shown.push_back(c);
+    std::vector<std::string> paths = hidden_paths();
+    for (const std::string& p : paths)
+        if (ue::Obj* o = ue::find(p); o && drawn(o)) {
+            set_hidden(o, true);
+            if (std::find(t.hid.begin(), t.hid.end(), o) == t.hid.end()) t.hid.push_back(o);
+        }
+    g_host.hideObjects = g_host.handHeld = true;
+    g_host.cameras = t.cameras;
+    g_host.currentCamera = t.camera;
+    g_host.hidden = (int)paths.size();
+    bridge::set_menu_host(g_host);
+}
+
+// Before the rig, on the game thread: object access once the game runs, the scene's name, and the picked camera's
+// view in place of the game's.
+void tools_view(double loc[3], double rot[3]) {
+    Tools& t = g_tools;
+    if (++t.frames < 120 || !ue::init()) return;
+    ue::Obj* world = ue::world();
+    t.scene = world ? ue::name(world) : "";
+    ULONGLONG now = GetTickCount64();
+    if (now - t.listedAt > 2000 && world) t.listedAt = now, list_objects(world);
+    std::string picked = bridge::setting("Game", "CameraName", "");
+    static ue::Obj* cameraClass = ue::find_class("CameraComponent");
+    ue::Obj* cam = picked.empty() ? nullptr : ue::find(picked);
+    ue::Invoke l(cam, "K2_GetComponentLocation"), r(cam, "K2_GetComponentRotation");
+    if (cam && ue::is_a(cam, cameraClass) && l.run() && r.run()) {
+        l.get("ReturnValue", loc, 3), r.get("ReturnValue", rot, 3);
+        t.camera = picked;
+    } else {
+        t.camera = t.autoCamera;
+    }
+}
+
+V3 hand_forward(const bridge::Pose& p) { return Q{p.q[0], p.q[1], p.q[2], p.q[3]} * V3{0, 0, -1}; }
+
+// The ray from the right hand against the drawn primitives' bounds (a few hundred measured a frame); the trigger
+// hides the nearest (kept per game by path), B or the VR menu puts the tool away.
+bool ray_box(const double o[3], const double d[3], const Box& b, double& hit) {
+    double enter = -1e30, leave = 1e30;
+    for (int i = 0; i < 3; ++i) {
+        double lo = b.c[i] - b.e[i], hi = b.c[i] + b.e[i];
+        if (std::fabs(d[i]) < 1e-9) {
+            if (o[i] < lo || o[i] > hi) return false;
+            continue;
+        }
+        double t1 = (lo - o[i]) / d[i], t2 = (hi - o[i]) / d[i];
+        enter = std::max(enter, std::min(t1, t2)), leave = std::min(leave, std::max(t1, t2));
+    }
+    if (enter > leave || enter <= 0) return false;  // missed, behind, or the hand is inside it
+    return hit = enter, true;
+}
+
+void aim_hider(const bridge::Frame& f) {
+    Tools& t = g_tools;
+    if (f.menuOpen || f.bDown) return void(t.hiding = false);
+    if (!f.rightValid) return;
+    ue::Obj* lib = ue::statics("KismetSystemLibrary");
+    for (int k = 0; k < 300 && !t.shown.empty(); ++k) {
+        t.cursor %= t.shown.size();
+        ue::Obj* c = t.shown[t.cursor++];
+        ue::Invoke b(lib, "GetComponentBounds");
+        Box box{};
+        if (ue::alive(c) && b.set("Component", c).run() && b.get("Origin", box.c, 3) == 3 && b.get("BoxExtent", box.e, 3) == 3)
+            t.bounds[c] = box;
+    }
+    double o[3], d[3], best = 1e30;
+    to_ue({f.right.p[0], f.right.p[1], f.right.p[2]}, g_scale, o);
+    V3 fwd = hand_forward(f.right);
+    d[0] = -fwd.z, d[1] = fwd.x, d[2] = fwd.y;
+    ue::Obj* target = nullptr;
+    for (ue::Obj* c : t.shown) {
+        auto it = t.bounds.find(c);
+        double hit;
+        if (it != t.bounds.end() && ray_box(o, d, it->second, hit) && hit < best) best = hit, target = c;
+    }
+    t.reach = target ? (float)(best / g_scale / std::max(f.scale, 1e-4f)) : 3.f;
+    bool trigger = f.rightTrigger > 0.6f;
+    if (trigger && !t.triggerWas && target && ue::alive(target)) {
+        set_hidden(target, true);
+        t.hid.push_back(target);
+        std::string all = bridge::setting("Game", "Hidden", ""), p = ue::path(target);
+        bridge::set_setting("Game", "Hidden", all.empty() ? p : all + ";" + p);
+        t.shown.erase(std::find(t.shown.begin(), t.shown.end(), target));
+        g_host.hidden = (int)hidden_paths().size();
+        bridge::set_menu_host(g_host);
+        note("Unreal: hid %s", p.c_str());
+    }
+    t.triggerWas = trigger;
+}
+
+// Weapon in hand: what the view's camera carries (the arms, the weapon) moved to the right hand while hand aiming,
+// put back before the next frame.
+void hold(const bridge::Frame& f) {
+    Tools& t = g_tools;
+    for (auto& [c, rel] : t.held)
+        if (ue::alive(c)) ue::Invoke(c, "K2_SetRelativeLocation").set("NewLocation", {rel[0], rel[1], rel[2]}).set("bTeleport", {1}).run();
+    t.held.clear();
+    std::string on = bridge::setting("Controls", "WeaponInHand", "true");
+    if (!f.aiming || !f.handAiming || !f.rightValid || (on != "true" && on != "True")) return;
+    ue::Obj* cam = t.camera.empty() ? nullptr : ue::find(t.camera);
+    std::vector<ue::Obj*> carried;
+    for (ue::Obj* c : ue::get_objects(cam, "AttachChildren"))
+        if (ue::alive(c) && drawn(c)) carried.push_back(c);
+    if (carried.empty()) return;
+    double middle[3] = {}, at[3];
+    std::vector<std::vector<double>> where;
+    for (ue::Obj* c : carried) {
+        ue::Invoke l(c, "K2_GetComponentLocation");
+        std::vector<double> p(3);
+        l.run(), l.get("ReturnValue", p.data(), 3);
+        for (int i = 0; i < 3; ++i) middle[i] += p[i] / carried.size();
+        where.push_back(p);
+    }
+    V3 hand = V3{f.right.p[0], f.right.p[1], f.right.p[2]} + hand_forward(f.right) * (0.08f * f.scale);
+    to_ue(hand, g_scale, at);
+    for (size_t k = 0; k < carried.size(); ++k) {
+        std::vector<double> rel(3);
+        if (ue::get_numbers(carried[k], "RelativeLocation", rel.data(), 3) != 3) continue;
+        t.held.push_back({carried[k], rel});
+        const std::vector<double>& p = where[k];
+        ue::Invoke(carried[k], "K2_SetWorldLocation")
+            .set("NewLocation", {p[0] + at[0] - middle[0], p[1] + at[1] - middle[1], p[2] + at[2] - middle[2]})
+            .set("bTeleport", {1})
+            .run();
+    }
+}
+
+// After the rig: the menu's requests and the tools.
+void tools_frame(const bridge::Frame& f) {
+    Tools& t = g_tools;
+    if (t.frames < 120 || !ue::init()) return;
+    hold(f);
+    if (f.showHidden) {
+        for (ue::Obj* o : t.hid)
+            if (ue::alive(o)) set_hidden(o, false);
+        t.hid.clear();
+        bridge::set_setting("Game", "Hidden", "");
+        g_host.hidden = 0;
+        bridge::set_menu_host(g_host);
+    }
+    if (f.hideObjects) t.hiding = t.triggerWas = true, t.listedAt = 0;  // the trigger that chose the tool goes up first
+    if (t.hiding) aim_hider(f);
+    if (!t.hiding) t.shown.clear(), t.bounds.clear();
+}
+
+// Tests: the objects the tools start from, once, 600 frames in.
+void probe_objects() {
+    note("Unreal objects: the view runs on the %s thread", GetCurrentThreadId() == g_mainThread ? "main" : "NOT main");
+    if (!ue::init()) return;
+    auto show = [](const char* what, ue::Obj* o) {
+        note("Unreal objects: %s = %s (%s)", what, o ? ue::path(o).c_str() : "null", o ? ue::name(ue::class_of(o)).c_str() : "-");
+    };
+    show("world", ue::world());
+    show("controller", ue::player_controller());
+    show("pawn", ue::pawn());
+    show("camera manager", ue::camera_manager());
+}
+
+void ui_target();  // section 2, render target
+
 // The engine asks for the left eye first: that call runs the rig with the game camera and places both eyes.
 void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters, void* location) {
     ++g_calls[0];
+    ue::set_game_thread();
+    static int probeFrames;
+    if (!g_test.empty() && index >= 0 && eye_of(index) == 0 && ++probeFrames == 600) probe_objects();
     int e = eye_of(index);
     if (e < 0 || e > 1 || !g_vr) return g_offset(self, index, rotation, worldToMeters, location);
     double scale = g_scale = worldToMeters > 0 ? worldToMeters : 100;
@@ -401,17 +640,20 @@ void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters,
         double loc[3], rot[3];
         read3(location, loc);
         read3(rotation, rot);
+        ui_target();
         std::lock_guard lock(g_frameMutex);
         bridge::Frame f;
         if (!g_test.empty()) {
             g_located = test_frame(loc, rot, f);
         } else {
+            tools_view(loc, rot);
             bridge::Game g = game_now();
             g.hasCamera = true;
             V3 p = to_xr(loc, scale);
             Q q = rotator_to_q(rot);
             g.camera = {{p.x, p.y, p.z}, {q.x, q.y, q.z, q.w}};
             g_located = bridge::frame(g, f);
+            tools_frame(f);
         }
         g_framed = true;
         if (g_located) {
@@ -457,9 +699,10 @@ struct Layout {
     bool operator!=(const Layout& o) const { return eyeW != o.eyeW || eyeH != o.eyeH; }
 };
 Layout g_have;  // as the engine has it
+bool g_uiInEyes;  // UE 5.5+: Slate draws the UI into the viewport's texture (redirected: ui_target)
 
 Layout layout_wanted() {
-    float scale = std::fmax(0.3f, std::fmin(2.f, (float)atof(bridge::setting("View", "RenderScale", "1").c_str())));
+    float scale = bridge::render_scale();
     return {(uint32_t)(g_eyeW * scale), (uint32_t)(g_eyeH * scale)};
 }
 
@@ -484,8 +727,11 @@ struct {
 
 uintptr_t g_sizeReturn;  // where the engine asked for our size: it asks for the buffered frames right after
 
-uint64_t rtm_zero(void*) { return 0; }  // every other slot: false, nothing, PF_Unknown, "allocate it yourself"
-uint64_t rtm_one(void*) { return 1; }   // ShouldUseSeparateRenderTarget
+// UE 5.5+: the engine asks for these on the render thread as it draws the UI, after it set its Slate handle back to the
+// eye texture for the frame: the handle goes to the UI's texture again then (ui_target).
+void on_render_ask();
+uint64_t rtm_zero(void*) { return on_render_ask(), 0; }  // every other slot: false, nothing, PF_Unknown, "allocate it yourself"
+uint64_t rtm_one(void*) { return on_render_ask(), 1; }   // ShouldUseSeparateRenderTarget
 // Slots 5 and 6: GetNumberOfBufferedFrames is 5 before UE 4.26 and 6 after (NeedReAllocateShadingRateTexture came in
 // before it, and AllocateRenderTargetTexture follows it). The call right after CalculateRenderTargetSize is that one
 // (told by its return address): 1 frame; anything else answers false.
@@ -496,7 +742,7 @@ void rtm_size(void*, void*, uint32_t* x, uint32_t* y) {
     *x = g_have.eyeW * 2, *y = g_have.eyeH;
 }
 bool rtm_realloc(void*, void*) { return layout_wanted() != g_have; }
-void* rtm_hook(void*) { return &g_rtm; }
+void* rtm_hook(void*) { return on_render_ask(), &g_rtm; }
 
 // --- 2. Scene texture ---------------------------------------------------------------------------------------------------
 // It reaches the stereo device every frame in RenderTexture_RenderThread (which would copy it into the window; skipped
@@ -569,17 +815,139 @@ void* find_native(void* rhi) {
     return nullptr;
 }
 
+// The chain of objects from an engine object to a native texture of size w x h (breadth-first, `span` bytes each).
+std::vector<std::pair<void*, int>> native_chain(void* start, uint32_t want_w, uint32_t want_h, int span = 0x200) {
+    struct Node { void* p; int parent, off; };
+    std::vector<Node> nodes{{start, -1, 0}};
+    std::vector<void*> seen{start};
+    size_t begin = 0;
+    for (int depth = 0; depth < 4; ++depth) {
+        size_t end = nodes.size();
+        for (size_t i = begin; i < end; ++i)
+            for (int off = 0; off < span; off += 8) {
+                void* p = read_ptr((uint8_t*)nodes[i].p + off);
+                if ((uintptr_t)p < 0x10000 || (uintptr_t)p & 7) continue;
+                uint32_t w, h;
+                if (std::find(g_nativeVtables.begin(), g_nativeVtables.end(), read_ptr(p)) != g_nativeVtables.end() &&
+                    native_size(p, w, h) && w == want_w && h == want_h) {
+                    std::vector<std::pair<void*, int>> out{{p, off}};
+                    for (int k = (int)i; k >= 0; k = nodes[k].parent) out.insert(out.begin(), {nodes[k].p, nodes[k].off});
+                    return out;
+                }
+                if (nodes.size() < 8192 && std::find(seen.begin(), seen.end(), p) == seen.end())
+                    nodes.push_back({p, (int)i, off}), seen.push_back(p);
+            }
+        begin = end;
+    }
+    return {};
+}
+
+
+// UE 5.5+: Slate draws the game's UI into the viewport's own texture (its handle on it), laid out at the window's
+// size and stretched over the whole texture. Its handles are pointed at a texture of the window's size instead: a
+// render target the engine makes for us (kept from garbage collection; a map change still takes it, and another is
+// made), cleared each frame.
+ue::Obj* g_uiTarget;                 // game thread
+uint32_t g_uiW, g_uiH;
+std::atomic<void*> g_uiRhi, g_uiNative;  // its engine and native textures
+void* g_viewport;                    // the game viewport (FSceneViewport), found from its client
+
+void ui_target() {
+    static int frames;
+    if (!g_uiInEyes || ++frames < 120 || !ue::init() || !g_window) return;
+    ue::Obj* world = ue::world();
+    ue::Obj* lib = ue::statics("KismetRenderingLibrary");
+    if (!world || !lib) return;
+    RECT rc{};
+    GetClientRect(g_window, &rc);
+    if (rc.right < 64 || rc.bottom < 64) return;
+    // A new window size: a new target (the old one stays, unused).
+    if (!g_uiTarget || !ue::alive(g_uiTarget) || g_uiW != (uint32_t)rc.right || g_uiH != (uint32_t)rc.bottom) {
+        // Made in the map: a new map takes it, and a new one is made (Slate's handles keep the old texture alive until
+        // they move on).
+        ue::Invoke make(lib, "CreateRenderTarget2D");
+        make.set("WorldContextObject", world).set("Width", {(double)rc.right}).set("Height", {(double)rc.bottom});
+        make.set("Format", {2}).set("ClearColor", {0, 0, 0, 0});  // RTF_RGBA8
+        ue::Obj* t = make.run() ? make.get("ReturnValue") : nullptr;
+        if (g_uiTarget) note("Unreal: the UI's texture went (%s)", ue::alive(g_uiTarget) ? "window resized" : "collected");
+        if (!t || !ue::keep(t)) return;
+        g_uiTarget = t, g_uiW = rc.right, g_uiH = rc.bottom, g_uiRhi = g_uiNative = nullptr;
+        note("Unreal: the game's UI gets its own %ux%u texture", g_uiW, g_uiH);
+    }
+    if (!g_uiRhi) {
+        auto chain = native_chain(g_uiTarget, g_uiW, g_uiH, 0x400);  // the object, its resource, the RHI texture, native
+        if (chain.size() < 3) return;
+        g_uiNative = chain.back().first;
+        g_uiRhi = chain[chain.size() - 2].first;
+    }
+    ue::Invoke(lib, "ClearRenderTarget2D").set("WorldContextObject", world).set("TextureRenderTarget", g_uiTarget)
+        .set("ClearColor", {0, 0, 0, 0}).run();
+    if (!g_viewport) {
+        ue::Obj* client = ue::get_object(ue::engine(), "GameViewport");
+        // FViewport starts as an FRenderTarget: its vtable, then its texture. The client points at it early on.
+        for (int off = 0; client && off < 0x400 && !g_viewport; off += 8) {
+            void* v = read_ptr(client + off);
+            if ((uintptr_t)v >= 0x10000 && !((uintptr_t)v & 7) && read_ptr((uint8_t*)v + 8) == g_lastRhi && g_lastRhi) g_viewport = v;
+        }
+    }
+}
+
+int32_t* refs(void* rhi) { return (int32_t*)((uint8_t*)rhi + 8); }  // FRHIResource's count (and flags above bit 29)
+
+// Render thread: the viewport's Slate handles (an object whose second word is the eye texture, not a texture itself:
+// one pointer on from the viewport, or in a short array there) moved to the UI's texture, the counts kept right.
+void redirect_ui(void* eye) {
+    void* ui = g_uiRhi;
+    uint8_t* vp = (uint8_t*)g_viewport;
+    if (!ui || !vp || !eye) return;
+    // Slate's handles share one class (FSlateRenderTargetRHI): the first found sets it.
+    static void* handleClass;
+    auto take = [&](uint8_t* h) {
+        if ((uintptr_t)h < 0x10000 || (uintptr_t)h & 7 || read_ptr(h + 8) != eye || read_ptr(h) == read_ptr(eye)) return;
+        if (handleClass && read_ptr(h) != handleClass) return;
+        handleClass = read_ptr(h);
+        _InterlockedIncrement((volatile long*)refs(ui));
+        _InterlockedDecrement((volatile long*)refs(eye));  // the viewport keeps its own counts on it
+        *(void**)(h + 8) = ui;
+        static std::vector<uint8_t*> told;
+        if (std::find(told.begin(), told.end(), h) == told.end())
+            told.push_back(h), note("Unreal: Slate draws the UI into its own texture (handle %p; counts: UI %08x, eye %08x)", h, *refs(ui), *refs(eye));
+    };
+    for (int off = 0x10; off < 0x1000; off += 8) {
+        uint8_t* p = (uint8_t*)read_ptr(vp + off);
+        if ((uintptr_t)p < 0x10000 || (uintptr_t)p & 7) continue;
+        take(p);
+        int n = (int)(uintptr_t)read_ptr(vp + off + 8);
+        if (n >= 1 && n <= 4)
+            for (int i = 0; i < n; ++i) take((uint8_t*)read_ptr(p + i * 8));
+    }
+}
+
+std::atomic<DWORD> g_renderThread;  // where RenderTexture_RenderThread runs
+
+void on_render_ask() {
+    if (g_uiInEyes && g_vr && GetCurrentThreadId() == g_renderThread) redirect_ui(g_lastRhi);
+}
+
 using RenderTextureFn = void (*)(void*, void*, void*, void*, void*);
 RenderTextureFn g_renderTexture;
 
 void render_texture_hook(void* self, void* cmd, void* backbuffer, void* src, void* windowSize) {
     ++g_calls[2];
+    g_renderThread = GetCurrentThreadId();
+    // Tests: the textures' counts stay put while the handles move every frame.
+    if (!g_test.empty() && g_uiRhi && (g_calls[2] == 3000 || g_calls[2] == 6000))
+        note("Unreal test: counts at frame %d: UI %08x, eye %08x", g_calls[2].load(), *refs(g_uiRhi), *refs(g_lastRhi));
     // The headset not running yet: the device's own copy of both eyes into the window, so the game stays visible.
     if (!g_vr) return g_renderTexture(self, cmd, backbuffer, src, windowSize);
-    if (!src || src == g_lastRhi || !g_nativeReady) return;  // the device's texture vtables come with the first Present
-    g_lastRhi = src;
-    g_scene = find_native(src);
-    note("Unreal: scene texture %p -> %p (%ux%u)", src, g_scene.load(), g_sceneW, g_sceneH);
+    if (!src || !g_nativeReady) return;  // the device's texture vtables come with the first Present
+    if (src != g_lastRhi && src != g_uiRhi) {
+        if (void* native = find_native(src)) {
+            g_lastRhi = src, g_scene = native;
+            note("Unreal: scene texture %p -> %p (%ux%u)", src, native, g_sceneW, g_sceneH);
+        }
+    }
+    if (g_uiInEyes) redirect_ui(g_lastRhi);
 }
 
 // --- 3. Present: start the core, submit the frame, wait for the headset ------------------------------------------------
@@ -653,6 +1021,7 @@ void test_capture(IDXGISwapChain* sc) {
     };
     save((ID3D11Texture2D*)g_scene.load(), L"scene" + n + L".bmp");
     save(back.Get(), L"window" + n + L".bmp");
+    save((ID3D11Texture2D*)g_uiNative.load(), L"ui" + n + L".bmp");
 }
 
 void on_present(IDXGISwapChain* sc) {
@@ -681,8 +1050,9 @@ void on_present(IDXGISwapChain* sc) {
             void* scene = g_scene;
             Layout l = g_have;
             float tw = (float)g_sceneW, th = (float)g_sceneH;
-            // The UI panel: the window, holding the game's UI alone (its black keyed out).
+            // The UI panel: the window, holding the game's UI alone (its black keyed out); UE 5.5+: the UI's own texture.
             f.quad = f.quadAlpha = f.quadFromBackbuffer = 1;
+            if (void* ui = g_uiNative) f.quadFromBackbuffer = 0, f.quadLayer = {ui, 0};
             // The eyes from the scene texture, side by side: Full VR's, or 3D screen's on the screen under the UI (the
             // core's own transparent eyes then carry the beam and the watch). Without a 3D view this frame only those.
             if (stereo && scene) {
@@ -769,13 +1139,13 @@ DWORD WINAPI boot(void*) {
     }
     WaitForSingleObject(g_decided, INFINITE);
     if (!g_stereo) return note("Unreal: no headset; the game runs as it is"), drain_log(), 0;
+    script::enable(ue::script_calls);  // game scripts: the shared calls and the game's objects
     note("Unreal: stereo vtable %p, IsStereoEnabled %d, view offset %d, %s precision, render targets %d", (void*)vt, s.stereo,
          s.offset, g_doubles ? "double" : "single", s.renderTargets);
     install(vt, s);
     find_cvars();
-    // ponytail: UE 5.5+ has no Slate.DrawToVRRenderTarget and draws its UI into the eye texture's top-left at window
-    // size, laid out for the texture's size. Moving it out needs a Slate redirect (a second engine texture).
-    if (!g_cvars[0].direct && !g_cvars[0].data && !g_cvars[0].object) note("Unreal: the game's UI shows inside the eyes");
+    // UE 5.5+ has no Slate.DrawToVRRenderTarget: its UI is redirected instead (ui_target).
+    g_uiInEyes = !g_cvars[0].direct && !g_cvars[0].data && !g_cvars[0].object;
     if (g_test.empty()) prx_install_hooks();
     // Present on every swapchain, through one of our own (the vtable is DXGI's, shared by D3D11 and D3D12 games).
     ComPtr<ID3D11Device> probe;
@@ -824,10 +1194,19 @@ void answer() {
 // The engine's first read (the CRT's, before WinMain) gets the answer; reads while DLLs still load get the plain line.
 LPWSTR WINAPI command_line() {
     static std::once_flag once;
-    if (!g_answered && !under_loader_lock()) std::call_once(once, answer);
+    if (!g_answered && !under_loader_lock()) g_mainThread = GetCurrentThreadId(), std::call_once(once, answer);
     return g_answered && g_stereo ? g_cmd.data() : g_getCmd();
 }
 }  // namespace
+
+void unreal_note(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char line[512];
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    note("%s", line);
+}
 
 BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
     if (reason != DLL_PROCESS_ATTACH) return TRUE;

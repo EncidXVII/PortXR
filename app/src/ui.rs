@@ -86,7 +86,6 @@ const BODY: f32 = 16.0;
 const SMALL: f32 = 14.0;
 const LABEL: f32 = 13.0;
 const REPO: &str = "EncidXVII/Parallax";
-const LOG: &str = r"BepInEx\LogOutput.log";
 
 /// The app icon for the window and taskbar (the same one the exe carries, see build.rs).
 fn window_icon() -> Option<egui::IconData> {
@@ -171,6 +170,8 @@ struct App {
     // Play pressed for this game folder at this time: the game page waits for the plugin's note that VR started.
     launched: Option<(PathBuf, std::time::SystemTime)>,
     scripts_open: bool,
+    /// The store and order menus' width last frame: the toolbar keeps them beside the tabs while they fit.
+    menus_w: f32,
     update: Arc<Mutex<Option<Release>>>,
     // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
     steam_owned: Arc<Mutex<Option<Vec<games::Owned>>>>,
@@ -248,6 +249,7 @@ impl App {
             scroll_to_buttons: false,
             launched: None,
             scripts_open: false,
+            menus_w: 360.0,
             update,
             steam_owned,
             scanned: Arc::new(Mutex::new(None)),
@@ -511,39 +513,48 @@ impl App {
             if let Some(f) = segmented(ui, &options, self.filter, true) {
                 self.filter = f;
             }
-            // The two menus' width, measured at 100 %.
-            wrap = ui.available_width() < 450.0;
+            // The menus at the row's end while they fit (their width as drawn last frame), else on a row of their own
+            // under the tabs, from the left.
+            wrap = ui.available_width() < self.menus_w + 16.0;
             if !wrap {
-                self.menus(ui);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.menus_w = self.menus(ui));
             }
         });
         if wrap {
             ui.add_space(12.0);
-            ui.horizontal(|ui| self.menus(ui));
+            ui.horizontal(|ui| self.menus_w = self.menus(ui));
         }
     }
 
-    fn menus(&mut self, ui: &mut Ui) {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                self.sort_menu(ui);
-                let mut stores: Vec<&'static str> = self.games.iter().map(|g| g.store).collect();
-                stores.sort();
-                stores.dedup();
-                if stores.len() > 1 {
-                    let shown = self.store.unwrap_or("All stores");
-                    let menu = egui::ComboBox::from_id_salt("store").selected_text(button_text(shown, INK)).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.store, None, button_text("All stores", INK));
-                        for s in stores {
-                            ui.selectable_value(&mut self.store, Some(s), button_text(s, INK));
-                        }
-                    });
-                    menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Store: {shown}")));
+    // Store, then order, read left to right in either layout; returns their width.
+    fn menus(&mut self, ui: &mut Ui) -> f32 {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        let mut stores: Vec<&'static str> = self.games.iter().map(|g| g.store).collect();
+        stores.sort();
+        stores.dedup();
+        let rtl = ui.layout().prefer_right_to_left();
+        let mut w = 0.0;
+        if rtl {
+            w += self.sort_menu(ui).rect.width();
+        }
+        if stores.len() > 1 {
+            let shown = self.store.unwrap_or("All stores");
+            let menu = egui::ComboBox::from_id_salt("store").selected_text(button_text(shown, INK)).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.store, None, button_text("All stores", INK));
+                for s in stores {
+                    ui.selectable_value(&mut self.store, Some(s), button_text(s, INK));
                 }
             });
+            menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Store: {shown}")));
+            w += menu.response.rect.width() + 16.0;
+        }
+        if !rtl {
+            w += self.sort_menu(ui).rect.width();
+        }
+        w
     }
 
-    fn sort_menu(&mut self, ui: &mut Ui) {
+    fn sort_menu(&mut self, ui: &mut Ui) -> egui::Response {
         let order = if self.sort == Sort::Recent { "Recently played" } else { "Name A-Z" };
         let menu = egui::ComboBox::from_id_salt("sort").selected_text(button_text(order, INK)).show_ui(ui, |ui| {
             ui.selectable_value(&mut self.sort, Sort::Recent, button_text("Recently played", INK));
@@ -551,6 +562,7 @@ impl App {
         });
         // Screen readers name controls by their label; these show only their value.
         menu.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, format!("Order: {order}")));
+        menu.response
     }
 
     fn empty(&mut self, ui: &mut Ui, title: &str, text: &str, action: &str) {
@@ -629,7 +641,7 @@ impl App {
         self.settings(ui, settings::QUICK, true);
         self.advanced_section(ui, true);
         self.buttons_section(ui, true);
-        if g.unity() {
+        if g.core_vr() {
             self.scripts_section(ui, &g);
         }
         let file = g.config_file();
@@ -647,8 +659,7 @@ impl App {
     fn troubleshooting(&mut self, ui: &mut Ui, g: &Game) {
         section_break(ui);
         eyebrow(ui, "", "Troubleshooting");
-        let engine = if g.unity() { format!("Unity {}, {}", g.unity, g.backend()) } else { g.engine_label() };
-        ui.add(egui::Label::new(RichText::new(format!("{engine}  ·  {}", g.dir.display())).font(code(LABEL)).color(INK3)).wrap());
+        ui.add(egui::Label::new(RichText::new(format!("{}  ·  {}", g.engine_label(), g.dir.display())).font(code(LABEL)).color(INK3)).wrap());
         ui.add_space(12.0);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 24.0;
@@ -664,8 +675,8 @@ impl App {
                     "Logs saved to your desktop.".into()
                 }));
             }
-            if g.file(LOG).exists() && tertiary(ui, "Open log").clicked() {
-                let _ = games::edit(&g.file(LOG));
+            if g.log_file().exists() && tertiary(ui, "Open log").clicked() {
+                let _ = games::edit(&g.log_file());
             }
             // Only hand-added folders can be forgotten (store games come back on every scan), and not while installed,
             // or the game would vanish from the app with Parallax still in it.
@@ -936,8 +947,10 @@ impl App {
             let global = settings::global(&self.defaults, d);
             if game { settings::get(&self.cfg, d.section, d.key).unwrap_or(global) } else { global }
         };
-        // Unreal games: no VR screen (Full VR there instead), and the weapon stays at the head.
+        // Unreal games: no VR screen (Full VR there instead).
         let unreal = game && matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unreal_vr()));
+        // UI black keys Unity's UI panel; Godot and Unreal hand over their UI with its own transparency.
+        let unity = !game || matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unity()));
         let display = value("Display");
         let (parallax, screen) = (display == "Parallax", display == "Parallax" || (display == "Theater" && !unreal));
         let (aim, hand) = (value("HeadAim") != "Off", value("AimWith") == "Hand");
@@ -945,7 +958,8 @@ impl App {
             "Depth" => parallax,
             "Background" => screen,
             "AimWith" | "Crosshair" => aim,
-            "WeaponInHand" => aim && hand && !unreal,
+            "WeaponInHand" => aim && hand,
+            "UiBlack" => unity,
             _ => true,
         };
         egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {
@@ -1065,7 +1079,9 @@ fn warning(g: &Game) -> (String, Tone) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(40, 16));
+        // The name in line with the page's left edge (32); the right edge over the content's, which stops short of
+        // the scroll bar.
+        let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin { left: 32, right: 40, top: 16, bottom: 16 });
         egui::Panel::top("top").frame(bar).show(ui, |ui| {
             ui.horizontal(|ui| {
                 // The name, then the places (tabs, left); the one action of the page sits alone on the right.
@@ -1569,7 +1585,7 @@ fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
 fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
     match cover {
         // A wide header (no 2:3 cover cached) is shown whole, centred on the surface, never stretched.
-        Some(path) if path.ends_with("header.jpg") => {
+        Some(path) if path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("header.jpg")) => {
             ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
             let h = rect.width() * 215.0 / 460.0;
             let inner = Rect::from_center_size(rect.center(), vec2(rect.width(), h));

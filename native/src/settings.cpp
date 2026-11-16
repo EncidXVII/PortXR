@@ -100,6 +100,14 @@ std::string get(const char* section, const char* key, const char* fallback) {
     return it == g_values.end() || it->second.empty() ? fallback : it->second;
 }
 
+std::string section_of(const char* key) {
+    std::lock_guard lock(g_mutex);
+    std::string tail = std::string("/") + key;
+    for (auto& [k, v] : g_values)
+        if (k.size() > tail.size() && k.compare(k.size() - tail.size(), tail.size(), tail) == 0) return k.substr(0, k.size() - tail.size());
+    return {};
+}
+
 float getf(const char* section, const char* key, float fallback, float lo, float hi) {
     std::string v = get(section, key, "");
     char* end = nullptr;

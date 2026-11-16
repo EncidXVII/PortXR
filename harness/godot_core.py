@@ -25,6 +25,26 @@ GAME = os.path.join(OUT, "game")
 EXE = os.path.join(GAME, "G1.exe")
 PACK = os.path.join(GAME, "ParallaxVR")
 PORT = 47812
+# Game scripts for G1 (the core's Lua host keys them by the exe's name); removed after the run.
+SCRIPTS = os.path.join(os.environ["APPDATA"], "Parallax", "scripts", "G1")
+SCRIPT_FILES = {
+    "harness_ok.lua": """
+local frames = 0
+parallax.log("harness sandbox io=" .. tostring(io) .. " os=" .. tostring(os) .. " load=" .. tostring(load))
+function on_scene(name) parallax.log("harness scene=" .. name .. " player=" .. tostring(parallax.find("Player")) .. " cam=" .. tostring(parallax.camera())) end
+function on_camera(name) parallax.log("harness camera=" .. name) end
+function on_frame(dt)
+  frames = frames + 1
+  if frames == 60 then
+    local x, y, z = parallax.position("Player")
+    parallax.log(string.format("harness frame player=%.2f,%.2f,%.2f class=%s mode=%s", x, y, z,
+      parallax.call("Player", "get_class"), parallax.get("Mode")))
+  end
+end
+""",
+    "harness_bad.lua": "function on_frame(dt) parallax.position('NoSuchNode') end",
+    "harness_loop.lua": "while true do end",
+}
 results = []
 
 
@@ -100,6 +120,10 @@ def main():
                PARALLAX_LOG_FILE=os.path.join(OUT, "core.log"))
     log = os.path.join(OUT, "stdout.log")
     names = {"g1.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
+    os.makedirs(SCRIPTS, exist_ok=True)
+    for name, text in SCRIPT_FILES.items():
+        with open(os.path.join(SCRIPTS, name), "w") as f:
+            f.write(text)
     ch = Channel()
     try:
         with steamvr.null_driver(hmd, {"dashboard": {"enableDashboard": False}}), windows.keep_on(screen, names), open(log, "w") as out:
@@ -108,6 +132,29 @@ def main():
             try:
                 s = ch.wait(lambda s: s["state"] == 3 and s["camera"].endswith("Player") and s["frames"] > 200, 90, "the core running")
                 check("core running", True, f"session running, camera {s['camera']}")
+                # Game scripts: loaded, sandboxed, the callbacks and node calls; a failing one and an endless loop stopped.
+                core = open(os.path.join(OUT, "core.log"), encoding="utf-8", errors="replace").read()
+                lines = [l for l in core.splitlines() if "harness" in l or "Script " in l]
+                want = ["Script harness_ok.lua loaded", "harness sandbox io=nil os=nil load=nil", "harness scene=", "player=true",
+                        "harness camera=", "harness frame player=", "class=Camera3D", "harness_bad.lua stopped in on_frame",
+                        "no node at NoSuchNode", "harness_loop.lua failed to load", "took over a second"]
+                missing = [w for w in want if w not in core]
+                if "\x01" in core:
+                    missing.append("no placeholder names in callbacks")
+                # The same lines in the game's own log, which the app's Open log shows.
+                game_log = os.path.join(PACK, "parallax.log")
+                if "harness_bad.lua stopped" not in (open(game_log, encoding="utf-8", errors="replace").read() if os.path.exists(game_log) else ""):
+                    missing.append("ParallaxVR/parallax.log")
+                # The game camera from the settings (the VR menu's pick, the app's Game camera), followed while running.
+                ch.cmd("set Game/CameraName Splash")
+                try:
+                    picked = ch.wait(lambda s: s["camera"].endswith("Splash"), 6, "the Splash camera")["camera"]
+                except RuntimeError:
+                    picked = ch.cmd("stats")["camera"]
+                ch.cmd("set Game/CameraName")
+                back = ch.wait(lambda s: s["camera"].endswith("Player"), 6, "the player camera again")["camera"]
+                check("camera setting", picked.endswith("Splash"), f"Game/CameraName = Splash: {picked}; cleared: {back}")
+                check("scripts", not missing, f"missing {missing}" if missing else " | ".join(lines))
                 time.sleep(3)
                 img = headset_view(os.path.join(OUT, "headset.png"))
                 if img is None:
@@ -176,7 +223,16 @@ def main():
 
                 # Snap turning: a flick of the right stick turns the body by 30 degrees (aim on: the body turns, aim follows).
                 ch.cmd("set Comfort/Turning Snap30")
+                # The camera may still be easing back from the aim test: start from a settled heading, or the snap
+                # measures a few degrees short.
                 before = ch.cmd("stats")["heading"]
+                for _ in range(15):
+                    time.sleep(0.3)
+                    now = ch.cmd("stats")["heading"]
+                    settled = abs(angle(before, now)) < 0.2
+                    before = now
+                    if settled:
+                        break
                 ch.cmd('controllers {"rx": 1.0}')
                 time.sleep(0.4)
                 ch.cmd('controllers {}')
@@ -320,6 +376,7 @@ def main():
     subprocess.run([run.APP, "uninstall", GAME], check=True)
     after = run.tree_hash(GAME)
     changed = sorted(k for k in set(pristine) | set(after) if pristine.get(k) != after.get(k))
+    shutil.rmtree(SCRIPTS, ignore_errors=True)
     check("remove VR", not changed, f"game folder byte-identical after the app's Remove VR (differs: {changed or 'none'})")
     print("\n".join(l for l in open(log, encoding="utf-8", errors="replace").read().splitlines() if "SCRIPT ERROR" in l or "Crash" in l)[:2000])
     print(f"{sum(results)}/{len(results)} passed", flush=True)

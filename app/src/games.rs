@@ -105,6 +105,12 @@ impl Game {
         self.file(&self.config_rel())
     }
 
+    /// Where VR writes what happened (script errors included): BepInEx's log in Unity games, the core's beside its
+    /// settings in Godot and Unreal games.
+    pub fn log_file(&self) -> PathBuf {
+        if self.unity() { self.file(r"BepInEx\LogOutput.log") } else { self.config_file().with_file_name("parallax.log") }
+    }
+
     pub fn compat(&self) -> Compat {
         if self.blocker.is_some() {
             Compat::Blocked
@@ -758,13 +764,15 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
         }
         fs::read_dir(cache).ok()?.flatten().map(|e| e.path().join(file)).find(|p| p.exists())
     };
-    find("library_600x900.jpg").or_else(|| find("header.jpg"))
+    // Newer clients name them library_capsule.jpg and library_header.jpg.
+    ["library_600x900.jpg", "library_capsule.jpg", "header.jpg", "library_header.jpg"].into_iter().find_map(find)
 }
 
-/// The game's Lua scripts folder, where the plugin looks: `%APPDATA%\Parallax\scripts\<exe name>` (it keys by process
-/// name). Outside the game folder, so scripts survive an uninstall.
+/// The game's Lua scripts folder, where the plugin or core looks: `%APPDATA%\Parallax\scripts\<exe name>` (keyed by
+/// the process's name: for Unreal, the Shipping exe). Outside the game folder, so scripts survive an uninstall.
 pub fn scripts_dir(g: &Game) -> PathBuf {
-    game_user_dir(g, true).or_else(dirs::config_dir).unwrap_or_default().join("Parallax").join("scripts").join(g.exe.file_stem().unwrap_or_default())
+    let exe = g.unreal_exe.as_ref().filter(|_| g.unreal_vr()).unwrap_or(&g.exe);
+    game_user_dir(g, true).or_else(dirs::config_dir).unwrap_or_default().join("Parallax").join("scripts").join(exe.file_stem().unwrap_or_default())
 }
 
 pub fn scripts(g: &Game) -> Vec<PathBuf> {
@@ -988,6 +996,8 @@ fn engine_list() -> PathBuf {
 /// cached for a week.
 fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
     let path = engine_list();
+    // The Unity-only list it replaces.
+    let _ = fs::remove_file(path.with_file_name("unity-steam.json"));
     let fresh = fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 7 * 86400);
     if !fresh {
         // QLever answers in under a second; the Wikidata Query Service is the fallback (it rate-limits during outages).
@@ -1183,7 +1193,7 @@ pub fn scan() -> Vec<Game> {
     games
 }
 
-/// One zip on the desktop for bug reports: plugin log, settings, install receipt and Unity's own Player.log.
+/// One zip on the desktop for bug reports: the VR log, settings, install receipt and Unity's own Player.log.
 pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let stem: String = g.name.chars().filter(|c| !r#"<>:"/\|?*"#.contains(*c)).collect();
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
@@ -1192,7 +1202,7 @@ pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let mut zip = zip::ZipWriter::new(File::create(&path)?);
     let opts = zip::write::SimpleFileOptions::default();
     let files = [
-        g.file(r"BepInEx\LogOutput.log"),
+        g.log_file(),
         g.config_file(),
         installer::receipt_path(&g.dir),
     ];
@@ -1203,7 +1213,7 @@ pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
         zip.write_all(&bytes)?;
     }
     zip.start_file("game.txt", opts)?;
-    write!(zip, "{}\r\nUnity {}, {}, {}\r\n", g.name, g.unity, g.backend(), g.badge())?;
+    write!(zip, "{}\r\n{}, {}\r\n", g.name, g.engine_label(), g.badge())?;
     zip.finish()?;
     Ok(path)
 }

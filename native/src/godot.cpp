@@ -2,14 +2,22 @@
 // exe (GDExtensionManager.load_extension from our autoload): no change to the game's pack. Godot renders; the core
 // owns the OpenXR session, as it does in Unity games. Direct3D 12 only (the core has no Vulkan backend yet).
 #include "bridge.h"
+#include "script.h"
 
 #include <gdextension_interface.h>
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+
+// Lua is built as C++ (see CMakeLists.txt): no extern "C".
+#include "lauxlib.h"
+#include "lua.h"
 
 using namespace godot;
 
@@ -28,6 +36,137 @@ void* native(const RID& texture) {
 bridge::Pose pose(const Transform3D& t) {
     Quaternion q = t.basis.get_rotation_quaternion();
     return {{(float)t.origin.x, (float)t.origin.y, (float)t.origin.z}, {(float)q.x, (float)q.y, (float)q.z, (float)q.w}};
+}
+
+// --- Game scripts: the parallax table's node calls (SCRIPTING.md) ---------------------------------------------------
+// A node by name anywhere ("Player"), by path from the current scene ("Player/Gun"), or from the root ("/root/Main").
+Node* find(const char* at) {
+    SceneTree* tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+    Window* root = tree ? tree->get_root() : nullptr;
+    if (!root) return nullptr;
+    String path = String::utf8(at);
+    if (path.begins_with("/")) return root->get_node_or_null(NodePath(path));
+    if (path.contains("/")) {
+        // From the current scene ("Player/Head"), else from the root ("Main/Player/Head", autoloads).
+        Node* scene = tree->get_current_scene();
+        Node* n = scene ? scene->get_node_or_null(NodePath(path)) : nullptr;
+        return n ? n : root->get_node_or_null(NodePath(path));
+    }
+    return root->find_child(path, true, false);
+}
+
+Node* node(lua_State* L) {
+    const char* at = luaL_checkstring(L, 1);
+    Node* n = find(at);
+    if (!n) script::fail(L, "no node at %s", at);
+    return n;
+}
+
+bool has(Object* o, const StringName& name) {
+    TypedArray<Dictionary> list = o->get_property_list();
+    for (int i = 0; i < list.size(); ++i)
+        if (StringName(Dictionary(list[i])["name"]) == name) return true;
+    return false;
+}
+
+int push(lua_State* L, const Variant& v) {
+    switch (v.get_type()) {
+    case Variant::NIL: lua_pushnil(L); return 1;
+    case Variant::BOOL: lua_pushboolean(L, (bool)v); return 1;
+    case Variant::INT: lua_pushinteger(L, (int64_t)v); return 1;
+    case Variant::FLOAT: lua_pushnumber(L, (double)v); return 1;
+    case Variant::VECTOR2: {
+        Vector2 p = v;
+        lua_pushnumber(L, p.x), lua_pushnumber(L, p.y), lua_pushnumber(L, 0);
+        return 3;
+    }
+    case Variant::VECTOR3: {
+        Vector3 p = v;
+        lua_pushnumber(L, p.x), lua_pushnumber(L, p.y), lua_pushnumber(L, p.z);
+        return 3;
+    }
+    default: {
+        CharString s = (v.get_type() == Variant::STRING ? String(v) : UtilityFunctions::var_to_str(v)).utf8();
+        lua_pushstring(L, s.get_data());
+        return 1;
+    }
+    }
+}
+
+// A Lua value as the type the property holds now; anything else from Godot's text form ("Vector3(0, 1, 0)").
+Variant value(lua_State* L, int i, const Variant& now) {
+    switch (now.get_type()) {
+    case Variant::BOOL: return (bool)lua_toboolean(L, i);
+    case Variant::INT: return (int64_t)luaL_checknumber(L, i);
+    case Variant::FLOAT: return luaL_checknumber(L, i);
+    case Variant::STRING: return String::utf8(luaL_tolstring(L, i, nullptr));
+    case Variant::STRING_NAME: return StringName(String::utf8(luaL_tolstring(L, i, nullptr)));
+    default: return UtilityFunctions::str_to_var(String::utf8(luaL_tolstring(L, i, nullptr)));
+    }
+}
+
+// position/rotation, read or set: a Node3D's global ones, or a Node2D's (x, y, and its rotation as z).
+int transform(lua_State* L, const char* prop) {
+    Node* n = node(L);
+    if (!has(n, prop)) script::fail(L, "%s has no %s", luaL_checkstring(L, 1), prop);
+    Variant now = n->get(prop);
+    if (lua_gettop(L) > 1) {
+        double x = luaL_checknumber(L, 2), y = luaL_checknumber(L, 3), z = luaL_optnumber(L, 4, 0);
+        n->set(prop, now.get_type() == Variant::VECTOR3 ? Variant(Vector3(x, y, z)) : now.get_type() == Variant::VECTOR2 ? Variant(Vector2(x, y)) : Variant(z));
+        return 0;
+    }
+    if (now.get_type() == Variant::FLOAT) return lua_pushnumber(L, 0), lua_pushnumber(L, 0), lua_pushnumber(L, (double)now), 3;
+    return push(L, now);
+}
+
+void godot_calls(lua_State* L) {
+    auto add = [&](const char* name, lua_CFunction f) { lua_pushcfunction(L, f), lua_setfield(L, -2, name); };
+    add("find", [](lua_State* L) { return lua_pushboolean(L, find(luaL_checkstring(L, 1)) != nullptr), 1; });
+    // Hidden and paused (process mode Disabled), or back; reads whether it runs and shows.
+    add("active", [](lua_State* L) {
+        Node* n = node(L);
+        bool drawn = has(n, "visible");
+        if (lua_gettop(L) > 1) {
+            bool on = lua_toboolean(L, 2);
+            n->set_process_mode(on ? Node::PROCESS_MODE_INHERIT : Node::PROCESS_MODE_DISABLED);
+            if (drawn) n->set("visible", on);
+        }
+        return lua_pushboolean(L, n->can_process() && (!drawn || (bool)n->get("visible"))), 1;
+    });
+    // Stops drawing (with false, draws again); the node keeps running.
+    add("hide", [](lua_State* L) {
+        Node* n = node(L);
+        if (!has(n, "visible")) script::fail(L, "%s does not draw", luaL_checkstring(L, 1));
+        n->set("visible", lua_gettop(L) > 1 && !lua_toboolean(L, 2));
+        return 0;
+    });
+    add("position", [](lua_State* L) { return transform(L, "global_position"); });
+    add("set_position", [](lua_State* L) { return transform(L, "global_position"); });
+    add("rotation", [](lua_State* L) { return transform(L, "global_rotation_degrees"); });
+    add("set_rotation", [](lua_State* L) { return transform(L, "global_rotation_degrees"); });
+    // Any property of the node, read, or written when a value is given.
+    add("field", [](lua_State* L) {
+        Node* n = node(L);
+        StringName name(luaL_checkstring(L, 2));
+        if (!has(n, name)) script::fail(L, "%s has no property %s", luaL_checkstring(L, 1), luaL_checkstring(L, 2));
+        if (lua_gettop(L) > 2) n->set(name, value(L, 3, n->get(name)));
+        return push(L, n->get(name));
+    });
+    // A method of the node, with numbers, booleans and strings: call("Player", "set_physics_process", false).
+    add("call", [](lua_State* L) {
+        Node* n = node(L);
+        StringName method(luaL_checkstring(L, 2));
+        if (!n->has_method(method)) script::fail(L, "%s has no method %s", luaL_checkstring(L, 1), luaL_checkstring(L, 2));
+        Array args;
+        for (int i = 3; i <= lua_gettop(L); ++i) {
+            int t = lua_type(L, i);
+            if (t == LUA_TBOOLEAN) args.append((bool)lua_toboolean(L, i));
+            else if (t == LUA_TNUMBER && lua_isinteger(L, i)) args.append((int64_t)lua_tointeger(L, i));
+            else if (t == LUA_TNUMBER) args.append(lua_tonumber(L, i));
+            else args.append(String::utf8(luaL_tolstring(L, i, nullptr)));
+        }
+        return push(L, n->callv(method, args));
+    });
 }
 }  // namespace
 
@@ -58,6 +197,7 @@ protected:
         ClassDB::bind_method(D_METHOD("toggle_menu"), &ParallaxCore::toggle_menu);
         ClassDB::bind_method(D_METHOD("capture", "dir"), &ParallaxCore::capture);
         ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &ParallaxCore::submit_view);
+        ClassDB::bind_method(D_METHOD("render_scale"), &ParallaxCore::render_scale);
     }
 
     bridge::Pose eyes_[2]{};
@@ -69,6 +209,7 @@ public:
     Dictionary start(const String& app) {
         int w = 0, h = 0;
         bool ok = bridge::start(app.utf8().get_data(), w, h);
+        if (ok) script::enable(godot_calls);
         Dictionary d;
         d["ok"] = ok;
         d["width"] = w;
@@ -146,6 +287,8 @@ public:
         g.hasCamera = game.has("camera");
         if (g.hasCamera) g.camera = pose(game["camera"]);
         g.cameraKey = String(game.get("camera_key", "")).utf8().get_data();
+        g.scene = String(game.get("scene", "")).utf8().get_data();
+        g.cameraName = String(game.get("camera_name", "")).utf8().get_data();
         g.cursorFree = game.get("cursor_free", false);
         g.padGame = game.get("pad_game", false);
         g.carried = game.get("carried", false);
@@ -244,6 +387,7 @@ public:
     }
 
     void set_window(int64_t hwnd) { bridge::set_window((void*)hwnd); }
+    float render_scale() { return bridge::render_scale(); }
 
     // The emulated gamepad ({buttons: XInput bits, lt, rt 0..1, lx, ly, rx, ry -1..1}); empty while gamepad mode is off.
     Dictionary pad() {

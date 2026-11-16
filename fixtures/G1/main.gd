@@ -17,6 +17,7 @@ var _mouse := Vector2.ZERO
 
 func _ready() -> void:
 	_splash = Camera3D.new()
+	_splash.name = "Splash"
 	add_child(_splash)
 	_splash.position = Vector3(0, 5, 5)
 	_splash.make_current()
@@ -48,9 +49,9 @@ func _input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	# The splash camera stays in the scene, no longer current: a second camera for the camera picker's tests.
 	if _splash != null and _t > 1.0:
 		$Player.make_current()
-		_splash.queue_free()
 		_splash = null
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var look := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))

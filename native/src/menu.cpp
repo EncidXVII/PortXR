@@ -914,6 +914,7 @@ private:
             ui.end();
             ui.gap(16);
         }
+        if (host.cameras.empty()) return aim_rows();
         label("Game camera", muted(), 0);
         std::string chosen = settings::get("Game", "CameraName", "");
         bool automatic = chosen.empty();
@@ -934,8 +935,12 @@ private:
             ui.gap(16);
         }
         ui.end();
-        if (!host.aimExtras || settings::get("Controls", "HeadAim", "Auto") == "Off") return;
         ui.gap(24);
+        aim_rows();
+    }
+
+    void aim_rows() {
+        if (!host.aimExtras || settings::get("Controls", "HeadAim", "Auto") == "Off") return;
         options("Crosshair", "Controls", "Crosshair", {"Game", "Lime", "Off"}, {"Game's", "Parallax's", "Off"}, "Game");
         if (host.handHeld && settings::get("Controls", "AimWith", "Hand") == "Hand") toggle_row("Weapon in hand", "Controls", "WeaponInHand", true);
     }
@@ -979,7 +984,9 @@ private:
                 continue;
             }
             Entry e{f[0], wide(f[1]), f.size() > 2 ? wide(f[2]) : L""};
-            if (folder(e.dir) == here) current = e, haveCurrent = true;
+            // The running game's folder is the listed one, or inside it (Unreal runs from <Project>\Binaries\Win64).
+            std::wstring listed = folder(e.dir);
+            if (here == listed || here.rfind(listed + L"\\", 0) == 0) current = e, haveCurrent = true;
             else others.push_back(e);
         }
     }

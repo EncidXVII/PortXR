@@ -4,6 +4,7 @@
 #include "rig.h"
 #include "menu.h"
 #include "canvas.h"
+#include "script.h"
 #include <Xinput.h>
 #include <algorithm>
 
@@ -23,6 +24,7 @@ PRX_API void prx_set_menu(const uint8_t* rgba, int32_t w, int32_t h, const PrxPo
 PRX_API void prx_set_overlay(int32_t index, const uint8_t* rgba, int32_t w, int32_t h, const PrxPose* pose, float widthM,
                              float heightM, float radius);
 PRX_API int32_t prx_passthrough();
+PRX_API void prx_get_stats(PrxStats* out);
 }
 
 namespace {
@@ -162,6 +164,7 @@ bool frame(const Game& game, Frame& out) {
     // The theme (one file for every game and the app) is looked at once a second; a settings change shows at once.
     ULONGLONG nowMs = GetTickCount64();
     if (settings::refresh() || nowMs - g_accentAt >= 1000) settings::accent(g_accent), g_accentAt = nowMs;
+    script::tick(game.scene, game.cameraName);
     g_located = prx_locate(g_views, g_fovs) != 0;
     if (!g_located) return false;
     if (g_testHead) {
@@ -207,7 +210,8 @@ bool frame(const Game& game, Frame& out) {
     g.pointerAuto = settings::get("Controls", "Pointer", "Auto") != "MenuOnly";
     g.up = {game.up[0], game.up[1], game.up[2]};
     g.sceneScale = game.sceneScale;
-    g.eyeOffset = {game.eyeOffset[0], game.eyeOffset[1], game.eyeOffset[2]};
+    // The engine's nudge (Unity's scripts), and the core's scripts' (player frame: z forward, tracking -Z).
+    g.eyeOffset = {game.eyeOffset[0] + script::eyeOffset[0], game.eyeOffset[1] + script::eyeOffset[1], game.eyeOffset[2] - script::eyeOffset[2]};
     g.worldPointer = game.worldPointer;
     g.worldReach = game.worldReach;
     g.screenW = game.screenW, g.screenH = game.screenH;
@@ -356,7 +360,9 @@ void crosshair(PrxFrame& f, bool game) {
         float grow = d / std::max(0.1f, (V3{f.quadPose.px, f.quadPose.py, f.quadPose.pz} - head).length());
         float pitch = std::asin(std::clamp(to.y, -1.f, 1.f)) / 2;
         mathx::Q q = mathx::yaw(std::atan2(-to.x, -to.z)) * mathx::Q{std::sin(pitch), 0, 0, std::cos(pitch)};
-        f.aimPatch[0] = 0.09f, f.aimPatch[1] = 0.08f;
+        // Half the middle of the UI that moves with it; a script's crosshair_area widens it.
+        f.aimPatch[0] = script::crosshairArea[0] > 0 ? script::crosshairArea[0] / 2 : 0.09f;
+        f.aimPatch[1] = script::crosshairArea[1] > 0 ? script::crosshairArea[1] / 2 : 0.08f;
         f.aimPatchShown = 1;
         f.aimPose = {at.x, at.y, at.z, q.x, q.y, q.z, q.w};
         f.aimSize[0] = 2 * f.aimPatch[0] * f.quadWidth * grow;
@@ -413,6 +419,49 @@ void layers(void* prxFrame, float uiAspect) {
         f.watchAt[0] = g_rig.watch.at.x, f.watchAt[1] = g_rig.watch.at.y, f.watchAt[2] = g_rig.watch.at.z;
         f.watchRadius = 0.022f;
     }
+}
+
+// Auto resolution, as Rig.cs: every 4 s (a fresh 256-frame timing window) two slow windows in a row take the eyes down
+// 10%; a drop that doesn't help means the game is CPU-bound, so it is undone and scaling stops; headroom raises it again.
+// The first 10 s of a session (shader compiles, streaming) don't count.
+namespace {
+int g_autoTenths = 10, g_slowChecks, g_calmChecks;
+bool g_cpuBound, g_justDropped;
+double g_p95BeforeDrop;
+ULONGLONG g_nextScaleCheck;
+}  // namespace
+
+float render_scale() {
+    float scale = settings::getf("View", "RenderScale", 1, 0.5f, 2);
+    if (!settings::getb("View", "AutoRenderScale", true)) return scale;
+    PrxStats s{};
+    prx_get_stats(&s);
+    ULONGLONG now = GetTickCount64();
+    if (s.state != StateRunning) {
+        g_nextScaleCheck = now + 10000;
+    } else if (!g_cpuBound && now >= g_nextScaleCheck) {
+        g_nextScaleCheck = now + 4000;
+        if (g_justDropped) {
+            g_justDropped = false;
+            if (s.p95Ms > g_p95BeforeDrop * 0.95) {
+                g_cpuBound = true;
+                g_autoTenths = std::min(10, g_autoTenths + 1);
+                prx_log("Auto resolution: a lower one did not help (the game is CPU-bound); back to %d0%%", g_autoTenths);
+                return scale * g_autoTenths / 10;
+            }
+        }
+        g_slowChecks = s.p95Ms > s.periodMs * 1.2 ? g_slowChecks + 1 : 0;
+        if (g_slowChecks >= 2 && g_autoTenths > 5) {
+            g_slowChecks = g_calmChecks = 0;
+            g_p95BeforeDrop = s.p95Ms;
+            g_justDropped = true;
+            prx_log("Auto resolution: %d0%% (frames take %.1f ms of %.1f)", --g_autoTenths, s.p95Ms, s.periodMs);
+        } else if (s.p95Ms < s.periodMs * 1.05 && g_autoTenths < 10 && ++g_calmChecks >= 3) {
+            g_calmChecks = 0;
+            prx_log("Auto resolution: %d0%%", ++g_autoTenths);
+        }
+    }
+    return scale * g_autoTenths / 10;
 }
 
 void test_head(bool on, float x, float y, float z, float yawDeg) {
