@@ -1068,10 +1068,7 @@ impl eframe::App for App {
         let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(40, 16));
         egui::Panel::top("top").frame(bar).show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Brand (the mark in the theme accent, then the name), then the places (tabs, left); the one action
-                // of the page sits alone on the right.
-                ui.add(egui::Image::new(egui::include_image!("../assets/brand/parallax-mark-white.png")).tint(lime()).fit_to_exact_size(egui::vec2(BRAND * 1.15, BRAND * 1.15)));
-                ui.add_space(10.0);
+                // The name, then the places (tabs, left); the one action of the page sits alone on the right.
                 ui.label(RichText::new("PARALLAX").font(display(BRAND)).color(INK));
                 ui.add_space(32.0);
                 ui.spacing_mut().item_spacing.x = 24.0;
