@@ -485,7 +485,7 @@ void do_submit(int slot) {
         Overlay over[2];
         for (int e = 0; e < 2; ++e) {
             over[e].vignette = f.vignette;
-            std::copy(f.eyeCrop[e], f.eyeCrop[e] + 4, over[e].crop);
+            if (!f.window) std::copy(f.eyeCrop[e], f.eyeCrop[e] + 4, over[e].crop);  // 3D screen: the crops are the window's
             // A frame from an older managed side leaves it zero: keep lime.
             if (f.accent[0] + f.accent[1] + f.accent[2] > 0)
                 for (int i = 0; i < 3; ++i) over[e].accent[i] = f.accent[i];
@@ -497,9 +497,11 @@ void do_submit(int slot) {
             }
             for (int i = 0; i < 3; ++i) over[e].aim[i] = f.aimReticle[e][i];
         }
+        Overlay crops[2];
+        for (int e = 0; e < 2; ++e) std::copy(f.eyeCrop[e], f.eyeCrop[e] + 4, crops[e].crop);
         if (f.window && f.windowLayer[0].texture && f.windowLayer[1].texture &&
-            copy_layer(g_window[0], f.windowLayer[0], path(L"windowL.bmp")) &&
-            copy_layer(g_window[1], f.windowLayer[1], path(L"windowR.bmp"))) {
+            copy_layer(g_window[0], f.windowLayer[0], path(L"windowL.bmp"), crops[0]) &&
+            copy_layer(g_window[1], f.windowLayer[1], path(L"windowR.bmp"), crops[1])) {
             for (int e = 0; e < 2; ++e) {
                 window[e].space = g_xr.local;
                 window[e].eyeVisibility = e == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;

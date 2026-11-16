@@ -30,6 +30,9 @@ const fn slider(lo: f32, hi: f32, step: f32, unit: &'static str) -> Kind {
 }
 
 // Names, ranges, steps and order match the VR menu, so a setting reads the same in both places.
+/// Display for Unreal games, which have no VR screen.
+pub static DISPLAY_NO_THEATER: Def = def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen")]), "Full VR: inside the game. 3D screen: the game in 3D on a big screen.");
+
 pub const QUICK: &[Def] = &[
     def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen"), ("Theater", "VR screen")]), "Full VR: inside the game. 3D screen: the game in 3D on a big screen. VR screen: flat on a big screen."),
     def("View", "Background", "Around the screen", "Dark", Kind::Choice(&[("Dark", "Dark"), ("Passthrough", "Your room")]), "Your room needs passthrough (Meta, Virtual Desktop; not SteamVR)."),

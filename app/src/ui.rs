@@ -936,17 +936,21 @@ impl App {
             let global = settings::global(&self.defaults, d);
             if game { settings::get(&self.cfg, d.section, d.key).unwrap_or(global) } else { global }
         };
-        let (parallax, screen) = (value("Display") == "Parallax", value("Display") != "Stereo");
+        // Unreal games: no VR screen (Full VR there instead), and the weapon stays at the head.
+        let unreal = game && matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unreal_vr()));
+        let display = value("Display");
+        let (parallax, screen) = (display == "Parallax", display == "Parallax" || (display == "Theater" && !unreal));
         let (aim, hand) = (value("HeadAim") != "Off", value("AimWith") == "Hand");
         let relevant = |d: &Def| match d.key {
             "Depth" => parallax,
             "Background" => screen,
             "AimWith" | "Crosshair" => aim,
-            "WeaponInHand" => aim && hand,
+            "WeaponInHand" => aim && hand && !unreal,
             _ => true,
         };
         egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {
             for d in defs.iter().filter(|d| (game || !d.per_game()) && relevant(d)) {
+                let d = if unreal && d.key == "Display" { &settings::DISPLAY_NO_THEATER } else { d };
                 let global = settings::global(&self.defaults, d);
                 let current = if game { settings::get(&self.cfg, d.section, d.key).unwrap_or_else(|| global.clone()) } else { global.clone() };
                 let mut back = false;
@@ -1627,8 +1631,9 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     } else {
         installer::update(&g.dir).map_err(|e| format!("Couldn't update the plugin (is the game still running?): {e}"))?;
     }
-    // Godot 4.0 to 4.2: the engine's own OpenXR, which needs the runtime up before the game starts.
-    if g.godot_vr() && !g.godot_core() {
+    // Godot 4.0 to 4.2 (the engine's own OpenXR) and Unreal (which looks for the headset as it starts) need the runtime
+    // up before the game starts.
+    if (g.godot_vr() && !g.godot_core()) || g.unreal_vr() {
         return play_godot(g);
     }
     g.launch()?;

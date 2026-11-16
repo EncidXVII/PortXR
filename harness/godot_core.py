@@ -150,6 +150,30 @@ def main():
                 s = ch.wait(lambda s: abs(angle(s["heading"], start)) < 3, 8, "aim back on the head")
                 check("head aim", abs(angle(turned, start)) > 5, f"camera turned {angle(start, turned):+.0f}, steered back to {angle(start, s['heading']):+.1f} deg of the head")
 
+                # Crosshair, the core's as in Unity games: while aiming, the UI's middle on its own layer at the aim
+                # point (Game's), or the theme's reticle drawn into the eyes there (Parallax's).
+                cap = os.path.join(OUT, "aim")
+                shutil.rmtree(cap, ignore_errors=True)
+                os.makedirs(cap)
+                ch.cmd("capture " + cap)
+                time.sleep(1)
+                patch = os.path.exists(os.path.join(cap, "patch.bmp"))
+
+                def reticle(name):
+                    img = headset_view(os.path.join(OUT, name))
+                    if img is None:
+                        return 0
+                    r, g, b = img[..., 0].astype(int), img[..., 1].astype(int), img[..., 2].astype(int)
+                    return int(((g > 200) & (b < 120) & (r > 120) & (r < 235)).sum())
+                ch.cmd("set Controls/Crosshair Off")
+                time.sleep(1)
+                off = reticle("aim_off.png")
+                ch.cmd("set Controls/Crosshair Lime")
+                time.sleep(1)
+                lime = reticle("aim_lime.png")
+                ch.cmd("set Controls/Crosshair Game")
+                check("crosshair", patch and lime > off, f"Game's: UI middle layer {'captured' if patch else 'missing'}; Parallax's: {lime} reticle pixels ({off} with it off)")
+
                 # Snap turning: a flick of the right stick turns the body by 30 degrees (aim on: the body turns, aim follows).
                 ch.cmd("set Comfort/Turning Snap30")
                 before = ch.cmd("stats")["heading"]

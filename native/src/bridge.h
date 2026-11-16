@@ -33,6 +33,7 @@ void recenter();
 // What only the engine knows about this frame.
 struct Game {
     bool hasCamera = false;
+    bool noTheater = false;   // no VR screen: Full VR there instead (Unreal)
     Pose camera{};          // the game camera in the world (right-handed, Y up, -Z forward)
     std::string cameraKey;  // scene and camera name
     bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
@@ -46,6 +47,8 @@ struct Game {
     float worldReach = 3;                // where its beam ends, metres along it
     int screenW = 0, screenH = 0;        // the window's client size, when the laser should move the OS cursor
     bool pointerClick = false;           // the laser's trigger presses the OS mouse button
+    bool crosshair = false;              // the core draws the crosshair while aiming (engines without their own)
+    float aimDistance = 0;               // game units from the camera to what it aims at (0: unknown, 40 m)
     bool tests = false;                  // a test run drives the menu: no welcome card
 };
 struct Frame {
@@ -68,6 +71,11 @@ struct Frame {
     float windowOffset[2] = {};
     Fov windowFov[2] = {};
     Pose views[2];  // the headset's eyes in tracking space
+    // For tools the engine runs itself (hiding objects, the weapon in the hand): the right controller's aim in the game
+    // world (while rightValid), its trigger and B button, whether hand aim steers the camera, game units per metre.
+    bool rightValid = false, handAiming = false, bDown = false;
+    Pose right{};
+    float rightTrigger = 0, scale = 1;
 };
 // After frame(): the rig's own parts of a frame's layers (eye poses, where the UI or screen goes, beam, watch,
 // vignette, theme accent, passthrough), for adapters that fill the textures themselves (Unity).
@@ -80,7 +88,7 @@ struct MenuHost {
     std::wstring gameDir;
     std::vector<std::string> cameras;
     std::string currentCamera;
-    bool hideObjects = false, aimExtras = false, uiBlack = false;
+    bool hideObjects = false, aimExtras = false, handHeld = false, uiBlack = false, noTheater = false;
     int hidden = 0, eyeWidth = 0, eyeHeight = 0;
 };
 void set_menu_host(const MenuHost& host);

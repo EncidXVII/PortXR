@@ -709,8 +709,10 @@ private:
     }
 
     void draw_quick() {
-        options("Display", "View", "Display", {"Stereo", "Parallax", "Theater"}, {"Full VR", "3D screen", "VR screen"}, "Stereo");
+        if (host.noTheater) options("Display", "View", "Display", {"Stereo", "Parallax"}, {"Full VR", "3D screen"}, "Stereo");
+        else options("Display", "View", "Display", {"Stereo", "Parallax", "Theater"}, {"Full VR", "3D screen", "VR screen"}, "Stereo");
         std::string display = settings::get("View", "Display", "Stereo");
+        if (host.noTheater && display == "Theater") display = "Stereo";
         if (display == "Parallax") stepper("3D depth", "View", "Depth", 1, 0.25f, 0, 1, "%.2f\xC3\x97");
         if (display != "Stereo") {
             bool unlocked = screenUnlocked;
@@ -935,7 +937,7 @@ private:
         if (!host.aimExtras || settings::get("Controls", "HeadAim", "Auto") == "Off") return;
         ui.gap(24);
         options("Crosshair", "Controls", "Crosshair", {"Game", "Lime", "Off"}, {"Game's", "Parallax's", "Off"}, "Game");
-        if (settings::get("Controls", "AimWith", "Hand") == "Hand") toggle_row("Weapon in hand", "Controls", "WeaponInHand", true);
+        if (host.handHeld && settings::get("Controls", "AimWith", "Hand") == "Hand") toggle_row("Weapon in hand", "Controls", "WeaponInHand", true);
     }
 
     void pick_camera(const std::string& name) {
@@ -1229,7 +1231,7 @@ PRX_API void prx_menu_host(const PrxMenuHost* h) {
         s = e ? e + 1 : s + strlen(s);
     }
     m.currentCamera = h->currentCamera ? h->currentCamera : "";
-    m.hideObjects = h->hideObjects, m.hidden = h->hidden, m.aimExtras = h->aimExtras, m.uiBlack = h->uiBlack;
+    m.hideObjects = h->hideObjects, m.hidden = h->hidden, m.aimExtras = m.handHeld = h->aimExtras, m.uiBlack = h->uiBlack;
     m.eyeWidth = h->eyeWidth, m.eyeHeight = h->eyeHeight;
     menu::set_host(m);
 }

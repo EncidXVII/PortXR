@@ -18,6 +18,7 @@ struct Pose {
 
 struct GameFrame {
     bool hasCamera = false;
+    bool noTheater = false;  // no VR screen: Full VR there instead (Unreal)
     Pose camera;              // the game camera in the world
     std::string cameraKey;    // scene and camera name: first-person verdicts are kept per key
     bool cursorFree = false;  // the game shows a free cursor (a menu): no head aim

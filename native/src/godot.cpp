@@ -154,6 +154,10 @@ public:
         g.fovY = (float)(double)game.get("fov_y", 1.0);
         g.nearClip = (float)(double)game.get("near", 0.05);
         g.focus = (float)(double)game.get("focus", 0.0);
+        g.crosshair = true;
+        g.worldPointer = game.get("world_pointer", false);
+        g.worldReach = (float)(double)game.get("world_reach", 3.0);
+        g.aimDistance = (float)(double)game.get("aim_distance", 0.0);
         bridge::Frame f;
         Dictionary out;
         if (!bridge::frame(g, f)) return out;
@@ -176,6 +180,16 @@ public:
         out["menu_open"] = f.menuOpen;
         out["mode"] = f.mode;
         out["handles"] = f.handles;
+        if (f.rightValid) {
+            const bridge::Pose& p = f.right;
+            out["right"] = Transform3D(Basis(Quaternion(p.q[0], p.q[1], p.q[2], p.q[3])), Vector3(p.p[0], p.p[1], p.p[2]));
+        }
+        out["hand_aiming"] = f.handAiming;
+        out["trigger"] = f.rightTrigger;
+        out["b"] = f.bDown;
+        out["scale"] = f.scale;
+        if (f.hideObjects) out["hide_objects"] = true;
+        if (f.showHidden) out["show_hidden"] = true;
         if (f.mode == 1) {
             Array window;
             for (int e = 0; e < 2; ++e) {
@@ -222,6 +236,10 @@ public:
         m.currentCamera = String(h.get("current_camera", "")).utf8().get_data();
         m.eyeWidth = (int)(int64_t)h.get("eye_width", 0);
         m.eyeHeight = (int)(int64_t)h.get("eye_height", 0);
+        m.aimExtras = true;
+        m.handHeld = h.get("hand_held", false);
+        m.hideObjects = h.get("hide_objects", false);
+        m.hidden = (int)(int64_t)h.get("hidden", 0);
         bridge::set_menu_host(m);
     }
 

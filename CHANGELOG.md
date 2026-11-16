@@ -10,6 +10,15 @@
   laser pointer, VR menu and the game's own settings page in the app, as Unity games have. Games set up the older way
   move over on their next Play. Godot 4.0 to 4.2, and custom builds without Direct3D 12 (Vulkan
   only), keep the engine's own OpenXR instead of being refused.
+- **Unreal Engine 4.22 to 5.6 games get full VR** on the same core. **Add VR** puts a `dwmapi.dll` beside the game's
+  Shipping exe (Remove VR puts the folder back): the engine renders both eyes itself, the game's UI sits on a panel in
+  front, and the controllers act as a gamepad. Full VR and 3D screen (no VR screen: Full VR there instead), head and hand
+  aim, the crosshair, laser pointer, watch and VR menu. Play starts the VR runtime first; started without a headset, the
+  game runs untouched. Runs on SteamVR's test headset in Direct3D 12; not yet tried on a real one. From UE 5.5 the game's
+  UI shows inside the eyes. No camera picker, hide objects, weapon in hand or scripts there yet (they need the game's
+  objects).
+- The crosshair (Game's or Parallax's) now comes from the core, so Godot and Unreal games have it too. Godot games also
+  get **Hide objects** and **Weapon in hand** in the VR menu's Game tab, as Unity games have.
 - Godot games get what Unity games had: the body's heading stays steady when the game camera looks straight up or
   down, and the screen handles pause the game's input.
 - Godot: the real mouse cursor no longer jumps to the window's corner while the laser points at the game.

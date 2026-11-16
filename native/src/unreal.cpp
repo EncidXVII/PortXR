@@ -1,13 +1,16 @@
-// Parallax inside Unreal Engine 4 and 5 games. The game loads this DLL as dwmapi.dll from beside its Shipping exe (all
-// of dwmapi's exports forward to the system copy). Unreal ships a debug stereo device, FFakeStereoRendering, switched on
-// by -emulatestereo. Its virtual functions are replaced so that:
-// - the eyes stand where the core places them (head, body, aim, scale: the rig every engine shares), with the headset's
-//   projection;
-// - a render-target manager of ours makes the engine render both eyes side by side into one texture of the headset's
-//   resolution, separate from the window, which is left holding the game's UI (Slate) alone: the UI panel.
-// At Present the core submits both and waits for the headset's next frame.
-// Mechanism after UEVR (praydog, MIT): its approach, none of its code. Slot layouts read from UE 4.22 to 5.6 games;
-// run live (without a headset: a ParallaxVR\ue-test file) on UE 5.0, 5.4 and 5.5.
+// Parallax inside Unreal Engine 4.22 to 5.6 games, loaded as dwmapi.dll from beside the game's Shipping exe (every
+// dwmapi export forwards to the system copy).
+//
+// How a game runs with it, in the order of this file's sections:
+// 1. Reading the engine: the debug stereo device Unreal ships (FFakeStereoRendering, switched on by -emulatestereo) is
+//    found in the engine's code, with its slots and the console variables stereo needs.
+// 2. Eyes, render target, scene texture: the device's functions are replaced, so the engine renders both eyes where the
+//    core's rig places them, side by side into one texture at the headset's resolution, off the window; the window keeps
+//    the game's UI alone (the UI panel).
+// 3. Present: the core submits the eyes and the UI, then waits for the headset's next frame.
+// 4. Startup: the game's command line waits for a headset check. With a headset the engine starts with the stereo device;
+//    without one the game runs untouched.
+// Tests: a ParallaxVR\ue-test file beside the exe runs without a headset (Direct3D 11) and writes what the engine renders.
 #include "unreal_dwmapi.h"
 
 #include "bridge.h"
@@ -15,6 +18,7 @@
 #include "gpu.h"
 #include "mathx.h"
 #include <MinHook.h>
+#include <openxr/openxr.h>
 #include <intrin.h>
 #include <psapi.h>
 #include <share.h>
@@ -44,7 +48,6 @@ enum Event { EvInit = 1, EvBegin = 2, EvSubmit = 3 };
 void event(int id) { ((void(__stdcall*)(int))prx_render_event_func())(id); }
 
 std::wstring g_dir;   // the game's Shipping exe folder (ours too)
-std::wstring g_cmd;   // the game's command line with our switches
 std::wstring g_test;  // tests: run without a headset, write what the engine renders into this folder
 FILE* g_log;
 
@@ -54,13 +57,20 @@ void note(const char* fmt, ...) {
     char line[512];
     vsnprintf(line, sizeof(line), fmt, args);
     va_end(args);
-    prx_log("%s", line);
-    if (g_test.empty() || !g_log) return;
-    fprintf(g_log, "%s\n", line);  // tests run without the core, whose log Present drains otherwise
+    if (!g_log) return prx_log("%s", line);
+    fprintf(g_log, "%s\n", line);  // straight to the file: the core's own lines come through drain_log
     fflush(g_log);
 }
 
-// --- Finding things in the engine ----------------------------------------------------------------------------------
+void drain_log() {
+    if (!g_test.empty()) return;  // tests write their lines straight to the file
+    std::string lines = bridge::poll_log();
+    if (lines.empty() || !g_log) return;
+    fputs(lines.c_str(), g_log);
+    fflush(g_log);
+}
+
+// --- 1. Reading the engine ----------------------------------------------------------------------------------------------
 
 struct Range {
     uint8_t *begin, *end;
@@ -86,6 +96,7 @@ std::vector<Range> engine_code() {
 
 bool in(const Range& r, const void* p) { return p >= r.begin && p < r.end; }
 
+// Through jump thunks (incremental-link and import jumps) to the code itself.
 const uint8_t* follow(const uint8_t* p) {
     for (int i = 0; i < 4; ++i) {
         if (p[0] == 0xE9) p = p + 5 + *(int32_t*)(p + 1);
@@ -108,9 +119,32 @@ const uint8_t* function_start(const uint8_t* p) {
     return (const uint8_t*)(base + f->BeginAddress);
 }
 
+// What a rip-relative lea (48/4C 8D, mod 00, rm 101) points at.
 const uint8_t* lea_target(const uint8_t* p) {
     if ((p[0] != 0x48 && p[0] != 0x4C) || p[1] != 0x8D || (p[2] & 0xC7) != 0x05) return nullptr;
     return p + 7 + *(int32_t*)(p + 3);
+}
+
+void* read_ptr(const void* p) {
+    __try {
+        return *(void* const*)p;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+bool writable(const void* p) {
+    MEMORY_BASIC_INFORMATION mi{};
+    return VirtualQuery(p, &mi, sizeof(mi)) && mi.State == MEM_COMMIT && (mi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY));
+}
+
+void* patch(void** slot, void* fn) {
+    DWORD old;
+    VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old);
+    void* original = *slot;
+    *slot = fn;
+    VirtualProtect(slot, sizeof(void*), old, &old);
+    return original;
 }
 
 // The vtable FFakeStereoRendering's constructor installs: the first lea rax after the start of a function naming one of
@@ -157,29 +191,29 @@ int sse_ops(const uint8_t* p, bool* doubles = nullptr) {
     return n;
 }
 
-void* patch(void** slot, void* fn) {
-    DWORD old;
-    VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old);
-    void* original = *slot;
-    *slot = fn;
-    VirtualProtect(slot, sizeof(void*), old, &old);
-    return original;
+bool g_doubles;  // UE5: FVector, FRotator and FMatrix hold doubles
+
+// The device's slots this adapter replaces. IStereoRendering keeps their order from UE 4.22 to 5.6: AdjustViewRect three
+// before the view offset; after it the projection, InitCanvasFromView and RenderTexture_RenderThread; then
+// GetRenderTargetManager, the first slot that isn't an empty function (UE 5.6 added one in between).
+struct Slots {
+    int stereo = -1, offset = -1, renderTargets = -1;
+};
+
+Slots find_slots(void** vt) {
+    Slots s;
+    s.stereo = follow((uint8_t*)vt[0])[0] == 0xB0 ? 0 : 1;
+    for (int i = s.stereo + 1; i < 30 && s.offset < 0; ++i)
+        if (sse_ops((uint8_t*)vt[i]) >= 10) s.offset = i;
+    if (s.offset < 0) return s;
+    sse_ops((uint8_t*)vt[s.offset], &g_doubles);
+    auto empty = [&](int i) { uint8_t b = follow((uint8_t*)vt[i])[0]; return b == 0xC3 || b == 0xC2; };
+    s.renderTargets = s.offset + 4;
+    while (s.renderTargets < s.offset + 7 && empty(s.renderTargets)) ++s.renderTargets;
+    return s;
 }
 
-void* read_ptr(const void* p) {
-    __try {
-        return *(void* const*)p;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return nullptr;
-    }
-}
-
-bool writable(const void* p) {
-    MEMORY_BASIC_INFORMATION mi{};
-    return VirtualQuery(p, &mi, sizeof(mi)) && mi.State == MEM_COMMIT && (mi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY));
-}
-
-// Console variables Unreal must run with for stereo (UEVR's fixes): occlusion culling that hides things in one eye off,
+// Console variables Unreal must run with for stereo: occlusion culling that hides things in one eye off,
 // HDR and blurred UI off, and the UI kept out of the eyes (drawn over the window instead: the UI panel). Set in memory,
 // where their registration (inlined into the engine's startup code) keeps the value: either a plain variable the
 // console variable points at (lea r8 before the name), or the TConsoleVariableData pointer it stores after it (the second
@@ -240,7 +274,7 @@ void zero_cvars() {
     }
 }
 
-// --- Unreal and OpenXR space -----------------------------------------------------------------------------------------
+// --- 2. Eyes --------------------------------------------------------------------------------------------------------------
 // Unreal: X forward, Y right, Z up, centimetres (world to metres), rotators in degrees (pitch, yaw, roll).
 // OpenXR (the core): X right, Y up, -Z forward, metres.
 
@@ -289,15 +323,17 @@ void q_to_rotator(const Q& q, double r[3]) {
     r[2] = std::atan2(u[0] * sy[0] + u[1] * sy[1], rt[0] * sy[0] + rt[1] * sy[1]) / kDeg;
 }
 
-// --- The stereo device's replaced functions -------------------------------------------------------------------------
+void read3(void* p, double out[3]) {
+    for (int i = 0; i < 3; ++i) out[i] = g_doubles ? ((double*)p)[i] : ((float*)p)[i];
+}
+void write3(void* p, const double v[3]) {
+    for (int i = 0; i < 3; ++i) g_doubles ? (void)(((double*)p)[i] = v[i]) : (void)(((float*)p)[i] = (float)v[i]);
+}
 
 using OffsetFn = void (*)(void*, int32_t, void*, float, void*);
 using ProjectionFn = void* (*)(void*, void*, int32_t);
 OffsetFn g_offset;
 ProjectionFn g_projection;
-using AdjustFn = void (*)(void*, int32_t, int32_t*, int32_t*, uint32_t*, uint32_t*);
-AdjustFn g_adjust;
-bool g_doubles;              // UE5: FVector, FRotator and FMatrix hold doubles
 std::atomic<bool> g_vr;      // the headset runs (or a test): eyes and projection are ours
 
 std::mutex g_frameMutex;     // bridge::frame from the game thread (stereo) or Present (no 3D view)
@@ -309,6 +345,7 @@ float g_near = 0.1f;         // metres
 double g_scale = 100;        // Unreal units per metre
 HWND g_window;
 int g_eyeW = 1440, g_eyeH = 1600;  // the headset's recommended eye size
+std::atomic<int> g_calls[4];  // tests: view offsets, projections, scene textures handed over, view rects
 
 // Unreal 4 numbers its stereo passes 1 and 2 (0: the full, mono pass); Unreal 5 numbers views from 0.
 int eye_of(int32_t index) {
@@ -318,26 +355,22 @@ int eye_of(int32_t index) {
     return fromOne ? index - 1 : index % 2;
 }
 
-void read3(void* p, double out[3]) {
-    for (int i = 0; i < 3; ++i) out[i] = g_doubles ? ((double*)p)[i] : ((float*)p)[i];
-}
-void write3(void* p, const double v[3]) {
-    for (int i = 0; i < 3; ++i) g_doubles ? (void)(((double*)p)[i] = v[i]) : (void)(((float*)p)[i] = (float)v[i]);
-}
-
 bridge::Game game_now() {
     bridge::Game g;
     CURSORINFO ci{sizeof(ci)};
     g.cursorFree = GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING);
     g.padGame = true;  // Unreal games read XInput pads
+    g.noTheater = true;
     g.carried = true;
     RECT rc{};
     if (g_window && GetClientRect(g_window, &rc) && rc.bottom > 0) {
         g.screenW = rc.right, g.screenH = rc.bottom;
         g.uiAspect = (float)rc.right / rc.bottom;
+        g.fovY = 2 * std::atan(1 / g.uiAspect);  // the stereo device's 90 degrees across: the game's own isn't kept
     }
     g.nearClip = g_near;
     g.pointerClick = true;
+    g.crosshair = true;
     return g;
 }
 
@@ -358,8 +391,7 @@ bool test_frame(const double loc[3], const double rot[3], bridge::Frame& f) {
     return true;
 }
 
-std::atomic<int> g_calls[4];  // tests: view offsets, projections, scene textures handed over, view rects
-
+// The engine asks for the left eye first: that call runs the rig with the game camera and places both eyes.
 void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters, void* location) {
     ++g_calls[0];
     int e = eye_of(index);
@@ -385,6 +417,12 @@ void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters,
         if (g_located) {
             apply(f);
             for (int i = 0; i < 2; ++i) {
+                // 3D screen: the window's eyes, from the game camera along its right, looking where it looks.
+                if (f.mode == 1) {
+                    to_ue(to_xr(loc, scale) + rotator_to_q(rot) * V3{f.windowOffset[i], 0, 0}, scale, g_eyes[i][0]);
+                    std::copy(rot, rot + 3, g_eyes[i][1]);
+                    continue;
+                }
                 const bridge::Pose& eye = f.eyes[i];
                 to_ue({eye.p[0], eye.p[1], eye.p[2]}, scale, g_eyes[i][0]);
                 q_to_rotator({eye.q[0], eye.q[1], eye.q[2], eye.q[3]}, g_eyes[i][1]);
@@ -396,7 +434,8 @@ void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters,
     write3(rotation, g_eyes[e][1]);
 }
 
-// The headset's asymmetric frustum in Unreal's reversed-Z, infinite-far form, near plane kept from the game.
+// The headset's asymmetric frustum (3D screen: the window's) in Unreal's reversed-Z, infinite-far form, near plane kept
+// from the game.
 void* projection_hook(void* self, void* out, int32_t index) {
     ++g_calls[1];
     g_projection(self, out, index);
@@ -404,14 +443,15 @@ void* projection_hook(void* self, void* out, int32_t index) {
     if (e < 0 || e > 1 || !g_vr || !g_located) return out;
     double nearZ = g_doubles ? ((double*)out)[14] : ((float*)out)[14];
     g_near = (float)(nearZ / g_scale);
-    const bridge::Fov& fov = g_out.fovs[e];
+    const bridge::Fov& fov = g_out.mode == 1 ? g_out.windowFov[e] : g_out.fovs[e];
     double l = std::tan(fov.left), r = std::tan(fov.right), u = std::tan(fov.up), d = std::tan(fov.down);
     double m[16] = {2 / (r - l), 0, 0, 0, 0, 2 / (u - d), 0, 0, -(r + l) / (r - l), -(u + d) / (u - d), 0, 1, 0, 0, nearZ, 0};
     for (int i = 0; i < 16; ++i) g_doubles ? (void)(((double*)out)[i] = m[i]) : (void)(((float*)out)[i] = (float)m[i]);
     return out;
 }
 
-// Our render target: the eyes side by side.
+// --- 2. Render target: both eyes side by side at the headset's resolution, off the window ---------------------------------
+
 struct Layout {
     uint32_t eyeW = 0, eyeH = 0;
     bool operator!=(const Layout& o) const { return eyeW != o.eyeW || eyeH != o.eyeH; }
@@ -423,6 +463,9 @@ Layout layout_wanted() {
     return {(uint32_t)(g_eyeW * scale), (uint32_t)(g_eyeH * scale)};
 }
 
+using AdjustFn = void (*)(void*, int32_t, int32_t*, int32_t*, uint32_t*, uint32_t*);
+AdjustFn g_adjust;
+
 // Each eye's place in our render target (the device would halve the window's size: UE 5.4 then draws both eyes into
 // a window-sized corner of it).
 void adjust_hook(void* self, int32_t index, int32_t* x, int32_t* y, uint32_t* w, uint32_t* h) {
@@ -433,8 +476,7 @@ void adjust_hook(void* self, int32_t index, int32_t* x, int32_t* y, uint32_t* w,
     *x = e * (int32_t)l.eyeW, *y = 0, *w = l.eyeW, *h = l.eyeH;
 }
 
-// --- Our render-target manager: both eyes side by side at the headset's resolution, off the window -------------------
-
+// Our IStereoRenderTargetManager: a vtable of plain functions (the object is only its vtable pointer).
 void* g_rtmTable[32];
 struct {
     void** vtable = g_rtmTable;
@@ -446,7 +488,7 @@ uint64_t rtm_zero(void*) { return 0; }  // every other slot: false, nothing, PF_
 uint64_t rtm_one(void*) { return 1; }   // ShouldUseSeparateRenderTarget
 // Slots 5 and 6: GetNumberOfBufferedFrames is 5 before UE 4.26 and 6 after (NeedReAllocateShadingRateTexture came in
 // before it, and AllocateRenderTargetTexture follows it). The call right after CalculateRenderTargetSize is that one
-// (UEVR's return-address test): 1 frame; anything else answers false.
+// (told by its return address): 1 frame; anything else answers false.
 uint64_t rtm_slot5_6(void*) { return (uintptr_t)_ReturnAddress() - g_sizeReturn < 0x40 ? 1 : 0; }
 void rtm_size(void*, void*, uint32_t* x, uint32_t* y) {
     g_sizeReturn = (uintptr_t)_ReturnAddress();
@@ -456,15 +498,39 @@ void rtm_size(void*, void*, uint32_t* x, uint32_t* y) {
 bool rtm_realloc(void*, void*) { return layout_wanted() != g_have; }
 void* rtm_hook(void*) { return &g_rtm; }
 
-// The scene texture reaches the stereo device every frame in RenderTexture_RenderThread (which would copy it into the
-// window; skipped while VR runs, so the window keeps only the UI). Its native resource sits a few pointers into Unreal's RHI texture:
+// --- 2. Scene texture ---------------------------------------------------------------------------------------------------
+// It reaches the stereo device every frame in RenderTexture_RenderThread (which would copy it into the window; skipped
+// while VR runs, so the window keeps only the UI). Its native resource sits a few pointers into Unreal's RHI texture:
 // found once by its vtable (one of the device's textures') and size.
+
 std::vector<void*> g_nativeVtables;
 std::atomic<bool> g_nativeReady;
 std::atomic<void*> g_scene;  // ID3D11Texture2D* / ID3D12Resource*
 uint32_t g_sceneW, g_sceneH;
 void* g_lastRhi;
 int g_api;
+
+// The vtables Direct3D gives its textures on this device: the swapchain's and one of our own.
+void collect_native_vtables(IUnknown* back) {
+    g_nativeVtables.push_back(*(void**)back);
+    if (g_api == 11) {
+        ComPtr<ID3D11Device> device;
+        ((ID3D11Texture2D*)back)->GetDevice(&device);
+        D3D11_TEXTURE2D_DESC d{4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET};
+        ComPtr<ID3D11Texture2D> t;
+        if (device && SUCCEEDED(device->CreateTexture2D(&d, nullptr, &t))) g_nativeVtables.push_back(*(void**)t.Get());
+    } else {
+        ComPtr<ID3D12Device> device;
+        ((ID3D12Resource*)back)->GetDevice(IID_PPV_ARGS(&device));
+        D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_DEFAULT};
+        D3D12_RESOURCE_DESC d{D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0},
+                              D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET};
+        ComPtr<ID3D12Resource> t;
+        if (device && SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON,
+                                                                nullptr, IID_PPV_ARGS(&t))))
+            g_nativeVtables.push_back(*(void**)t.Get());
+    }
+}
 
 bool native_size(void* p, uint32_t& w, uint32_t& h) {
     if (g_api == 11) {
@@ -479,6 +545,7 @@ bool native_size(void* p, uint32_t& w, uint32_t& h) {
     return true;
 }
 
+// Breadth-first through the RHI texture's pointers to the native texture of our render target's size.
 void* find_native(void* rhi) {
     std::vector<void*> level{rhi}, seen;
     for (int depth = 0; depth < 4 && !level.empty(); ++depth) {
@@ -507,7 +574,7 @@ RenderTextureFn g_renderTexture;
 
 void render_texture_hook(void* self, void* cmd, void* backbuffer, void* src, void* windowSize) {
     ++g_calls[2];
-    // No headset yet (or none at all): the device's own copy of both eyes into the window, so the game stays visible.
+    // The headset not running yet: the device's own copy of both eyes into the window, so the game stays visible.
     if (!g_vr) return g_renderTexture(self, cmd, backbuffer, src, windowSize);
     if (!src || src == g_lastRhi || !g_nativeReady) return;  // the device's texture vtables come with the first Present
     g_lastRhi = src;
@@ -515,40 +582,10 @@ void render_texture_hook(void* self, void* cmd, void* backbuffer, void* src, voi
     note("Unreal: scene texture %p -> %p (%ux%u)", src, g_scene.load(), g_sceneW, g_sceneH);
 }
 
-// --- Present: start the core, submit the frame, wait for the headset ------------------------------------------------
+// --- 3. Present: start the core, submit the frame, wait for the headset ------------------------------------------------
 
 int g_slot, g_presents;
 bool g_started, g_dead;
-
-void drain_log() {
-    if (!g_test.empty()) return;  // tests write their lines straight to the file
-    std::string lines = bridge::poll_log();
-    if (lines.empty() || !g_log) return;
-    fputs(lines.c_str(), g_log);
-    fflush(g_log);
-}
-
-// The vtables Direct3D gives its textures on this device: the swapchain's and one of our own.
-void collect_native_vtables(IUnknown* back) {
-    g_nativeVtables.push_back(*(void**)back);
-    if (g_api == 11) {
-        ComPtr<ID3D11Device> device;
-        ((ID3D11Texture2D*)back)->GetDevice(&device);
-        D3D11_TEXTURE2D_DESC d{4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET};
-        ComPtr<ID3D11Texture2D> t;
-        if (device && SUCCEEDED(device->CreateTexture2D(&d, nullptr, &t))) g_nativeVtables.push_back(*(void**)t.Get());
-    } else {
-        ComPtr<ID3D12Device> device;
-        ((ID3D12Resource*)back)->GetDevice(IID_PPV_ARGS(&device));
-        D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_DEFAULT};
-        D3D12_RESOURCE_DESC d{D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, 4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0},
-                              D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET};
-        ComPtr<ID3D12Resource> t;
-        if (device && SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON,
-                                                                nullptr, IID_PPV_ARGS(&t))))
-            g_nativeVtables.push_back(*(void**)t.Get());
-    }
-}
 
 void start(IDXGISwapChain* sc) {
     g_started = true;
@@ -578,6 +615,8 @@ void start(IDXGISwapChain* sc) {
     host.product = app;
     host.gameDir = g_dir;
     host.eyeWidth = g_eyeW, host.eyeHeight = g_eyeH;
+    host.noTheater = true;
+    host.aimExtras = true;
     bridge::set_menu_host(host);
     gpu_grab_present = true;
     gpu_no_vsync = true;
@@ -644,11 +683,12 @@ void on_present(IDXGISwapChain* sc) {
             float tw = (float)g_sceneW, th = (float)g_sceneH;
             // The UI panel: the window, holding the game's UI alone (its black keyed out).
             f.quad = f.quadAlpha = f.quadFromBackbuffer = 1;
-            // The eyes from the scene texture, side by side; without a 3D view this frame the eyes (transparent) only
-            // carry the beam and the watch.
+            // The eyes from the scene texture, side by side: Full VR's, or 3D screen's on the screen under the UI (the
+            // core's own transparent eyes then carry the beam and the watch). Without a 3D view this frame only those.
             if (stereo && scene) {
                 f.stereo = 1;
-                f.eye[0] = f.eye[1] = {scene, 0};
+                if (g_out.mode == 1) f.window = 1, f.windowLayer[0] = f.windowLayer[1] = {scene, 0};
+                else f.eye[0] = f.eye[1] = {scene, 0};
                 for (int e = 0; e < 2; ++e) {
                     float crop[4] = {e * l.eyeW / tw, 0, (e + 1) * l.eyeW / tw, l.eyeH / th};
                     memcpy(f.eyeCrop[e], crop, sizeof(crop));
@@ -664,42 +704,77 @@ void on_present(IDXGISwapChain* sc) {
     event(EvBegin);
 }
 
-// --- Startup ----------------------------------------------------------------------------------------------------------
+// --- 4. Startup -----------------------------------------------------------------------------------------------------------
+
+std::wstring g_cmd;           // the game's command line with our switches
+LPWSTR(WINAPI* g_getCmd)();   // the system's GetCommandLineW
+HANDLE g_scanned, g_decided;  // boot has looked for the stereo device; the command line has its answer
+std::atomic<bool> g_deviceOk, g_stereo, g_answered;
+
+// A headset answers now: an OpenXR instance (no graphics needed) and its head-mounted system, then gone again.
+bool headset() {
+    HMODULE m = LoadLibraryW((g_dir + L"\\openxr_loader.dll").c_str());
+    auto gpa = m ? (PFN_xrGetInstanceProcAddr)GetProcAddress(m, "xrGetInstanceProcAddr") : nullptr;
+    PFN_xrCreateInstance create = nullptr;
+    if (!gpa || XR_FAILED(gpa(XR_NULL_HANDLE, "xrCreateInstance", (PFN_xrVoidFunction*)&create)))
+        return note("Unreal: no OpenXR loader or runtime (%s)", m ? "no xrCreateInstance" : "openxr_loader.dll"), false;
+    XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
+    strcpy_s(ici.applicationInfo.applicationName, "Parallax");
+    strcpy_s(ici.applicationInfo.engineName, "Parallax");
+    ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
+    XrInstance instance;
+    if (XrResult res = create(&ici, &instance); XR_FAILED(res)) return note("Unreal: OpenXR instance: error %d", (int)res), false;
+    PFN_xrGetSystem getSystem = nullptr;
+    PFN_xrDestroyInstance destroy = nullptr;
+    gpa(instance, "xrGetSystem", (PFN_xrVoidFunction*)&getSystem);
+    gpa(instance, "xrDestroyInstance", (PFN_xrVoidFunction*)&destroy);
+    XrSystemGetInfo sgi{XR_TYPE_SYSTEM_GET_INFO, nullptr, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY};
+    XrSystemId system;
+    XrResult res = getSystem ? getSystem(instance, &sgi, &system) : XR_ERROR_FUNCTION_UNSUPPORTED;
+    bool ok = XR_SUCCEEDED(res);
+    if (!ok) note("Unreal: OpenXR headset: error %d", (int)res);
+    if (destroy) destroy(instance);
+    return ok;
+}
+
+// IsStereoEnabled stays the device's own (always true): with the device present and stereo off, UE 5.0's scene renderer
+// reads view -1 and crashes. Until the headset runs, the replaced functions pass through to the device's own.
+void install(void** vt, const Slots& s) {
+    g_offset = (OffsetFn)patch(&vt[s.offset], (void*)&offset_hook);
+    g_projection = (ProjectionFn)patch(&vt[s.offset + 1], (void*)&projection_hook);
+    g_adjust = (AdjustFn)patch(&vt[s.offset - 3], (void*)&adjust_hook);
+    g_renderTexture = (RenderTextureFn)patch(&vt[s.offset + 3], (void*)&render_texture_hook);
+    for (auto& f : g_rtmTable) f = (void*)&rtm_zero;
+    g_rtmTable[0] = (void*)&rtm_one;
+    g_rtmTable[2] = (void*)&rtm_size;
+    g_rtmTable[3] = (void*)&rtm_realloc;
+    g_rtmTable[5] = g_rtmTable[6] = (void*)&rtm_slot5_6;
+    patch(&vt[s.renderTargets], (void*)&rtm_hook);
+}
 
 DWORD WINAPI boot(void*) {
     std::wstring dir = g_dir + L"\\ParallaxVR";
     CreateDirectoryW(dir.c_str(), nullptr);
     g_log = _wfsopen(((g_test.empty() ? dir : g_test) + L"\\parallax.log").c_str(), L"w", _SH_DENYNO);
     bridge::settings_open(dir + L"\\parallax.cfg");
+    ULONGLONG t0 = GetTickCount64();
     void** vt = find_vtable();
-    if (!vt) return note("Unreal: no FFakeStereoRendering in this game; VR stays off"), drain_log(), 0;
-    int stereoSlot = follow((uint8_t*)vt[0])[0] == 0xB0 ? 0 : 1, offsetSlot = -1;
-    for (int i = stereoSlot + 1; i < 30 && offsetSlot < 0; ++i)
-        if (sse_ops((uint8_t*)vt[i]) >= 10) offsetSlot = i;
-    if (offsetSlot < 0) return note("Unreal: stereo device found, its view offset not; VR stays off"), drain_log(), 0;
-    sse_ops((uint8_t*)vt[offsetSlot], &g_doubles);
-    // IStereoRendering around the view offset: AdjustViewRect 3 before; after it projection, InitCanvasFromView,
-    // RenderTexture_RenderThread (UE 4.22 to 5.6 alike).
-    // GetRenderTargetManager: the first slot after RenderTexture_RenderThread that is not an empty void (UE 5.6 added one).
-    int rtmSlot = offsetSlot + 4;
-    while (rtmSlot < offsetSlot + 7 && (follow((uint8_t*)vt[rtmSlot])[0] == 0xC3 || follow((uint8_t*)vt[rtmSlot])[0] == 0xC2)) ++rtmSlot;
-    note("Unreal: stereo vtable %p, IsStereoEnabled %d, view offset %d, %s precision, render targets %d", (void*)vt, stereoSlot,
-         offsetSlot, g_doubles ? "double" : "single", rtmSlot);
-    // IsStereoEnabled stays the device's own (always true): with the device present and stereo off, UE 5.0's scene
-    // renderer reads view -1 and crashes. Until the headset runs our hooks pass through to the device's flat defaults.
-    g_offset = (OffsetFn)patch(&vt[offsetSlot], (void*)&offset_hook);
-    g_projection = (ProjectionFn)patch(&vt[offsetSlot + 1], (void*)&projection_hook);
-    for (auto& f : g_rtmTable) f = (void*)&rtm_zero;
-    g_rtmTable[0] = (void*)&rtm_one;
-    g_rtmTable[2] = (void*)&rtm_size;
-    g_rtmTable[3] = (void*)&rtm_realloc;
-    g_rtmTable[5] = g_rtmTable[6] = (void*)&rtm_slot5_6;
-    g_renderTexture = (RenderTextureFn)patch(&vt[offsetSlot + 3], (void*)&render_texture_hook);
-    patch(&vt[rtmSlot], (void*)&rtm_hook);
-    g_adjust = (AdjustFn)patch(&vt[offsetSlot - 3], (void*)&adjust_hook);
+    Slots s = vt ? find_slots(vt) : Slots{};
+    g_deviceOk = s.offset >= 0;
+    note("Unreal: engine read in %llu ms", GetTickCount64() - t0);
+    SetEvent(g_scanned);
+    if (!g_deviceOk) {
+        note(vt ? "Unreal: stereo device found, its view offset not; VR stays off" : "Unreal: no FFakeStereoRendering in this game; VR stays off");
+        return drain_log(), 0;
+    }
+    WaitForSingleObject(g_decided, INFINITE);
+    if (!g_stereo) return note("Unreal: no headset; the game runs as it is"), drain_log(), 0;
+    note("Unreal: stereo vtable %p, IsStereoEnabled %d, view offset %d, %s precision, render targets %d", (void*)vt, s.stereo,
+         s.offset, g_doubles ? "double" : "single", s.renderTargets);
+    install(vt, s);
     find_cvars();
     // ponytail: UE 5.5+ has no Slate.DrawToVRRenderTarget and draws its UI into the eye texture's top-left at window
-    // size, laid out for the texture's size. Moving it out needs UEVR's Slate redirect (a second engine texture).
+    // size, laid out for the texture's size. Moving it out needs a Slate redirect (a second engine texture).
     if (!g_cvars[0].direct && !g_cvars[0].data && !g_cvars[0].object) note("Unreal: the game's UI shows inside the eyes");
     if (g_test.empty()) prx_install_hooks();
     // Present on every swapchain, through one of our own (the vtable is DXGI's, shared by D3D11 and D3D12 games).
@@ -713,7 +788,45 @@ DWORD WINAPI boot(void*) {
     return 0;
 }
 
-LPWSTR WINAPI command_line() { return g_cmd.data(); }
+// This thread holds the loader lock (the PEB's, x64 offset 0x110) while DLLs initialise; boot can't run until it's free.
+bool under_loader_lock() {
+    auto* lock = *(CRITICAL_SECTION**)(__readgsqword(0x60) + 0x110);
+    return (DWORD)(uintptr_t)lock->OwningThread == GetCurrentThreadId();
+}
+
+// The headset check in a process of its own (rundll32 on this DLL: ParallaxProbe): SteamVR's runtime can't start inside
+// a game that hasn't reached its main yet, and takes about 20 s from cold.
+bool headset_apart() {
+    std::wstring cmd = L"rundll32.exe \"" + g_dir + L"\\dwmapi.dll\",ParallaxProbe";
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+        return note("Unreal: the headset check didn't start (%lu)", GetLastError()), false;
+    DWORD code = 1;
+    if (WaitForSingleObject(pi.hProcess, 60000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &code);
+    else TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code == 0;
+}
+
+// Stereo when boot found the stereo device and a headset answers, so a game started without one runs untouched.
+void answer() {
+    if (WaitForSingleObject(g_scanned, 20000) == WAIT_OBJECT_0 && g_deviceOk) {
+        ULONGLONG t0 = GetTickCount64();
+        g_stereo = !g_test.empty() || headset_apart();
+        note("Unreal: headset check: %s (%llu ms)", g_stereo ? "found" : "none", GetTickCount64() - t0);
+    }
+    g_answered = true;
+    SetEvent(g_decided);
+}
+
+// The engine's first read (the CRT's, before WinMain) gets the answer; reads while DLLs still load get the plain line.
+LPWSTR WINAPI command_line() {
+    static std::once_flag once;
+    if (!g_answered && !under_loader_lock()) std::call_once(once, answer);
+    return g_answered && g_stereo ? g_cmd.data() : g_getCmd();
+}
 }  // namespace
 
 BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
@@ -723,7 +836,10 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
     GetModuleFileNameW(self, path, MAX_PATH);
     g_dir = path;
     g_dir.resize(g_dir.rfind(L'\\'));
-    // Tests: a ParallaxVR\ue-test file runs without a headset on Direct3D 11 and writes what the engine renders there.
+    // Loaded by rundll32 for the headset check (ParallaxProbe), not by the game beside it: nothing to set up.
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (_wcsnicmp(exe, g_dir.c_str(), g_dir.size()) != 0 || exe[g_dir.size()] != L'\\') return TRUE;
     if (GetFileAttributesW((g_dir + L"\\ParallaxVR\\ue-test").c_str()) != INVALID_FILE_ATTRIBUTES) g_test = g_dir + L"\\ParallaxVR";
     // The engine reads its command line once, early in WinMain: the stereo device, and the console variables that must
     // already hold at startup (HZB occlusion crashes the scene renderer's constructor in stereo, UE 5.0). find_cvars
@@ -731,9 +847,13 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
     g_cmd = std::wstring(GetCommandLineW()) + L" -emulatestereo -ini:Engine:[SystemSettings]:r.EnableStereoEmulation=1,[SystemSettings]:r.HZBOcclusion=0,"
             L"[SystemSettings]:r.InstanceCulling.OcclusionCull=0,[SystemSettings]:r.HDR.UI.CompositeMode=0,"
             L"[SystemSettings]:Slate.AllowBackgroundBlurWidgets=0" + std::wstring(g_test.empty() ? L"" : L" -dx11");
-    void* original;
-    if (MH_Initialize() == MH_OK && MH_CreateHookApi(L"kernelbase", "GetCommandLineW", (void*)&command_line, &original) == MH_OK)
+    g_scanned = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    g_decided = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (MH_Initialize() == MH_OK && MH_CreateHookApi(L"kernelbase", "GetCommandLineW", (void*)&command_line, (void**)&g_getCmd) == MH_OK)
         MH_EnableHook(MH_ALL_HOOKS);
     if (HANDLE t = CreateThread(nullptr, 0, boot, nullptr, 0, nullptr)) CloseHandle(t);
     return TRUE;
 }
+
+// rundll32 "<dir>\dwmapi.dll",ParallaxProbe: exits 0 when a headset answers (see headset_apart).
+extern "C" __declspec(dllexport) void CALLBACK ParallaxProbe(HWND, HINSTANCE, LPSTR, int) { ExitProcess(headset() ? 0 : 1); }

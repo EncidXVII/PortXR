@@ -35,6 +35,18 @@ var _picked_camera := ""
 var _camera_names: Array[String] = []
 var _pointer := Vector2(-1, -1)
 var _pointer_down := false
+# The Game tab's tools, as in Unity games. Weapon in hand: the camera's children moved this frame, and where they were.
+var _held: Array[Node3D] = []
+var _held_at: Array[Vector3] = []
+# Hide objects: the tool has the laser; what it points at; where the beam ends (metres); the scene's visuals.
+var _hiding := false
+var _hide_target: VisualInstance3D
+var _hide_reach := 3.0
+var _visuals: Array[Node] = []
+var _visuals_at := -10000
+var _trigger_was := true
+var _hid: Array[VisualInstance3D] = []
+var _rehide_at := 0
 # XInput button bits to Godot's pad buttons.
 const PAD_BUTTONS := {0x1000: JOY_BUTTON_A, 0x2000: JOY_BUTTON_B, 0x4000: JOY_BUTTON_X, 0x8000: JOY_BUTTON_Y,
 	0x10: JOY_BUTTON_START, 0x20: JOY_BUTTON_BACK, 0x40: JOY_BUTTON_LEFT_STICK, 0x80: JOY_BUTTON_RIGHT_STICK,
@@ -111,7 +123,7 @@ func _process(_delta: float) -> void:
 		"pad_game": _pad_game, "carried": _carried(_game), "menu_open": false,
 		"ui_aspect": _ui_aspect(root),
 		"fov_y": deg_to_rad(_game.fov) if _game else 1.0, "near": _game.near if _game else 0.05,
-		"focus": _focus,
+		"focus": _focus, "aim_distance": _aim_distance(), "world_pointer": _hiding, "world_reach": _hide_reach,
 	}
 	if _game != null:
 		game["camera"] = _game.global_transform.orthonormalized()
@@ -123,6 +135,7 @@ func _process(_delta: float) -> void:
 	_handles = result.get("handles", false)
 	_placed = eyes.size() == 2
 	_menu_requests(result)
+	_tools(result)
 	_send_pad()
 	_send_pointer(result)
 	if _placed and _mode == 1 and _game != null and result.has("window"):
@@ -152,6 +165,11 @@ func _process(_delta: float) -> void:
 
 
 func _after_draw() -> void:
+	for i in _held.size():
+		if is_instance_valid(_held[i]):
+			_held[i].global_position = _held_at[i]
+	_held.clear()
+	_held_at.clear()
 	var left := _views[0].get_texture().get_rid()
 	if not _attached:
 		_attached = core.attach(left)
@@ -286,6 +304,15 @@ func _window_eyes(window: Array, root: Window) -> void:
 		_focus = hits[hits.size() / 2]
 
 
+# While aiming: how far the game camera's middle ray goes before it hits something (0: nothing), for the crosshair.
+func _aim_distance() -> float:
+	if not _aiming or _game == null:
+		return 0.0
+	var from := _game.global_position
+	var hit := _game.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, from - _game.global_basis.z * 40.0))
+	return 0.0 if hit.is_empty() else from.distance_to(hit["position"])
+
+
 func _stereo_size() -> Vector2i:
 	var scale := clampf(float(core.setting("View", "RenderScale", "1")), 0.5, 2.0)
 	return Vector2i(int(_eye_size.x * scale), int(_eye_size.y * scale))
@@ -312,6 +339,7 @@ func _offer_menu() -> void:
 		"game_dir": OS.get_executable_path().get_base_dir(),
 		"cameras": _camera_names, "current_camera": str(_game.name) if _game else "",
 		"eye_width": _views[0].size.x, "eye_height": _views[0].size.y,
+		"hand_held": true, "hide_objects": true, "hidden": _hidden_paths().size(),
 	})
 
 
@@ -479,3 +507,109 @@ func _command(cmd: String) -> Variant:
 				main._on_play()
 			return {"ok": true}
 	return {"error": "unknown " + parts[0]}
+
+
+# The Game tab's tools, as in Unity games: hiding objects with the laser, and the weapon in the hand.
+func _tools(result: Dictionary) -> void:
+	if result.get("show_hidden", false):
+		for n in _hid:
+			if is_instance_valid(n):
+				n.visible = true
+		_hid.clear()
+		core.set_setting("Game", "Hidden", "")
+	if result.get("hide_objects", false):
+		_hiding = true
+		_trigger_was = true  # the trigger that chose the tool must be let go first
+	if _hiding:
+		_aim_hider(result)
+	_rehide()
+	if _aiming and _game != null and result.get("hand_aiming", false) and result.has("right") 			and core.setting("Controls", "WeaponInHand", "true").to_lower() == "true":
+		var hand: Transform3D = result["right"]
+		_hold(hand.origin - hand.basis.z * 0.08 * float(result.get("scale", 1.0)))
+
+
+# The laser goes into the game world from the right hand and ends on the nearest thing it would hide; the trigger hides
+# it (kept per game as node paths), B or the VR menu puts the tool away.
+func _aim_hider(result: Dictionary) -> void:
+	_hide_target = null
+	if _menu_open or result.get("b", false):
+		_hiding = false
+		return
+	if not result.has("right"):
+		return
+	var now := Time.get_ticks_msec()
+	if now - _visuals_at > 1000:
+		_visuals_at = now
+		_visuals = get_tree().root.find_children("*", "VisualInstance3D", true, false)
+	var hand: Transform3D = result["right"]
+	var from := hand.origin
+	var dir := -hand.basis.z.normalized()
+	var best := INF
+	for n in _visuals:
+		var v := n as VisualInstance3D
+		if v == null or not is_instance_valid(v) or not v.is_visible_in_tree():
+			continue
+		var hit = (v.global_transform * v.get_aabb()).intersects_ray(from, dir)
+		if hit != null and from.distance_to(hit) < best:
+			best = from.distance_to(hit)
+			_hide_target = v
+	_hide_reach = best / maxf(float(result.get("scale", 1.0)), 1e-4) if _hide_target != null else 3.0
+	var trigger := float(result.get("trigger", 0.0)) > 0.6
+	if trigger and not _trigger_was and _hide_target != null:
+		var paths := _hidden_paths()
+		paths.append(str(_hide_target.get_path()))
+		core.set_setting("Game", "Hidden", ";".join(paths))
+		_hide_target.visible = false
+		_hid.append(_hide_target)
+		print(LOG, "hid ", _hide_target.get_path())
+	_trigger_was = trigger
+
+
+# Hidden objects stay hidden: scenes load and games show nodes again.
+func _rehide() -> void:
+	var now := Time.get_ticks_msec()
+	if now - _rehide_at < 2000:
+		return
+	_rehide_at = now
+	for p in _hidden_paths():
+		var n := get_tree().root.get_node_or_null(NodePath(p)) as VisualInstance3D
+		if n != null and n.visible:
+			n.visible = false
+			_hid.append(n)
+
+
+func _hidden_paths() -> PackedStringArray:
+	var out := PackedStringArray()
+	for p in core.setting("Game", "Hidden", "").split(";"):
+		if p != "" and not out.has(p):
+			out.append(p)
+	return out
+
+
+# Weapon in hand: the camera's children that draw (the viewmodel: arms and gun) move so their middle sits in the hand
+# while the eyes render, and go back once the frame is drawn, so the game's own logic never sees them moved.
+func _hold(hand: Vector3) -> void:
+	var roots: Array[Node3D] = []
+	var middle := Vector3.ZERO
+	var count := 0
+	for c in _game.get_children():
+		var n := c as Node3D
+		if n == null or not n.is_visible_in_tree():
+			continue
+		var vis := n.find_children("*", "VisualInstance3D", true, false)
+		if n is VisualInstance3D:
+			vis.append(n)
+		if vis.is_empty():
+			continue
+		roots.append(n)
+		for v in vis:
+			var vi := v as VisualInstance3D
+			middle += (vi.global_transform * vi.get_aabb()).get_center()
+			count += 1
+	if count == 0:
+		return
+	var shift := hand - middle / count
+	for n in roots:
+		_held.append(n)
+		_held_at.append(n.global_position)
+		n.global_position += shift

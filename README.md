@@ -105,7 +105,11 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
   resolution); the game's 2D UI sits on a panel in front; the controllers act as a gamepad inside the game. It runs the
   game on Direct3D 12, which Godot's official builds include. Godot 4.0 to 4.2 games, and custom builds without
   Direct3D 12, get VR from the engine's own OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
-- **Games in other engines** (Unreal, Godot 3, anything else) are listed too and play on the VR screen: Parallax
+- **Unreal Engine 4.22 to 5.6 games** get full VR from the same core: **Add VR** puts a `dwmapi.dll` beside the game's
+  Shipping exe (`Binaries\Win64`), and the engine then renders both eyes itself. The game's UI sits on a panel in front
+  and the controllers act as a gamepad. Full VR or 3D screen, with head and hand aim and the crosshair; without a headset
+  the game starts as it always did. Camera picker, hide objects, weapon in hand and scripts are Unity and Godot only.
+- **Games in other engines** (older Unreal, Godot 3, anything else) are listed too and play on the VR screen: Parallax
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
   the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
@@ -136,7 +140,7 @@ for single-player games only.
 headset on. The game page names the runtime Parallax will use and says what to check if VR does not start. Still
 flat? **Export logs** and open an issue.
 
-**Does it work with Unreal, Godot or other engines?** Unity games and Godot 4 games get full VR. Games in any other
+**Does it work with Unreal, Godot or other engines?** Unity, Godot 4 and Unreal 4.22+ games get full VR. Games in any other
 engine play flat on the VR screen.
 
 **How is it different from a game's own VR mode?** Parallax adds VR to games that have none. Games with their own VR
@@ -194,7 +198,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 ## How it works
 
-- `native/` (C++20): the core every engine shares. OpenXR session and frame loop, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation; and the player's rig (`rig.cpp`: recentring, body turning, head and hand aim, snap turning, comfort vignette, the laser pointer, wrist watch, Theater and Parallax screen with its handles, eye placement), the VR menu (`menu.cpp`, drawn on the CPU and shown as its own layer) and settings. `bridge.cpp` is the one frame every engine adapter calls. Built as `parallax_xr.dll` (Unity) and `parallax_godot.dll` (a Godot 4 GDExtension).
+- `native/` (C++20): the core every engine shares. OpenXR session and frame loop, D3D11 and D3D12 copies into OpenXR swapchains, a Present hook for the desktop mirror (and the D3D12 UI grab), controller actions, haptics, input emulation; and the player's rig (`rig.cpp`: recentring, body turning, head and hand aim, snap turning, comfort vignette, the laser pointer, wrist watch, Theater and Parallax screen with its handles, eye placement), the VR menu (`menu.cpp`, drawn on the CPU and shown as its own layer) and settings. `bridge.cpp` is the one frame every engine adapter calls. Built as `parallax_xr.dll` (Unity), `parallax_godot.dll` (a Godot 4 GDExtension) and `dwmapi.dll` (Unreal, `unreal.cpp`: loaded beside the game's exe, it drives the engine's own stereo renderer).
 - `managed/` (BepInEx 5 plugin for Mono, same sources built for BepInEx 6 / IL2CPP): the Unity adapter. Picks the game camera and reports it with what only Unity knows (its physics rays, a player body's gravity, 2D scenes), renders the two eyes where the core puts them, captures the game's UI from the backbuffer, moves a weapon into the hand, hides objects.
 - `godot/core/` (GDScript): the Godot adapter, the same frame from inside a Godot 4 game.
 - `app/` (Rust + egui, one `Parallax.exe`): library grid from Steam, Epic, GOG and manual adds (each game marked Full VR, VR screen or why neither; plus a "Not installed" shelf of the Steam library's games that would get Full VR, matched against Wikidata's list of Unity games and without anti-cheat, multiplayer-only, own-VR and 32-bit games, that installs through Steam), per-game script import with search, status and store filters and a recently-played order, settings for all games with per-game changes (kept in `%APPDATA%\Parallax` across uninstalls; a game follows a changed all-games value unless it was set differently for that game, in the app or its VR menu), install/uninstall with a receipt (`.vrinstall.json`), launch, export logs, update check against GitHub releases. `Parallax.exe <gameDir>` opens straight to that game's page.

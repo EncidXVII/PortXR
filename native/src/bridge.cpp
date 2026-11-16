@@ -5,6 +5,7 @@
 #include "menu.h"
 #include "canvas.h"
 #include <Xinput.h>
+#include <algorithm>
 
 extern "C" {
 PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedWidth, int32_t* recommendedHeight);
@@ -80,6 +81,10 @@ float g_testHeadAt[4];
 int g_lastMode;
 rig::Screen g_lastScreen;
 float g_aspect = 16.f / 9.f;
+// The crosshair the core draws (Game::crosshair): while aiming, the game camera and how far it aims.
+bool g_aimCross;
+rig::Pose g_aimCam;
+float g_aimDist;
 PrxPose pose(const bridge::Pose& p) { return {p.p[0], p.p[1], p.p[2], p.q[0], p.q[1], p.q[2], p.q[3]}; }
 void submit(PrxFrame& f) {
     f.accent[0] = 0.776f, f.accent[1] = 1.f, f.accent[2] = 0.102f;
@@ -173,6 +178,7 @@ bool frame(const Game& game, Frame& out) {
     }
     rig::GameFrame g;
     g.hasCamera = game.hasCamera;
+    g.noTheater = game.noTheater;
     g.camera = {{game.camera.p[0], game.camera.p[1], game.camera.p[2]}, {game.camera.q[0], game.camera.q[1], game.camera.q[2], game.camera.q[3]}};
     g.cameraKey = game.cameraKey;
     g.cursorFree = game.cursorFree;
@@ -208,6 +214,9 @@ bool frame(const Game& game, Frame& out) {
     g.pointerClick = game.pointerClick;
     rig::Result r = rig::frame(g, g_views);
     g_rig = r;
+    g_aimCross = game.crosshair && game.hasCamera && r.aiming;
+    g_aimCam = g.camera;
+    g_aimDist = game.aimDistance;
     g_lastMode = r.mode;
     g_lastScreen = r.screen;
     g_aspect = aspect;
@@ -241,6 +250,19 @@ bool frame(const Game& game, Frame& out) {
     }
     out.aiming = r.aiming;
     out.events = r.events;
+    out.rightValid = r.controllers.aimValid[1] != 0;
+    if (out.rightValid) {
+        // Tracking space to the game world, as the eyes were placed (rig::Result::origin).
+        const PrxPose& a = r.controllers.aim[1];
+        mathx::Q undo = r.origin.q.inverse();
+        mathx::V3 w = r.base + r.body * (undo * (mathx::V3{a.px, a.py, a.pz} - r.origin.p) * r.scale);
+        mathx::Q q = r.body * undo * mathx::Q{a.qx, a.qy, a.qz, a.qw};
+        out.right = {{w.x, w.y, w.z}, {q.x, q.y, q.z, q.w}};
+    }
+    out.handAiming = r.handAiming;
+    out.rightTrigger = r.controllers.rTrigger;
+    out.bDown = (r.controllers.buttons & BtnB) != 0;
+    out.scale = r.scale;
     // The VR menu: a double tap on the menu button or the watch (from the rig), or F11 with the game in front.
     LARGE_INTEGER tick, freq;
     QueryPerformanceCounter(&tick);
@@ -299,7 +321,9 @@ void set_menu_host(const MenuHost& h) {
     m.currentCamera = h.currentCamera;
     m.hideObjects = h.hideObjects;
     m.aimExtras = h.aimExtras;
+    m.handHeld = h.handHeld;
     m.uiBlack = h.uiBlack;
+    m.noTheater = h.noTheater;
     m.hidden = h.hidden;
     m.eyeWidth = h.eyeWidth;
     m.eyeHeight = h.eyeHeight;
@@ -313,6 +337,41 @@ bool pad(Pad& out) {
     if (!prx_pad_state(&gp)) return false;
     out = {gp.wButtons, gp.bLeftTrigger, gp.bRightTrigger, gp.sThumbLX, gp.sThumbLY, gp.sThumbRX, gp.sThumbRY};
     return true;
+}
+
+// While aiming, where the game camera aims (what it hits, else 40 m), seen from each eye: Parallax's reticle there, or
+// the UI panel's middle (the game's own crosshair) moved there, as the Unity plugin does.
+void crosshair(PrxFrame& f, bool game) {
+    using mathx::V3;
+    const rig::Result& r = g_rig;
+    float dist = g_aimDist > 0 ? std::max(g_aimDist, 0.3f) : 40.f * r.scale;
+    V3 world = g_aimCam.p + g_aimCam.q * V3{0, 0, -dist};
+    V3 at = r.origin.p + r.origin.q * (r.body.inverse() * (world - r.base) * (1 / std::max(1e-4f, r.scale)));
+    if (game) {
+        V3 head = (V3{g_views[0].px, g_views[0].py, g_views[0].pz} + V3{g_views[1].px, g_views[1].py, g_views[1].pz}) * 0.5f;
+        V3 to = at - head;
+        float d = std::max(1e-4f, to.length());
+        to = to * (1 / d);
+        // Same size to the eye as on the panel, facing the head, level.
+        float grow = d / std::max(0.1f, (V3{f.quadPose.px, f.quadPose.py, f.quadPose.pz} - head).length());
+        float pitch = std::asin(std::clamp(to.y, -1.f, 1.f)) / 2;
+        mathx::Q q = mathx::yaw(std::atan2(-to.x, -to.z)) * mathx::Q{std::sin(pitch), 0, 0, std::cos(pitch)};
+        f.aimPatch[0] = 0.09f, f.aimPatch[1] = 0.08f;
+        f.aimPatchShown = 1;
+        f.aimPose = {at.x, at.y, at.z, q.x, q.y, q.z, q.w};
+        f.aimSize[0] = 2 * f.aimPatch[0] * f.quadWidth * grow;
+        f.aimSize[1] = 2 * f.aimPatch[1] * f.quadHeight * grow;
+        return;
+    }
+    for (int e = 0; e < 2; ++e) {
+        const PrxPose& v = g_views[e];
+        V3 p = mathx::Q{v.qx, v.qy, v.qz, v.qw}.inverse() * (at - V3{v.px, v.py, v.pz});
+        if (p.z > -0.01f) continue;
+        float l = std::tan(g_fovs[e].left), rt = std::tan(g_fovs[e].right), u = std::tan(g_fovs[e].up), dn = std::tan(g_fovs[e].down);
+        f.aimReticle[e][0] = (p.x / -p.z - l) / (rt - l);
+        f.aimReticle[e][1] = (u - p.y / -p.z) / (u - dn);
+        f.aimReticle[e][2] = std::tan(0.45f * mathx::kPi / 180) / (u - dn);
+    }
 }
 
 void layers(void* prxFrame, float uiAspect) {
@@ -340,6 +399,8 @@ void layers(void* prxFrame, float uiAspect) {
     }
     for (int i = 0; i < 3; ++i) f.accent[i] = g_accent[i];
     f.vignette = g_vignette;
+    std::string cross = settings::get("Controls", "Crosshair", "Game");
+    if (mode == rig::Stereo && g_aimCross && cross != "Off") crosshair(f, cross == "Game");
     if (g_rig.beam) {
         f.beam = 1;
         f.beamFrom[0] = g_rig.beamFrom.x, f.beamFrom[1] = g_rig.beamFrom.y, f.beamFrom[2] = g_rig.beamFrom.z;

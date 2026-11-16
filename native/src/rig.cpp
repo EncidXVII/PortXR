@@ -161,6 +161,12 @@ float orbit_radius() { return g_orbitDen > 0 ? g_orbitNum / g_orbitDen : 0; }
 // Head aim on Auto: first person, judged per scene and camera from how the camera turns (below 0.45 m from itself;
 // flipped only by strong evidence, above 1 m or below 0.2 m); without a verdict, a carried camera that has not ignored
 // the pushes twice.
+// The Display setting, as this engine can show it.
+std::string display_of(const rig::GameFrame& g) {
+    std::string d = setting("View", "Display", "Stereo");
+    return g.noTheater && d == "Theater" ? "Stereo" : d;
+}
+
 bool aim_wanted(const rig::GameFrame& g, int mode) {
     std::string aim = setting("Controls", "HeadAim", "Auto");
     if (aim == "Off" || mode == 2 || !g.hasCamera || !g_bodyKnown || g.menuOpen || g.worldPointer) return false;
@@ -690,7 +696,7 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     // While it points at the panel, the right trigger is the pointer's, not the game's.
     cfg.pointerActive = g_pointerOn ? 1 : 0;
     // Display: Parallax needs a game camera; without one (or when asked) the flat game on the Theater screen.
-    std::string display = setting("View", "Display", "Stereo");
+    std::string display = display_of(game);
     int view = display == "Theater" || !game.hasCamera ? rig::Theater : display == "Parallax" ? rig::Parallax : rig::Stereo;
     {
         static bool asked = false;
@@ -722,7 +728,7 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
         float ph = pw / (game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
         if (game.menuOpen && !g_testPointScreen) p = game.menuPose, pw = game.menuWidth, ph = game.menuHeight;
         V3 target = p.p + p.q * V3{(g_testPointU - 0.5f) * pw, (0.5f - g_testPointV) * ph, 0};
-        std::string shown = setting("View", "Display", "Stereo");
+        std::string shown = display_of(game);
         if ((!game.menuOpen || g_testPointScreen) && (shown != "Stereo" || !game.hasCamera)) {
             rig::Screen sc = place_screen(shown == "Parallax" && game.hasCamera, game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f);
             target = surface_of(sc).point(g_testPointU, g_testPointV);
