@@ -173,7 +173,7 @@ struct App {
     scripts_open: bool,
     update: Arc<Mutex<Option<Release>>>,
     // Unity games in the Steam library, installed or not (filled in the background: the Unity list may download).
-    steam_unity: Arc<Mutex<Option<Vec<games::Owned>>>>,
+    steam_owned: Arc<Mutex<Option<Vec<games::Owned>>>>,
     // A scan running in the background (start, window focus, F5) hands its result over here.
     scanned: Arc<Mutex<Option<Vec<Game>>>>,
     scanning: bool,
@@ -218,8 +218,8 @@ impl App {
                 ctx.request_repaint();
             }
         });
-        let steam_unity = Arc::new(Mutex::new(None));
-        let (slot, ctx) = (steam_unity.clone(), cc.egui_ctx.clone());
+        let steam_owned = Arc::new(Mutex::new(None));
+        let (slot, ctx) = (steam_owned.clone(), cc.egui_ctx.clone());
         std::thread::spawn(move || {
             *slot.lock().unwrap() = Some(games::steam_library());
             ctx.request_repaint();
@@ -249,7 +249,7 @@ impl App {
             launched: None,
             scripts_open: false,
             update,
-            steam_unity,
+            steam_owned,
             scanned: Arc::new(Mutex::new(None)),
             scanning: false,
         };
@@ -329,7 +329,7 @@ impl App {
 
     // Steam library games with no copy on this PC; None while the list is still loading.
     fn missing(&self) -> Option<Vec<games::Owned>> {
-        let owned = self.steam_unity.lock().unwrap();
+        let owned = self.steam_owned.lock().unwrap();
         owned.as_ref().map(|list| list.iter().filter(|o| !self.games.iter().any(|g| g.app_id == o.app_id)).cloned().collect())
     }
 

@@ -357,7 +357,9 @@ pub fn detect(root: &Path) -> Option<Game> {
 pub fn detect_other(root: &Path) -> Option<Game> {
     let mut exes = Vec::new();
     collect_exes(root, 3, &mut exes);
-    let shipping = exes.iter().find(|p| p.file_stem().is_some_and(|s| s.to_string_lossy().ends_with("-Shipping"))).cloned();
+    // The Win64 one is the game; another -Shipping exe can be its launcher (WARDOGS).
+    let ends = |p: &PathBuf, s: &str| p.to_string_lossy().ends_with(s);
+    let shipping = exes.iter().find(|p| ends(p, "-Win64-Shipping.exe")).or_else(|| exes.iter().find(|p| ends(p, "-Shipping.exe"))).cloned();
     let godot = exes.iter().find(|p| p.with_extension("pck").exists() || ends_with_pck(p)).cloned();
     // Shallowest first, then largest: the game rather than a tool in a subfolder.
     let depth = |p: &PathBuf| p.strip_prefix(root).map(|r| r.components().count()).unwrap_or(9);
@@ -392,7 +394,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         linux_build: false,
         native_vr: false,
         no_d3d12,
-        unreal_exe: shipping.filter(|p| engine == "Unreal" && p.to_string_lossy().ends_with("-Win64-Shipping.exe")),
+        unreal_exe: shipping.filter(|p| engine == "Unreal" && ends(p, "-Win64-Shipping.exe")),
         blocker: anti_cheat_files(&files),
         other_loader: None,
         app_id: 0,
@@ -411,11 +413,11 @@ pub fn detect_other(_root: &Path) -> Option<Game> {
     None
 }
 
-// Windows exes up to `depth` folders down, minus installers, crash reporters and anti-cheat helpers.
+// Windows exes up to `depth` folders down, minus installers, crash reporters, anti-cheat and developer tools.
 #[cfg(windows)]
 fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
-    const NOT_GAME: [&str; 14] = ["unins", "setup", "redist", "vc_", "dxsetup", "crash", "dotnet", "directx", "ue4prereq",
-                                   "ueprereq", "cef", "launcherpatcher", "easyanticheat", "notification"];
+    const NOT_GAME: [&str; 16] = ["unins", "setup", "redist", "vc_", "dxsetup", "crash", "dotnet", "directx", "ue4prereq",
+                                   "ueprereq", "cef", "launcherpatcher", "anticheat", "notification", "diag", "vconsole"];
     let Ok(entries) = fs::read_dir(dir) else { return };
     let mut dirs = Vec::new();
     for p in entries.flatten().map(|e| e.path()) {
@@ -429,9 +431,12 @@ fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
             out.push(p);
         }
     }
-    if depth > 0 {
-        for d in dirs {
+    for d in dirs {
+        if depth > 0 {
             collect_exes(&d, depth - 1, out);
+        } else if dir.ends_with("Binaries") && d.ends_with("Win64") {
+            // Unreal's game exe, one folder past the rest (Marvel Rivals: MarvelGame\Marvel\Binaries\Win64).
+            collect_exes(&d, 0, out);
         }
     }
 }
@@ -844,6 +849,8 @@ struct Facts {
     /// common/type: "Game", "Demo", "Tool", "Application", ...
     kind: String,
     name: String,
+    /// common/steam_release_date, Unix seconds (0 if unknown).
+    release: u64,
 }
 
 impl Facts {
@@ -929,11 +936,16 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
                         found.kind = v.to_lowercase();
                     } else if path.len() == 2 && path[1] == "common" && k == "name" {
                         found.name = v;
+                    } else if path.len() == 2 && path[1] == "common" && k == "steam_release_date" {
+                        found.release = v.parse().unwrap_or(0);
                     }
                 }
                 2 | 3 => {
+                    let v = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?);
                     if path.len() == 2 && path[1] == "common" && k == "osarch" {
-                        found.osarch = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?).to_string();
+                        found.osarch = v.to_string();
+                    } else if path.len() == 2 && path[1] == "common" && k == "steam_release_date" {
+                        found.release = v.into();
                     }
                     *p += 4;
                 }
@@ -967,18 +979,22 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
     out
 }
 
-fn unity_list() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("unity-steam.json")
+fn engine_list() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("engines-steam.json")
 }
 
-/// Steam app ID to name for every Unity game Wikidata knows (engine Unity, with a Steam ID). The whole list is
-/// downloaded, so nothing about the player's library leaves the machine; it is cached for a week.
-fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
-    let path = unity_list();
+/// Steam app ID to (name, engine) for every game Wikidata knows in an engine Parallax goes inside: Unity, Unreal
+/// Engine 4 or 5, Godot. The whole list is downloaded, so nothing about the player's library leaves the machine; it is
+/// cached for a week.
+fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
+    let path = engine_list();
     let fresh = fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 7 * 86400);
     if !fresh {
         // QLever answers in under a second; the Wikidata Query Service is the fallback (it rate-limits during outages).
-        let query = "PREFIX wdt: <http://www.wikidata.org/prop/direct/> PREFIX wd: <http://www.wikidata.org/entity/>                      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> SELECT ?steam ?gLabel WHERE { ?g wdt:P408 wd:Q63966;                      wdt:P1733 ?steam. ?g rdfs:label ?gLabel FILTER(LANG(?gLabel) = \"en\") }";
+        let query = "PREFIX wdt: <http://www.wikidata.org/prop/direct/> PREFIX wd: <http://www.wikidata.org/entity/> \
+                     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> SELECT ?steam ?gLabel ?e WHERE { \
+                     VALUES ?e { wd:Q63966 wd:Q13156652 wd:Q94277753 wd:Q16972633 } ?g wdt:P408 ?e; wdt:P1733 ?steam. \
+                     ?g rdfs:label ?gLabel FILTER(LANG(?gLabel) = \"en\") }";
         let fetched = ["https://qlever.dev/api/wikidata", "https://query.wikidata.org/sparql"].iter().find_map(|url| {
             ureq::get(*url)
                 .query("query", query)
@@ -991,8 +1007,13 @@ fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
         if let Some(json) = fetched {
             let mut map = serde_json::Map::new();
             for row in json["results"]["bindings"].as_array().into_iter().flatten() {
+                let engine = match row["e"]["value"].as_str().and_then(|e| e.rsplit('/').next()) {
+                    Some("Q63966") => "Unity",
+                    Some("Q16972633") => "Godot",
+                    _ => "Unreal",
+                };
                 if let (Some(id), Some(name)) = (row["steam"]["value"].as_str(), row["gLabel"]["value"].as_str()) {
-                    map.insert(id.into(), name.into());
+                    map.insert(id.into(), serde_json::json!([name, engine]));
                 }
             }
             if !map.is_empty() {
@@ -1001,24 +1022,24 @@ fn unity_games() -> Option<std::collections::HashMap<u32, String>> {
             }
         }
     }
-    let map: std::collections::HashMap<String, String> = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
-    Some(map.into_iter().filter_map(|(id, name)| Some((id.parse().ok()?, name))).collect())
+    let map: std::collections::HashMap<String, (String, String)> = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+    Some(map.into_iter().filter_map(|(id, v)| Some((id.parse().ok()?, v))).collect())
 }
 
 /// Steam library games that would get full VR: Steam keeps library art for every app in the library, one folder (or
-/// file prefix, on older clients) per app ID; Wikidata's list of Unity games picks the Unity ones, and the app cache
-/// drops what Parallax can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the library is
-/// left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the list.
+/// file prefix, on older clients) per app ID; Wikidata's engine list picks the Unity, Unreal 4/5 and Godot ones, and
+/// the app cache drops what Parallax can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the
+/// library is left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the list.
 pub fn steam_library() -> Vec<Owned> {
     let Some(steam) = steam_root() else { return Vec::new() };
-    let Some(unity) = unity_games() else { return Vec::new() };
+    let Some(known) = engine_games() else { return Vec::new() };
     let cache = steam.join("appcache").join("librarycache");
     let ids = fs::read_dir(&cache)
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().to_string_lossy().split(['_', '.']).next()?.parse().ok())
-        .filter(|id| unity.contains_key(id))
+        .filter(|id| known.contains_key(id))
         .collect();
     let facts = steam_facts(&steam, &ids);
     let played = steam_last_played(&steam);
@@ -1026,7 +1047,12 @@ pub fn steam_library() -> Vec<Owned> {
         .into_iter()
         .filter_map(|id| {
             let f = facts.get(&id).filter(|f| f.kind == "game" && f.blocker().is_none() && !f.vr && f.osarch != "32")?;
-            let name = unity.get(&id).cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| f.name.clone());
+            let (name, engine) = &known[&id];
+            // ponytail: Wikidata doesn't say Godot 3 or 4; out before Godot 4 (March 2023) means Godot 3, VR screen only.
+            if engine == "Godot" && f.release < 1_677_628_800 {
+                return None;
+            }
+            let name = Some(name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| f.name.clone());
             let last_played = played.get(&id).copied().unwrap_or(0);
             Some(Owned { app_id: id, name, cover: cover_in(&cache.join(id.to_string())), last_played })
         })
@@ -1098,8 +1124,8 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
     let facts = steam_facts(steam, &ids);
     for g in games.iter_mut() {
         let Some(f) = facts.get(&id_of(g)) else { continue };
-        // SteamVR, overlays, wallpaper apps: Steam calls them tools or applications, not games.
-        if !g.unity() && !f.kind.is_empty() && f.kind != "game" && f.kind != "demo" {
+        // SteamVR, overlays, VTuber and wallpaper apps (many made in Unity): Steam calls them tools or applications.
+        if !f.kind.is_empty() && f.kind != "game" && f.kind != "demo" {
             g.engine.clear();
         }
         g.native_vr = f.vr;

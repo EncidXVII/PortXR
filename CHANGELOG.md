@@ -31,6 +31,10 @@
   words mean.
 - **Not installed** shows only Steam library games that would get Full VR; games Parallax can't run (anti-cheat,
   multiplayer only, their own VR mode, 32-bit) are left off it. Any game you install plays on the VR screen anyway.
+  It now lists Unreal Engine 4 and 5 games and Godot 4 games too, not only Unity ones.
+- Steam apps that aren't games (VTube Studio, XSOverlay) are no longer listed. Unreal games whose game exe sits deeper
+  or beside a launcher of the same kind (Marvel Rivals, WARDOGS) are recognised, and the anti-cheat installer or a
+  developer console is no longer taken for a game's exe.
 - No more sweeping line under the title each time the window comes back into focus; the list just updates.
 - One set of words everywhere: the display modes are now **Full VR**, **3D screen** and **VR screen** (were Stereo,
   Parallax and Theater) in the app, the VR menu and the library. Saved settings carry over.

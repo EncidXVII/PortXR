@@ -53,7 +53,7 @@ fn wait_for_exit(pid: u32) {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // The Steam library's Unity games and what is known about them before install, for checking the library scan.
+    // The Steam library's full-VR games (Unity, Unreal, Godot) and what is known about them before install, for checking the library scan.
     if args.len() == 1 && args[0] == "owned" {
         attach_console();
         let t = std::time::Instant::now();
