@@ -477,14 +477,17 @@ private:
         for (auto& l : labels) widths.push_back(natural(upper(l), cell())), sum += widths.back();
         float pad = sum + 32 * labels.size() <= 592 ? 32.f : 12.f;
         for (auto& w : widths) w += pad;
+        // Options wider than an even share keep their width; the rest split what is left (until that settles).
         float even = 592.f / labels.size();
-        for (int pass = 0; pass < 4; ++pass) {
+        for (size_t pass = 0; pass <= labels.size(); ++pass) {
             float wide = 0;
             size_t n = 0;
             for (float w : widths)
                 if (w > even) wide += w, ++n;
             if (n == labels.size()) break;
-            even = std::max(even, (592 - wide) / (labels.size() - n));
+            float next = (592 - wide) / (labels.size() - n);
+            if (next == even) break;
+            even = next;
         }
         for (auto& w : widths) w = std::max(w, even);
         std::string v = settings::get(section, key, fallback);
@@ -1073,10 +1076,12 @@ private:
         std::string name = haveCurrent ? current.name : host.product;
         cover_art(thumb, haveCurrent ? current.cover : L"", name, Surface, monogramSmall());
         float tx = thumb.x + thumb.w + 24, tw = card.x + card.w - 16 - 240 - 24 - tx;
-        text({tx, card.y + 22, tw, 28}, "NOW PLAYING", eyebrowWord());
+        // Two lines at rest sit in the card's middle; the Quit warning adds a third under them.
+        float top = asking ? card.y + 22 : card.y + 40;
+        text({tx, top, tw, 28}, "NOW PLAYING", eyebrowWord());
         Style l = label();
         l.wrap = false;
-        text({tx, card.y + 54, tw, 40}, canvas.fit(name, l.face, l.size, tw), l);
+        text({tx, top + 32, tw, 40}, canvas.fit(name, l.face, l.size, tw), l);
         // The warning belongs to Quit, so it shows once Quit is pressed; at rest it read as the game's description.
         if (asking) {
             Style note = warn();
