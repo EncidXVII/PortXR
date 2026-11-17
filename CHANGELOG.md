@@ -68,7 +68,8 @@
 - Game page: Play and the button layout up top; the engine, folder, logs and **Remove VR** sit in a quiet
   Troubleshooting row at the bottom instead of a red button beside Play.
 - Library: your games first, then the Steam games that would get Full VR under their own heading. Games Parallax
-  can't run left the tabs: one line under the library shows them. The toolbar fits on one row again.
+  can't run keep their Unsupported tab, out of All. The toolbar fits on one row again.
+- The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
 - Opening a Godot or other non-Unity game's folder (`Parallax.exe <folder>`) opens its page instead of saying no
   Unity game was found.
 

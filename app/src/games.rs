@@ -23,7 +23,7 @@ pub enum Compat {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Game {
     pub name: String,
-    /// "Unity", or for games shown on the Theater screen "Unreal", "Godot" or "Other".
+    /// "Unity", "Unreal" or "Godot" (games in other engines aren't listed).
     #[serde(default = "unity")]
     pub engine: String,
     pub dir: PathBuf,
@@ -235,7 +235,7 @@ pub fn cached() -> Vec<Game> {
     // The labels make Game deserialize only from 'static data; the file is small and read once.
     let bytes: &'static [u8] = fs::read(library_cache()).unwrap_or_default().leak();
     let games: Vec<Game> = serde_json::from_slice(bytes).unwrap_or_default();
-    games.into_iter().filter(|g| g.exe.exists()).collect()
+    games.into_iter().filter(|g| g.exe.exists() && g.engine != "Other").collect()
 }
 
 // Unity players keep their data next to the exe in `<name>_Data`, holding one of these depending on the Unity version
@@ -357,8 +357,8 @@ pub fn detect(root: &Path) -> Option<Game> {
     })
 }
 
-/// A game in another engine, for the Theater screen: only in folders a store or the player names as a game (never the
-/// "On disk" sweep, which would list every program). The exe is the one a launch without a store would start.
+/// An Unreal or Godot game: only in folders a store or the player names as a game (never the "On disk" sweep, which
+/// would list every program). The exe is the one a launch without a store would start.
 #[cfg(windows)]
 pub fn detect_other(root: &Path) -> Option<Game> {
     let mut exes = Vec::new();
@@ -376,7 +376,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     } else if let Some(g) = godot {
         ("Godot", g)
     } else {
-        ("Other", main?)
+        return None;  // another engine: Parallax has nothing to add
     };
     let names = |d: &Path| -> Vec<String> {
         fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect()

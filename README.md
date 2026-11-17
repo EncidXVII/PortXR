@@ -110,7 +110,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
   and the controllers act as a gamepad. Full VR or 3D screen, with head and hand aim and the crosshair; without a headset
   the game starts as it always did. From UE 4.25 the game's objects are read too: the camera picker, hide objects,
   weapon in hand and scripts that reach actors and components, as in Unity and Godot games.
-- **Games in other engines** (older Unreal, Godot 3, anything else) are listed too and play on the VR screen: Parallax
+- **Older Unreal and Godot 3 games** are listed too and play on the VR screen: Parallax
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
   the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
@@ -141,8 +141,8 @@ for single-player games only.
 headset on. The game page names the runtime Parallax will use and says what to check if VR does not start. Still
 flat? **Export logs** and open an issue.
 
-**Does it work with Unreal, Godot or other engines?** Unity, Godot 4 and Unreal 4.22+ games get full VR. Games in any other
-engine play flat on the VR screen.
+**Does it work with Unreal, Godot or other engines?** Unity, Godot 4 and Unreal 4.22+ games get full VR; older Unreal and
+Godot 3 games play flat on the VR screen. Games in other engines aren't listed.
 
 **How is it different from a game's own VR mode?** Parallax adds VR to games that have none. Games with their own VR
 mode are marked **Already VR**; start those in VR from Steam.

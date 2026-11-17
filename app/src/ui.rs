@@ -293,7 +293,7 @@ impl App {
     fn open_dir(&mut self, dir: &Path) {
         let known = self.games.iter().find(|g| g.dir == dir).cloned();
         let Some(game) = known.or_else(|| games::detect(dir)).or_else(|| games::detect_other(dir)) else {
-            self.status = ("No game found in that folder.".into(), Tone::Bad);
+            self.status = ("No Unity, Unreal or Godot game found in that folder.".into(), Tone::Bad);
             return;
         };
         if !self.games.iter().any(|g| g.dir == game.dir) {
@@ -409,7 +409,6 @@ impl App {
                 })
             });
         }
-        let unsupported = self.entries().iter().filter(|(f, _)| *f == Filter::Unsupported).count();
         let shown: Vec<Entry> = shown.into_iter().map(|(_, e)| e).collect();
         if shown.is_empty() {
             ui.label(RichText::new("No matches.").color(INK2));
@@ -432,18 +431,6 @@ impl App {
                 ui.add_space(16.0);
             }
             self.grid(ui, &steam, &mut open, &mut install);
-        }
-        // The games Parallax can't run stay out of the way: one line under everything, not a tab.
-        if self.filter == Filter::All && unsupported > 0 {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                let n = if unsupported == 1 { "1 game".to_string() } else { format!("{unsupported} games") };
-                ui.label(RichText::new(format!("{n} Parallax can't run")).color(INK3));
-                if tertiary(ui, "Show them").clicked() {
-                    self.filter = Filter::Unsupported;
-                }
-            });
         }
         if let Some(i) = open {
             self.open(i);
@@ -496,8 +483,7 @@ impl App {
             let count = |f: Filter| entries.iter().filter(|(e, _)| if f == Filter::All { *e != Filter::Unsupported } else { *e == f }).count();
             let labels: Vec<(Filter, String)> = [Filter::All, Filter::FullVr, Filter::Screen, Filter::NotInstalled, Filter::Unsupported]
                 .into_iter()
-                // Unsupported shows as a tab only while it is open (from the line under the library).
-                .filter(|&f| f == self.filter || (f != Filter::Unsupported && (f == Filter::All || count(f) > 0)))
+                .filter(|&f| f == self.filter || f == Filter::All || count(f) > 0)
                 .map(|f| {
                     let name = match f {
                         Filter::All => "All",
