@@ -22,6 +22,7 @@ namespace {
 // Look and sizes as Menu.cs (px at the 1080 reference height).
 constexpr float W = 1100, H = 840, Row = 64, Pad = 48;
 constexpr float PanelRadius = 24, CellRadius = 14, InnerRadius = 12;
+constexpr float ParagraphW = 760; // about 70 characters of Small text: a readable line
 constexpr float Display = 60, Body = 28, Small = 24;
 constexpr float Fast = 0.16f, Slow = 0.28f;
 const Color Bg = canvas::rgb(0x0B0B0C), Surface = canvas::rgb(0x1D1D20), Line = canvas::rgb(0x2A2A2E);
@@ -470,15 +471,22 @@ private:
                  const std::vector<std::string>& labels, const char* fallback) {
         ui.begin_row();
         label(name, label(), 360);
+        // As even as the labels allow: every option gets the same width unless its label needs more.
         std::vector<float> widths;
         float sum = 0;
-        for (auto& l : labels) {
-            float t = natural(upper(l), cell());
-            widths.push_back(t);
-            sum += t;
-        }
-        float pad = std::max(12.f, (592 - sum) / labels.size());
+        for (auto& l : labels) widths.push_back(natural(upper(l), cell())), sum += widths.back();
+        float pad = sum + 32 * labels.size() <= 592 ? 32.f : 12.f;
         for (auto& w : widths) w += pad;
+        float even = 592.f / labels.size();
+        for (int pass = 0; pass < 4; ++pass) {
+            float wide = 0;
+            size_t n = 0;
+            for (float w : widths)
+                if (w > even) wide += w, ++n;
+            if (n == labels.size()) break;
+            even = std::max(even, (592 - wide) / (labels.size() - n));
+        }
+        for (auto& w : widths) w = std::max(w, even);
         std::string v = settings::get(section, key, fallback);
         int current = -1;
         for (size_t i = 0; i < values.size(); ++i)
@@ -728,7 +736,7 @@ private:
         }
         ui.begin_row();
         label("Position", label(), 360);
-        if (button("Recenter", false, 300)) req.recenter = true;
+        if (button("Recenter", false, 0)) req.recenter = true;
         ui.end();
         ui.gap(12);
         std::vector<std::string> modes{"Auto", "Gamepad", "KeyboardMouse", "Off"}, modeLabels{"Auto", "Gamepad", "Keyboard & mouse", "Off"};
@@ -802,13 +810,13 @@ private:
     void draw_controls() {
         std::string mode = input_now();
         if (mode == "Off") {
-            label("Controls are off: the controllers only work this menu and the laser pointer. Play with your own", muted(), 0);
-            label("keyboard, mouse or gamepad. Switch Controls in Quick to use the controllers in the game.", muted(), 0);
+            label("Controls are off: the controllers only work this menu and the laser pointer. Play with your own keyboard, "
+                  "mouse or gamepad. Switch Controls in Quick to use the controllers in the game.", muted(), ParagraphW, 96);
             return;
         }
         if (mode == "Gamepad") {
-            label("Gamepad mode: the controllers act as an Xbox pad. Sticks, triggers, A B X Y, grips as", muted(), 0);
-            label("shoulder buttons, stick clicks; menu tap is Start. Switch to Keyboard & mouse in Quick to rebind.", muted(), 0);
+            label("Gamepad mode: the controllers act as an Xbox pad. Sticks, triggers, A B X Y, grips as shoulder buttons, stick "
+                  "clicks; menu tap is Start. Switch to Keyboard & mouse in Quick to rebind.", muted(), ParagraphW, 96);
             return;
         }
         if (picking >= 0) {
@@ -913,14 +921,14 @@ private:
             ui.gap(16);
         }
         if (host.cameras.empty()) return aim_rows();
-        label("Game camera", muted(), 0);
+        label("Game camera", label(), 0);
         std::string chosen = settings::get("Game", "CameraName", "");
         bool automatic = chosen.empty();
         const int columns = 3;
         int pages = std::max(1, ((int)host.cameras.size() + columns - 1) / columns);
         camPage %= pages;
         ui.begin_row();
-        if (button("Automatic", automatic, ThumbW)) pick_camera("");
+        if (button("Automatic", automatic, ThumbW, true)) pick_camera("");
         ui.flex();
         if (pages > 1 && button("More cameras " + std::to_string(camPage + 1) + "/" + std::to_string(pages), false, 360))
             camPage = (camPage + 1) % pages, dirty = true;
@@ -1069,9 +1077,12 @@ private:
         Style l = label();
         l.wrap = false;
         text({tx, card.y + 54, tw, 40}, canvas.fit(name, l.face, l.size, tw), l);
-        Style note = asking ? warn() : muted();
-        note.wrap = false;
-        text({tx, card.y + 98, tw, 28}, asking ? "Press Quit now to close it. Unsaved progress is lost." : "Closes the game. Unsaved progress is lost.", note);
+        // The warning belongs to Quit, so it shows once Quit is pressed; at rest it read as the game's description.
+        if (asking) {
+            Style note = warn();
+            note.wrap = false;
+            text({tx, card.y + 98, tw, 28}, "Press Quit now to close it. Unsaved progress is lost.", note);
+        }
         Rect quit{card.x + card.w - 16 - 240, card.cy() - Row / 2, 240, Row};
         bool pressedQuit = asking ? cell_(quit, "QUIT NOW", cellOn(), Danger, true) : cell_(quit, "QUIT GAME", cell(), HoverFill, false);
         if (!pressedQuit) return;
