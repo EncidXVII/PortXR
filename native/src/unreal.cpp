@@ -366,6 +366,7 @@ struct Box {
 struct Tools {
     int frames = 0;
     std::string scene, camera, autoCamera;  // the world's name; the view's camera (picked, or the player's own)
+    std::string console;                    // the console commands last run
     std::vector<std::string> cameras;      // the world's cameras, for the menu's picker
     bool hiding = false, triggerWas = false;
     float reach = 3;                       // metres along the laser to what it would hide
@@ -433,15 +434,28 @@ void set_hidden(ue::Obj* o, bool hidden) {
     ue::Invoke(o, "SetHiddenInGame").set("NewHidden", {hidden ? 1. : 0.}).set("bPropagateToChildren", {1}).run();
 }
 
-std::vector<std::string> hidden_paths() {
+// A Game setting holding a list separated by ';' (Hidden, Console).
+std::vector<std::string> setting_list(const char* key) {
     std::vector<std::string> out;
-    std::string all = bridge::setting("Game", "Hidden", "");
+    std::string all = bridge::setting("Game", key, "");
     for (size_t a = 0, b; a < all.size(); a = b + 1) {
         b = all.find(';', a);
         if (b == std::string::npos) b = all.size();
-        if (b > a) out.push_back(all.substr(a, b - a));
+        size_t s = all.find_first_not_of(' ', a), e = all.find_last_not_of(' ', b - 1);
+        if (s < b && e >= s) out.push_back(all.substr(s, e - s + 1));
     }
     return out;
+}
+std::vector<std::string> hidden_paths() { return setting_list("Hidden"); }
+
+// The game's console commands (Game/Console), run as each map starts and when the setting changes: console variables
+// mostly, which then win over the game's own settings. Shipping games ignore cheat variables.
+void run_console(ue::Obj* world) {
+    ue::Obj* lib = ue::statics("KismetSystemLibrary");
+    for (const std::string& c : setting_list("Console")) {
+        bool ran = ue::Invoke(lib, "ExecuteConsoleCommand").set("WorldContextObject", world).set("Command", c.c_str()).run();
+        note("Unreal: console %s%s", c.c_str(), ran ? "" : " (failed)");
+    }
 }
 
 // Every two seconds: the world's cameras for the picker, the primitives the laser can hide, hidden ones hidden again
@@ -485,7 +499,9 @@ void tools_view(double loc[3], double rot[3]) {
     Tools& t = g_tools;
     if (++t.frames < 120 || !ue::init()) return;
     ue::Obj* world = ue::world();
-    t.scene = world ? ue::name(world) : "";
+    std::string scene = world ? ue::name(world) : "", console = bridge::setting("Game", "Console", "");
+    if (world && (scene != t.scene || console != t.console)) t.console = console, run_console(world);
+    t.scene = scene;
     ULONGLONG now = GetTickCount64();
     if (now - t.listedAt > 2000 && world) t.listedAt = now, list_objects(world);
     std::string picked = bridge::setting("Game", "CameraName", "");

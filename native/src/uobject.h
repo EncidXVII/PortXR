@@ -3,6 +3,7 @@
 // functions, and ProcessEvent to call any UFunction. Nothing is hard-coded per version: each layout (UE 4.25 to 5.x) is
 // found at runtime and checked against objects every engine has (Object, Actor, Pawn). Game thread only.
 #include <cstdint>
+#include <deque>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -48,18 +49,20 @@ int get_numbers(const Obj* o, const char* property, double* out, int max);
 Obj* get_object(const Obj* o, const char* property);
 std::vector<Obj*> get_objects(const Obj* o, const char* property);
 
-// A UFunction call from C++: inputs set by name (numbers, structs of numbers, objects), then run(), then outputs read by
-// name. Unset inputs stay zero.
+// A UFunction call from C++: inputs set by name (numbers, structs of numbers, objects, text for strings and names), then
+// run(), then outputs read by name. Unset inputs stay zero.
 struct Invoke {
     Invoke(Obj* target, const char* fn);
     explicit operator bool() const { return fn != nullptr; }
     Invoke& set(const char* param, std::initializer_list<double> values);
     Invoke& set(const char* param, Obj* value);
+    Invoke& set(const char* param, const char* text);
     bool run();
     int get(const char* param, double* out, int max) const;
     Obj* get(const char* param) const;
     Obj *target = nullptr, *fn = nullptr;
     std::vector<uint64_t> block;
+    std::deque<std::wstring> text;  // what string inputs point at, until the call is done
 };
 
 // The local player's objects (null when there is none yet).

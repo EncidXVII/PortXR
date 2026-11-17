@@ -960,6 +960,7 @@ impl App {
             "AimWith" | "Crosshair" => aim,
             "WeaponInHand" => aim && hand,
             "UiBlack" => unity,
+            "Console" => unreal,
             _ => true,
         };
         egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {

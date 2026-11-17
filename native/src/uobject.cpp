@@ -492,8 +492,27 @@ int push_value(lua_State* L, const Field* f, const uint8_t* base) {
 
 Obj* resolve(const std::string& at);
 
-// Lua values from argument i on into the property at `base`; returns the next argument.
-int read_value(lua_State* L, int i, const Field* f, uint8_t* base) {
+// An FString input pointing at text kept until the call is done (the engine copies what it keeps).
+void put_string(uint8_t* p, const char* s, std::deque<std::wstring>& keep) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    std::wstring& w = keep.emplace_back(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), n);
+    *(wchar_t**)p = w.data();
+    ((int32_t*)p)[2] = ((int32_t*)p)[3] = n;  // Num and Max count the terminator
+}
+
+// An FName input, made by the engine from the text.
+bool put_name(uint8_t* p, int size, const char* s) {
+    Invoke conv(statics("KismetStringLibrary"), "Conv_StringToName");
+    const Field* r = conv.fn ? prop(conv.fn, "ReturnValue") : nullptr;
+    if (!r || !conv.set("InString", s).run()) return false;
+    memcpy(p, (uint8_t*)conv.block.data() + prop_offset(r), size);
+    return true;
+}
+
+// Lua values from argument i on into the property at `base`; returns the next argument. Strings and names only as a
+// call's inputs (`text` keeps them).
+int read_value(lua_State* L, int i, const Field* f, uint8_t* base, std::deque<std::wstring>* text = nullptr) {
     std::string t = type_of(f);
     uint8_t* p = base + prop_offset(f);
     int size = rd<int32_t>(f, g.elemSize);
@@ -514,6 +533,10 @@ int read_value(lua_State* L, int i, const Field* f, uint8_t* base) {
         Obj* cls = rd<Obj*>(f, g.propEnd);
         if (o && !is_a(o, cls)) script::fail(L, "%s is not a %s", lua_tostring(L, i), name(cls).c_str());
         *(Obj**)p = o;
+    } else if (t == "StrProperty" && text) {
+        put_string(p, luaL_checkstring(L, i), *text);
+    } else if (t == "NameProperty" && text) {
+        if (!put_name(p, size, luaL_checkstring(L, i))) script::fail(L, "can't make the name %s", lua_tostring(L, i));
     } else if (t == "StructProperty") {
         for (const Field* c = first_prop(struct_of(f)); c; c = next_prop(c))
             if (is_plain(type_of(c))) i = read_value(L, i, c, p);
@@ -533,12 +556,13 @@ int invoke(lua_State* L, Obj* o, const char* fnName, int first) {
     uint8_t* block = (uint8_t*)params.data();
     const Field* ret = nullptr;
     int i = first, top = lua_gettop(L);
+    std::deque<std::wstring> text;
     for (const Field* f = first_prop(fn); f; f = next_prop(f)) {
         uint64_t flags = rd<uint64_t>(f, g.propFlags);
         if (!(flags & CPF_Parm)) continue;
         if (flags & CPF_ReturnParm) ret = f;
         else if ((flags & CPF_OutParm) && !(flags & CPF_ConstParm)) continue;  // an output
-        else if (i <= top) i = read_value(L, i, f, block);
+        else if (i <= top) i = read_value(L, i, f, block, &text);
     }
     if (!call(o, fn, block)) script::fail(L, "%s: %s failed", path(o).c_str(), fnName);
     return ret ? push_value(L, ret, block) : 0;
@@ -668,6 +692,14 @@ Invoke& Invoke::set(const char* param, std::initializer_list<double> values) {
 
 Invoke& Invoke::set(const char* param, Obj* value) {
     if (const Field* f = fn ? prop(fn, param) : nullptr) *(Obj**)((uint8_t*)block.data() + prop_offset(f)) = value;
+    return *this;
+}
+
+Invoke& Invoke::set(const char* param, const char* value) {
+    const Field* f = fn ? prop(fn, param) : nullptr;
+    uint8_t* p = f ? (uint8_t*)block.data() + prop_offset(f) : nullptr;
+    if (p && type_of(f) == "StrProperty") put_string(p, value, text);
+    else if (p && type_of(f) == "NameProperty") put_name(p, rd<int32_t>(f, g.elemSize), value);
     return *this;
 }
 

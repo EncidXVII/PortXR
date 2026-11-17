@@ -58,6 +58,7 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
     def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "Game's: the game's own crosshair moves to where you aim. Parallax's: ours instead."),
     def("Game", "CameraName", "Game camera", "", Kind::Text, "Easier in the VR menu's Game tab, with live previews."),
+    def("Game", "Console", "Console commands", "", Kind::Text, "Run as each level starts, separated by ;  For example: r.MotionBlurQuality 0; r.DepthOfFieldQuality 0"),
 ];
 
 /// What a controller input can press, as the plugin names them.

@@ -22,6 +22,9 @@
   menu's **Game camera** picker, **Hide objects** and **Weapon in hand** as Unity and Godot games have, and scripts reach
   the game's actors and components: find, hide, move, read or set any property, call any function (SCRIPTING.md).
   `on_scene` gets the map's name and `on_camera` the camera the view follows. Tried on UE 5.0, 5.4 and 5.5 games.
+- **Console commands** for Unreal games: a game's Advanced settings take console variables (`r.MotionBlurQuality 0;
+  r.DepthOfFieldQuality 0`), run as each level starts, for the effects that look wrong in VR. Scripts' `call` now passes
+  strings and names too, so `KismetSystemLibrary.ExecuteConsoleCommand` and the rest work from scripts.
 - The crosshair (Game's or Parallax's) now comes from the core, so Godot and Unreal games have it too. Godot games also
   get **Hide objects** and **Weapon in hand** in the VR menu's Game tab, as Unity games have.
 - Godot games get what Unity games had: the body's heading stays steady when the game camera looks straight up or

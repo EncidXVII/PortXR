@@ -94,7 +94,11 @@ An object is found by a name the player's objects start from (`"Pawn"`, `"Player
 | `position(path)`, `set_position(path, x, y, z)` | world position of an actor or component, Unreal units (centimetres; z is up) |
 | `rotation(path)`, `set_rotation(path, pitch, yaw, roll)` | world rotation, degrees |
 | `field(path, property [, value...])` | reads, or writes, a property; `"A.B"` reaches into a struct. Numbers and booleans as they are, names and strings read as text, objects as paths, structs as their numbers (a vector: three) |
-| `call(path, function, ...)` | calls a function of the object (any `UFUNCTION`, by name) with numbers, booleans, objects (paths) or structs (their numbers in order), and returns what it returns |
+| `call(path, function, ...)` | calls a function of the object (any `UFUNCTION`, by name) with numbers, booleans, strings, names, objects (paths) or structs (their numbers in order), and returns what it returns |
+
+Console variables: the game's `Console` setting (Advanced in the app) runs its commands, separated by `;`, as each
+level starts. From a script: `parallax.call("KismetSystemLibrary", "ExecuteConsoleCommand", "World", "r.MotionBlurQuality 0")`;
+read one back with `GetConsoleVariableIntValue` (or `Float`, `Bool`). Shipping games ignore cheat variables.
 
 Objects are reached while the game draws its world; between those frames (a loading screen) `find` is false and the
 other calls do nothing.
