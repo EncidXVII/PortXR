@@ -30,8 +30,6 @@ const fn slider(lo: f32, hi: f32, step: f32, unit: &'static str) -> Kind {
 }
 
 // Names, ranges, steps and order match the VR menu, so a setting reads the same in both places.
-/// Display for Unreal games, which have no VR screen.
-pub static DISPLAY_NO_THEATER: Def = def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen")]), "Full VR: inside the game. 3D screen: the game in 3D on a big screen.");
 
 pub const QUICK: &[Def] = &[
     def("View", "Display", "Display", "Stereo", Kind::Choice(&[("Stereo", "Full VR"), ("Parallax", "3D screen"), ("Theater", "VR screen")]), "Full VR: inside the game. 3D screen: the game in 3D on a big screen. VR screen: flat on a big screen."),
@@ -57,7 +55,7 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
     def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
     def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "Game's: the game's own crosshair moves to where you aim. Parallax's: ours instead."),
-    def("Game", "CameraName", "Game camera", "", Kind::Text, "Easier in the VR menu's Game tab, with live previews."),
+    def("Game", "CameraName", "Game camera", "", Kind::Text, "Easier in the VR menu's Game tab, which lists the game's cameras."),
     def("Game", "Console", "Console commands", "", Kind::Text, "Run as each level starts, separated by ;  For example: r.MotionBlurQuality 0; r.DepthOfFieldQuality 0"),
 ];
 

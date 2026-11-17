@@ -33,7 +33,7 @@ void recenter();
 // What only the engine knows about this frame.
 struct Game {
     bool hasCamera = false;
-    bool noTheater = false;   // no VR screen: Full VR there instead (Unreal)
+    bool noTheater = false;   // always renders both eyes: VR screen is the 3D screen without depth (Unreal)
     Pose camera{};          // the game camera in the world (right-handed, Y up, -Z forward)
     std::string cameraKey;  // scene and camera name
     std::string scene, cameraName;  // for the core's game scripts (script.h): on_scene, on_camera
@@ -89,7 +89,7 @@ struct MenuHost {
     std::wstring gameDir;
     std::vector<std::string> cameras;
     std::string currentCamera;
-    bool hideObjects = false, aimExtras = false, handHeld = false, uiBlack = false, noTheater = false;
+    bool hideObjects = false, aimExtras = false, handHeld = false, uiBlack = false;
     int hidden = 0, eyeWidth = 0, eyeHeight = 0;
 };
 void set_menu_host(const MenuHost& host);

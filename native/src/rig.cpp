@@ -161,11 +161,14 @@ float orbit_radius() { return g_orbitDen > 0 ? g_orbitNum / g_orbitDen : 0; }
 // Head aim on Auto: first person, judged per scene and camera from how the camera turns (below 0.45 m from itself;
 // flipped only by strong evidence, above 1 m or below 0.2 m); without a verdict, a carried camera that has not ignored
 // the pushes twice.
-// The Display setting, as this engine can show it.
+// The Display setting, as this engine can show it: an engine that always renders both eyes (Unreal) shows VR screen as
+// the 3D screen with the eyes together (flat_screen).
 std::string display_of(const rig::GameFrame& g) {
     std::string d = setting("View", "Display", "Stereo");
-    return g.noTheater && d == "Theater" ? "Stereo" : d;
+    return g.noTheater && d == "Theater" ? "Parallax" : d;
 }
+
+bool flat_screen(const rig::GameFrame& g) { return g.noTheater && setting("View", "Display", "Stereo") == "Theater"; }
 
 bool aim_wanted(const rig::GameFrame& g, int mode) {
     std::string aim = setting("Controls", "HeadAim", "Auto");
@@ -599,7 +602,7 @@ void window_eyes(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2]
     target = std::clamp(target, nearest, std::max({nearest, 15.f * s, plane}));
     g_focus += (target - g_focus) * (1 - std::exp(-g_dt * 1.5f));
     float gh = 2 * g_focus * std::tan(g.fovY / 2), gw = gh * aspect;
-    float k = std::min(gh / screenH, 2.f * s) * clamp01(settings::getf("View", "Depth", 1, 0, 1));
+    float k = flat_screen(g) ? 0.f : std::min(gh / screenH, 2.f * s) * clamp01(settings::getf("View", "Depth", 1, 0, 1));
     for (int e = 0; e < 2; ++e) {
         float x = (e == 0 ? -ipd : ipd) / 2 * k;
         r.windowOffset[e] = x;

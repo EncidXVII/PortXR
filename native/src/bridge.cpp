@@ -155,7 +155,14 @@ std::string poll_log() {
 
 void shutdown() { event(EvShutdown); }
 
-void settings_open(const std::wstring& gameFile) { settings::open(gameFile, L""); }
+// Godot and Unreal: played.txt beside their settings, written at the first frame in the headset, for the app's "In VR"
+// after Play (the Unity plugin writes its own).
+std::wstring g_played;
+
+void settings_open(const std::wstring& gameFile) {
+    settings::open(gameFile, L"");
+    g_played = gameFile.substr(0, gameFile.find_last_of(L"\\/") + 1) + L"played.txt";
+}
 std::string setting(const char* section, const char* key, const char* fallback) { return settings::get(section, key, fallback); }
 void set_setting(const char* section, const char* key, const std::string& value) { settings::set(section, key, value); }
 void recenter() { rig::recenter(); }
@@ -167,6 +174,10 @@ bool frame(const Game& game, Frame& out) {
     script::tick(game.scene, game.cameraName);
     g_located = prx_locate(g_views, g_fovs) != 0;
     if (!g_located) return false;
+    if (!g_played.empty()) {
+        if (FILE* f = _wfopen(g_played.c_str(), L"w")) fputs("in VR\n", f), fclose(f);
+        g_played.clear();
+    }
     if (g_testHead) {
         // The head where the test puts it: the eyes keep their places around it, turned to its heading.
         mathx::V3 center{(g_views[0].px + g_views[1].px) / 2, (g_views[0].py + g_views[1].py) / 2, (g_views[0].pz + g_views[1].pz) / 2};
@@ -327,7 +338,6 @@ void set_menu_host(const MenuHost& h) {
     m.aimExtras = h.aimExtras;
     m.handHeld = h.handHeld;
     m.uiBlack = h.uiBlack;
-    m.noTheater = h.noTheater;
     m.hidden = h.hidden;
     m.eyeWidth = h.eyeWidth;
     m.eyeHeight = h.eyeHeight;

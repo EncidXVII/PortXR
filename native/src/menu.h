@@ -17,7 +17,6 @@ struct Host {
     int hidden = 0;
     bool aimExtras = false;              // Game tab: Crosshair and Weapon in hand
     bool uiBlack = false;                // View tab: UI black (engines whose UI alpha needs keying)
-    bool noTheater = false;              // Basics: Display without VR screen
     bool handHeld = false;               // Game tab: Weapon in hand (with aimExtras)
     int eyeWidth = 0, eyeHeight = 0;     // Diagnostics
 };

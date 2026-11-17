@@ -241,7 +241,12 @@ public:
 
     void* backbuffer_copy() override { return uiCopy_.Get(); }
 
-    void set_mirror(void* texture) override { mirror_ = texture; }
+    void set_mirror(void* texture, const float* crop, bool flipY) override {
+        mirrorCrop_[2] = 0;  // the whole image unless cropped
+        if (crop) memcpy(mirrorCrop_, crop, sizeof(mirrorCrop_));
+        mirrorFlip_ = flipY;
+        mirror_ = texture;
+    }
 
     // Present is where the backbuffer's state is known (PRESENT), so the UI grab and the desktop mirror happen here.
     void present(IDXGISwapChain* swapchain) override {
@@ -275,9 +280,9 @@ public:
         if (auto* eye = (ID3D12Resource*)mirror_.load()) {
             auto ed = eye->GetDesc();
             BlitParams crop{};
-            gpu_mirror_crop(crop, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height);
+            gpu_mirror_crop(crop, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height, mirrorCrop_);
             blit(list, 1, eye, kUnityState, back.Get(), bd.Format, D3D12_RESOURCE_STATE_PRESENT, (UINT)bd.Width,
-                 bd.Height, true, nullptr, &crop);
+                 bd.Height, mirrorFlip_, nullptr, &crop);
         }
         submit();
     }
@@ -489,6 +494,8 @@ private:
     std::map<ID3D12Resource*, Own> own_;
     std::map<XrSwapchain, std::vector<Image>> images_;
     std::atomic<void*> mirror_{nullptr};
+    float mirrorCrop_[4]{};
+    bool mirrorFlip_ = true;
     // Present can run on a different thread from the render-thread events.
     std::mutex mutex_;
 };

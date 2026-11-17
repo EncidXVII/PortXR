@@ -1,11 +1,11 @@
-# Parallax: play flat Unity games in VR
+# Parallax: play flat Unity, Unreal and Godot games in VR
 
 [![Latest release](https://img.shields.io/github/v/release/EncidXVII/Parallax?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/EncidXVII/Parallax/total?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/EncidXVII/Parallax/build.yml?branch=main&labelColor=0a0a0a)](https://github.com/EncidXVII/Parallax/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/github/license/EncidXVII/Parallax?color=c6ff1a&labelColor=0a0a0a)](LICENSE)
 
-**Parallax is a free, open-source VR mod for Unity games on PC.** Pick a game you already own, press **Play in VR**,
+**Parallax is a free, open-source VR mod for Unity, Unreal Engine and Godot games on PC.** Pick a game you already own, press **Play in VR**,
 and play it in full 6DOF stereo with motion controllers: aim with your head or your hand, the gun in your hand, the
 game's UI on a panel you can point at. Games that don't suit 3D play on a big screen instead. It works with any
 OpenXR headset: Meta Quest 2, 3 and Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed
@@ -17,16 +17,16 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 ## Highlights
 
-- **One click per game.** A desktop app finds your Unity games on Steam, Epic and GOG, adds VR to one and starts it.
-  **Remove VR** puts the game folder back byte for byte.
+- **One click per game.** A desktop app finds your Unity, Unreal and Godot games on Steam, Epic and GOG, adds VR to
+  one and starts it. **Remove VR** puts the game folder back byte for byte.
 - **Real VR, not a flat screen.** Stereo 6DOF view at real scale, smooth or snap turning, comfort vignette, recenter.
 - **Motion controls without setup.** Controllers act as keyboard & mouse or an Xbox pad; every button can be rebound.
 - **Head aim or hand aim.** The game camera follows your head or your right controller; the game's gun moves into
   your hand, and its crosshair sits on what you aim at.
 - **Three ways to play.** Full VR (stand in the game), 3D screen (the game in 3D inside a big screen, like a 3D
   monitor) and VR screen (the flat game on a big screen, curved on Virtual Desktop and Meta).
-- **Broad Unity support.** Unity 2018.4 to Unity 6, Mono and IL2CPP, Direct3D 11 and 12, built-in, URP and HDRP, with
-  the game's bloom and tonemapping kept.
+- **Three engines, one VR.** Unity 2018.4 to Unity 6 (Mono and IL2CPP, built-in, URP and HDRP), Unreal Engine 4.22 to
+  5.6 and Godot 4, on Direct3D 11 and 12, all with the same controls, menu and settings.
 - **Per-game fixes** in small Lua scripts that anyone can share.
 - **Safe by design.** Single-player only: anti-cheat games are refused. No account, no telemetry.
 
@@ -34,23 +34,24 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 - Windows 10 or 11, 64-bit, or Linux with Steam's Proton (see [Linux](#linux)).
 - A PC VR headset and an OpenXR runtime: SteamVR, Virtual Desktop, Meta Quest Link, WiVRn or Monado.
-- A 64-bit Unity game that renders with Direct3D 11 or 12 (most Unity games on Windows). See [What works today](#what-works-today).
+- A 64-bit Unity, Unreal Engine (4.22+) or Godot 4 game that renders with Direct3D 11 or 12 (most of them on Windows). See [What works today](#what-works-today).
 
 ## Use it in 3 steps
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `Parallax.exe`.
 2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. After **Play in VR** the page says when the game is in VR (or what to check if it starts flat), and later when you last played it in VR. **Add VR** sets a game up without starting it. Parallax installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, camera choice with live previews, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, the game camera to follow, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 ## Linux
 
-Parallax runs Windows Unity games through Proton, Steam's Windows layer: unpack the Linux build and run `./Parallax`.
+Parallax runs Windows Unity, Unreal and Godot 4.3+ games through Proton, Steam's Windows layer: unpack the Linux build
+and run `./Parallax`. Older Godot and Unreal games, which play on the VR screen on Windows, aren't listed there.
 
 - **Headset:** WiVRn (standalone headsets) or Monado (wired) work best; SteamVR for Linux works too.
 - **Launch options:** Proton only loads Parallax with these in the game's Steam launch options (Properties → General). The game page shows them with a **Copy launch options** button until Steam has saved them:
-  `WINEDLLOVERRIDES="winhttp=n,b" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
+  `WINEDLLOVERRIDES="winhttp,dwmapi=n,b" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
 - **Linux versions:** where a game has its own Linux build, Steam installs that one, and the library marks it **Linux build**. Force Proton for it (Properties → Compatibility), let Steam download the Windows version, and it is ready.
-- **Steam only:** games from other stores run outside Steam's Proton; add their folder and start them from their launcher (Heroic, Lutris) with `WINEDLLOVERRIDES="winhttp=n,b"` set.
+- **Steam only:** games from other stores run outside Steam's Proton; add their folder and start them from their launcher (Heroic, Lutris) with `WINEDLLOVERRIDES="winhttp,dwmapi=n,b"` set.
 
 ## Controls
 
@@ -107,7 +108,7 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
   Direct3D 12, get VR from the engine's own OpenXR instead (an `override.cfg` and one script; no laser pointer or VR menu there).
 - **Unreal Engine 4.22 to 5.6 games** get full VR from the same core: **Add VR** puts a `dwmapi.dll` beside the game's
   Shipping exe (`Binaries\Win64`), and the engine then renders both eyes itself. The game's UI sits on a panel in front
-  and the controllers act as a gamepad. Full VR or 3D screen, with head and hand aim and the crosshair; without a headset
+  and the controllers act as a gamepad. Full VR, 3D screen or VR screen, with head and hand aim and the crosshair; without a headset
   the game starts as it always did. From UE 4.25 the game's objects are read too: the camera picker, hide objects,
   weapon in hand and scripts that reach actors and components, as in Unity and Godot games.
 - **Older Unreal and Godot 3 games** are listed too and play on the VR screen: Parallax
@@ -119,8 +120,8 @@ Something wrong? Select the game in Parallax.exe and press **Export logs**. It s
 
 ## FAQ
 
-**Can I play my Unity game in VR with Parallax?** Most likely, if it is a 64-bit Windows Unity game that uses
-Direct3D 11 or 12 and has no anti-cheat. The app tells you per game, before anything is installed. Tested titles and
+**Can I play my game in VR with Parallax?** Most likely, if it is a 64-bit Windows Unity, Unreal or Godot game that
+uses Direct3D 11 or 12 and has no anti-cheat. The app tells you per game, before anything is installed. Tested titles and
 known issues are in [COMPAT.md](COMPAT.md); report how yours went with a game report.
 
 **Does it work with Meta Quest 3, Quest 2 or Quest Pro?** Yes, through Quest Link, Air Link, Virtual Desktop or
@@ -134,7 +135,8 @@ Reality, Bigscreen Beyond), Virtual Desktop, Meta Quest Link, WiVRn and Monado o
 **Can I get banned?** Parallax refuses games with EasyAntiCheat or BattlEye and flags multiplayer-only games. Use it
 for single-player games only.
 
-**Does it change my game files?** It adds BepInEx and the Parallax plugin to the game folder and records every file.
+**Does it change my game files?** It adds its files to the game folder (BepInEx and the plugin in Unity games, a
+`ParallaxVR` folder in Godot and Unreal games) and records every file.
 **Remove VR** restores the folder exactly; nothing else on your PC changes.
 
 **My game starts flat. What now?** Start your VR runtime first (SteamVR, Virtual Desktop or Quest Link) and put the

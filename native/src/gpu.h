@@ -46,8 +46,9 @@ public:
     virtual void capture_backbuffer() = 0;
     // Texture holding the last backbuffer grab (end-of-frame event or Present), or null.
     virtual void* backbuffer_copy() = 0;
-    // Eye texture Present draws into the game window; null leaves the window alone.
-    virtual void set_mirror(void* texture) = 0;
+    // Eye texture Present draws into the game window (`crop`: its part, u0 v0 u1 v1, or null for all of it); null
+    // leaves the window alone.
+    virtual void set_mirror(void* texture, const float* crop, bool flipY) = 0;
     virtual void present(IDXGISwapChain* swapchain) = 0;
     // Share of opaque pixels in the latest probed image that finished reading back, else -1; each result once.
     virtual float opaque_fraction() = 0;
@@ -89,8 +90,9 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect);
 DXGI_FORMAT gpu_view_format(DXGI_FORMAT f, bool& linear);
 bool gpu_format_linear(DXGI_FORMAT f);
 BlitParams gpu_params(bool flipY, bool srcLinear, bool dstLinear);
-// Crop that fills a window of aspect `screen` with the middle of an eye image of aspect `eye`.
-void gpu_mirror_crop(BlitParams& p, float eye, float screen);
+// Crop that fills a window of aspect `screen` with the middle of an eye image of aspect `eye`, within `crop` (u0 v0 u1 v1;
+// zero width: the whole image).
+void gpu_mirror_crop(BlitParams& p, float eye, float screen, const float crop[4]);
 // Share of pixels with alpha over one half, on a sparse grid; -1 for formats it cannot read.
 float gpu_opaque_fraction(const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format);
 void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format);

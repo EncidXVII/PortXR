@@ -47,6 +47,7 @@ Obj* find(const std::string& path);
 // A property of o: its numbers (a number, or a struct's: a vector's three), an object, or an array of objects.
 int get_numbers(const Obj* o, const char* property, double* out, int max);
 Obj* get_object(const Obj* o, const char* property);
+bool set_object(Obj* o, const char* property, Obj* value);  // an object property, written as is
 std::vector<Obj*> get_objects(const Obj* o, const char* property);
 
 // A UFunction call from C++: inputs set by name (numbers, structs of numbers, objects, text for strings and names), then

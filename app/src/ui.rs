@@ -933,12 +933,11 @@ impl App {
             let global = settings::global(&self.defaults, d);
             if game { settings::get(&self.cfg, d.section, d.key).unwrap_or(global) } else { global }
         };
-        // Unreal games: no VR screen (Full VR there instead).
         let unreal = game && matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unreal_vr()));
         // UI black keys Unity's UI panel; Godot and Unreal hand over their UI with its own transparency.
         let unity = !game || matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unity()));
         let display = value("Display");
-        let (parallax, screen) = (display == "Parallax", display == "Parallax" || (display == "Theater" && !unreal));
+        let (parallax, screen) = (display == "Parallax", display == "Parallax" || display == "Theater");
         let (aim, hand) = (value("HeadAim") != "Off", value("AimWith") == "Hand");
         let relevant = |d: &Def| match d.key {
             "Depth" => parallax,
@@ -951,7 +950,6 @@ impl App {
         };
         egui::Grid::new((defs[0].key, game)).num_columns(2).spacing(vec2(32.0, 24.0)).min_col_width(name_w).show(ui, |ui| {
             for d in defs.iter().filter(|d| (game || !d.per_game()) && relevant(d)) {
-                let d = if unreal && d.key == "Display" { &settings::DISPLAY_NO_THEATER } else { d };
                 let global = settings::global(&self.defaults, d);
                 let current = if game { settings::get(&self.cfg, d.section, d.key).unwrap_or_else(|| global.clone()) } else { global.clone() };
                 let mut back = false;
@@ -1033,7 +1031,7 @@ fn control(ui: &mut Ui, d: &Def, current: &str) -> Option<String> {
             segmented(ui, options, options.iter().find(|(v, _)| settings::same(v, current)).map_or(options[0].0, |o| o.0), false).map(String::from)
         }
         Kind::Key => None,  // drawn by the Buttons table
-        // The camera name: picked in VR, where each camera has a preview; here it only shows and can go back.
+        // The camera name: picked in VR, from the cameras the game has; here it only shows and can go back.
         Kind::Text => {
             ui.add_space((CONTROL_H - LABEL) / 2.0);
             if current.is_empty() {

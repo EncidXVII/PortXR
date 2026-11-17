@@ -214,8 +214,10 @@ pub fn edit(file: &Path) -> io::Result<()> {
 }
 
 /// Proton loads the Windows mod loader only with this override; with it, Monado and WiVRn reach the game too.
-pub const WINE_DLL: &str = "WINEDLLOVERRIDES=\"winhttp=n,b\"";
-pub const LAUNCH_OPTIONS: &str = "WINEDLLOVERRIDES=\"winhttp=n,b\" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
+/// Proton loads the game folder's own winhttp.dll (Unity's mod loader) and dwmapi.dll (the Unreal core) only when told;
+/// a game without one keeps Wine's. Godot games load Parallax themselves and need only the OpenXR runtime passed in.
+pub const WINE_DLL: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\"";
+pub const LAUNCH_OPTIONS: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
 
 // The labels are a handful of short strings, read once per start.
 fn leak<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
@@ -359,7 +361,6 @@ pub fn detect(root: &Path) -> Option<Game> {
 
 /// An Unreal or Godot game: only in folders a store or the player names as a game (never the "On disk" sweep, which
 /// would list every program). The exe is the one a launch without a store would start.
-#[cfg(windows)]
 pub fn detect_other(root: &Path) -> Option<Game> {
     let mut exes = Vec::new();
     collect_exes(root, 3, &mut exes);
@@ -389,7 +390,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     }
     let version = if engine == "Godot" { godot_version(&exe).unwrap_or_default() } else { String::new() };
     let no_d3d12 = version.starts_with("4.") && !fs::read(&exe).is_ok_and(|b| b.windows(17).any(|w| w == b"D3D12CreateDevice"));
-    Some(Game {
+    let game = Game {
         name: root.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         engine: engine.into(),
         // For Godot, its engine version (from the game's pack): Godot 4 games get full VR.
@@ -410,17 +411,12 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         last_played: 0,
         dir: root.to_path_buf(),
         exe,
-    })
-}
-
-#[cfg(not(windows))]
-pub fn detect_other(_root: &Path) -> Option<Game> {
-    // The Theater screen captures windows through Windows; on Linux only Unity games get VR.
-    None
+    };
+    // Linux: the VR screen captures windows through Windows, so only the games Parallax goes inside.
+    (cfg!(windows) || game.godot_core() || game.unreal_vr()).then_some(game)
 }
 
 // Windows exes up to `depth` folders down, minus installers, crash reporters, anti-cheat and developer tools.
-#[cfg(windows)]
 fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
     const NOT_GAME: [&str; 16] = ["unins", "setup", "redist", "vc_", "dxsetup", "crash", "dotnet", "directx", "ue4prereq",
                                    "ueprereq", "cef", "launcherpatcher", "anticheat", "notification", "diag", "vconsole"];
@@ -449,7 +445,6 @@ fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
 
 /// The Godot version a game was exported with, from its pack's header ("GDPC", format, major, minor, patch): the
 /// .pck beside the exe, or the pack embedded at the end of the exe (its size in the 8 bytes before the closing magic).
-#[cfg(windows)]
 fn godot_version(exe: &Path) -> Option<String> {
     use std::io::{Seek, SeekFrom};
     let (mut f, start) = match File::open(exe.with_extension("pck")) {
@@ -470,7 +465,6 @@ fn godot_version(exe: &Path) -> Option<String> {
 }
 
 // Godot can embed its game data in the exe: the file then ends with the pack's magic.
-#[cfg(windows)]
 fn ends_with_pck(exe: &Path) -> bool {
     use std::io::{Seek, SeekFrom};
     let Ok(mut f) = File::open(exe) else { return false };
@@ -714,7 +708,8 @@ pub fn needs_launch_options(g: &Game) -> bool {
         let options = steam_root().map(|s| localconfig_values(&s, "LaunchOptions")).unwrap_or_default();
         *saved = Some((std::time::Instant::now(), options));
     }
-    !saved.as_ref().unwrap().1.iter().any(|(id, v)| *id == g.app_id && v.contains("winhttp=n"))
+    let needed = if g.unreal_vr() { "dwmapi" } else if g.unity() { "winhttp" } else { "PRESSURE_VESSEL_IMPORT_OPENXR" };
+    !saved.as_ref().unwrap().1.iter().any(|(id, v)| *id == g.app_id && v.contains(needed))
 }
 
 fn played_list() -> PathBuf {
@@ -724,7 +719,9 @@ fn played_list() -> PathBuf {
 /// Records a launch from the app (`<unix seconds>\t<game dir>` lines) for the library's "Recently played" order.
 /// When VR last started in this game: the plugin notes its first frame sent to the headset beside itself.
 pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
-    fs::metadata(g.file(r"BepInEx\plugins\Parallax\played.txt")).and_then(|m| m.modified()).ok()
+    // The Unity plugin's, or the Godot and Unreal core's beside its settings.
+    let file = if g.unity() { g.file(r"BepInEx\plugins\Parallax\played.txt") } else { g.config_file().with_file_name("played.txt") };
+    fs::metadata(file).and_then(|m| m.modified()).ok()
 }
 
 /// The games with VR added, for the VR menu's Library tab: the app's path on the first line ("app<TAB><exe>"), then
@@ -801,7 +798,7 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
     Ok(to)
 }
 
-/// A game in the Steam library, installed or not, that gets full VR (a Unity game Parallax can run).
+/// A game in the Steam library, installed or not, that gets full VR (a Unity, Unreal or Godot game Parallax can run).
 #[derive(Clone)]
 pub struct Owned {
     pub app_id: u32,
@@ -1008,7 +1005,7 @@ fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
         let fetched = ["https://qlever.dev/api/wikidata", "https://query.wikidata.org/sparql"].iter().find_map(|url| {
             ureq::get(*url)
                 .query("query", query)
-                .header("User-Agent", "Parallax (Unity VR injector; Unity game list)")
+                .header("User-Agent", "Parallax (VR injector; engine game list)")
                 .header("Accept", "application/sparql-results+json")
                 .call()
                 .ok()

@@ -97,7 +97,7 @@ fn cli(cmd: &str, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         "install-anyway" => installer::install_anyway(dir),
         // Started from a game's VR menu: the same checks and plugin update as Play in VR.
         "play" => {
-            let g = games::inspect(dir).ok_or("not a Unity game")?;
+            let g = games::inspect(dir).ok_or("no game found")?;
             if !g.installed() {
                 return Err("VR isn't added to this game.".into());
             }
@@ -114,7 +114,7 @@ fn cli(cmd: &str, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         "export" => {
-            println!("{}", games::export_logs(&games::detect(dir).ok_or("not a Unity game")?)?.display());
+            println!("{}", games::export_logs(&games::inspect(dir).ok_or("no game found")?)?.display());
             Ok(())
         }
         _ => Err(format!("unknown command {cmd}").into()),

@@ -207,7 +207,12 @@ public:
 
     void* backbuffer_copy() override { return backbufferCopy_.Get(); }
 
-    void set_mirror(void* texture) override { mirror_ = texture; }
+    void set_mirror(void* texture, const float* crop, bool flipY) override {
+        mirrorCrop_[2] = 0;  // the whole image unless cropped
+        if (crop) memcpy(mirrorCrop_, crop, sizeof(mirrorCrop_));
+        mirrorFlip_ = flipY;
+        mirror_ = texture;
+    }
 
     void present(IDXGISwapChain* swapchain) override {
         auto* eye = (ID3D11Texture2D*)mirror_.load();
@@ -229,8 +234,8 @@ public:
         ComPtr<ID3D11RenderTargetView> rtv;
         if (FAILED(device_->CreateRenderTargetView(back.Get(), &rd, &rtv))) return;
         BlitParams p{};
-        if (!params_for(eye, true, gpu_format_linear(bd.Format), p)) return;
-        gpu_mirror_crop(p, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height);
+        if (!params_for(eye, mirrorFlip_, gpu_format_linear(bd.Format), p)) return;
+        gpu_mirror_crop(p, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height, mirrorCrop_);
         blit(eye, rtv.Get(), (int)bd.Width, (int)bd.Height, p);
     }
 
@@ -317,6 +322,8 @@ private:
     float probeResult_ = -1;
     std::map<XrSwapchain, std::vector<Image>> images_;
     std::atomic<void*> mirror_{nullptr};
+    float mirrorCrop_[4]{};
+    bool mirrorFlip_ = true;
     bool warnedMsaa_ = false;
 };
 }  // namespace

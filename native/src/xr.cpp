@@ -443,7 +443,7 @@ void do_capture_backbuffer() {
 
 void do_submit(int slot) {
     if (!g_frameBegun) {
-        if (g_gpu) g_gpu->set_mirror(nullptr);
+        if (g_gpu) g_gpu->set_mirror(nullptr, nullptr, true);
         return;
     }
     PrxFrame f;
@@ -620,7 +620,8 @@ void do_submit(int slot) {
             }
         }
     }
-    g_gpu->set_mirror(!f.mirror ? nullptr : f.window ? f.windowLayer[0].texture : stereo ? f.eye[0].texture : nullptr);
+    const PrxLayer& shown = f.window ? f.windowLayer[0] : f.eye[0];
+    g_gpu->set_mirror(f.mirror && (f.window || stereo) ? shown.texture : nullptr, f.window ? nullptr : f.eyeCrop[0], shown.flipY != 0);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
     g_stereoSubmitted += stereo && f.quadAlpha && !f.window;

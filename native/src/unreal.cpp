@@ -860,13 +860,25 @@ std::vector<std::pair<void*, int>> native_chain(void* start, uint32_t want_w, ui
 
 
 // UE 5.5+: Slate draws the game's UI into the viewport's own texture (its handle on it), laid out at the window's
-// size and stretched over the whole texture. Its handles are pointed at a texture of the window's size instead: a
-// render target the engine makes for us (kept from garbage collection; a map change still takes it, and another is
-// made), cleared each frame.
+// size and stretched over the whole texture. Its handles are pointed at our texture instead: one render target at the
+// size of the window's monitor, made once (any window size fits it, and the panel shows it at the window's shape),
+// cleared each frame. It is never freed: Slate may still draw into it, and a freed one crashes the render thread.
 ue::Obj* g_uiTarget;                 // game thread
+std::string g_uiName;                // its name: an object made later in its place in the list isn't it
 uint32_t g_uiW, g_uiH;
 std::atomic<void*> g_uiRhi, g_uiNative;  // its engine and native textures
 void* g_viewport;                    // the game viewport (FSceneViewport), found from its client
+
+// Held from garbage collection: the RootSet flag is enough until UE 5.4, but 5.5's collector keeps its roots in a list
+// of its own and took the texture at its next pass (about a minute). So the engine also holds it, in its GameSingleton
+// slot (empty unless a game configures one).
+void hold(ue::Obj* t) {
+    ue::keep(t);
+    ue::Obj* engine = ue::engine();
+    ue::Obj* slot = engine ? ue::get_object(engine, "GameSingleton") : nullptr;
+    bool held = engine && (!slot || slot == g_uiTarget) && ue::set_object(engine, "GameSingleton", t);
+    if (!held) note("Unreal: the game uses the engine's GameSingleton; the UI's texture has its root flag alone");
+}
 
 void ui_target() {
     static int frames;
@@ -874,21 +886,30 @@ void ui_target() {
     ue::Obj* world = ue::world();
     ue::Obj* lib = ue::statics("KismetRenderingLibrary");
     if (!world || !lib) return;
-    RECT rc{};
-    GetClientRect(g_window, &rc);
-    if (rc.right < 64 || rc.bottom < 64) return;
-    // A new window size: a new target (the old one stays, unused).
-    if (!g_uiTarget || !ue::alive(g_uiTarget) || g_uiW != (uint32_t)rc.right || g_uiH != (uint32_t)rc.bottom) {
-        // Made in the map: a new map takes it, and a new one is made (Slate's handles keep the old texture alive until
-        // they move on).
+    if (!g_uiTarget || !ue::alive(g_uiTarget) || ue::name(g_uiTarget) != g_uiName) {
+        // The monitor's own pixels (its display mode: the game may see a DPI-scaled size), or the window's if larger.
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof mi;
+        DEVMODEW dm{};
+        dm.dmSize = sizeof dm;
+        RECT rc{};
+        GetClientRect(g_window, &rc);
+        if (!GetMonitorInfoW(MonitorFromWindow(g_window, MONITOR_DEFAULTTONEAREST), &mi) ||
+            !EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
+            return;
+        uint32_t w = std::clamp<uint32_t>(std::max<uint32_t>(dm.dmPelsWidth, rc.right), 64, 8192);
+        uint32_t h = std::clamp<uint32_t>(std::max<uint32_t>(dm.dmPelsHeight, rc.bottom), 64, 8192);
+        // Made inside the viewport client, which outlives maps (its world is the current one): a map's objects go with it.
+        ue::Obj* owner = ue::get_object(ue::engine(), "GameViewport");
         ue::Invoke make(lib, "CreateRenderTarget2D");
-        make.set("WorldContextObject", world).set("Width", {(double)rc.right}).set("Height", {(double)rc.bottom});
+        make.set("WorldContextObject", owner ? owner : world).set("Width", {(double)w}).set("Height", {(double)h});
         make.set("Format", {2}).set("ClearColor", {0, 0, 0, 0});  // RTF_RGBA8
         ue::Obj* t = make.run() ? make.get("ReturnValue") : nullptr;
-        if (g_uiTarget) note("Unreal: the UI's texture went (%s)", ue::alive(g_uiTarget) ? "window resized" : "collected");
-        if (!t || !ue::keep(t)) return;
-        g_uiTarget = t, g_uiW = rc.right, g_uiH = rc.bottom, g_uiRhi = g_uiNative = nullptr;
-        note("Unreal: the game's UI gets its own %ux%u texture", g_uiW, g_uiH);
+        if (!t) return;
+        if (g_uiTarget) note("Unreal: the UI's texture went");
+        hold(t);
+        g_uiTarget = t, g_uiName = ue::name(t), g_uiW = w, g_uiH = h, g_uiRhi = g_uiNative = nullptr;
+        note("Unreal: the game's UI gets its own %ux%u texture", w, h);
     }
     if (!g_uiRhi) {
         auto chain = native_chain(g_uiTarget, g_uiW, g_uiH, 0x400);  // the object, its resource, the RHI texture, native
@@ -999,7 +1020,6 @@ void start(IDXGISwapChain* sc) {
     host.product = app;
     host.gameDir = g_dir;
     host.eyeWidth = g_eyeW, host.eyeHeight = g_eyeH;
-    host.noTheater = true;
     host.aimExtras = true;
     bridge::set_menu_host(host);
     gpu_grab_present = true;
@@ -1069,6 +1089,10 @@ void on_present(IDXGISwapChain* sc) {
             // The UI panel: the window, holding the game's UI alone (its black keyed out); UE 5.5+: the UI's own texture.
             f.quad = f.quadAlpha = f.quadFromBackbuffer = 1;
             if (void* ui = g_uiNative) f.quadFromBackbuffer = 0, f.quadLayer = {ui, 0};
+            // UE 5.5+ (the UI on its own texture): the window shows the left eye, as in Unity games; it kept the last
+            // frame from before VR otherwise. Older versions keep the window for the UI the panel shows. Direct3D 11 only:
+            // the mirror's Direct3D 12 path assumes Unity's resource states (untried with an Unreal game).
+            f.mirror = g_uiNative && g_api == 11;
             // The eyes from the scene texture, side by side: Full VR's, or 3D screen's on the screen under the UI (the
             // core's own transparent eyes then carry the beam and the watch). Without a 3D view this frame only those.
             if (stereo && scene) {

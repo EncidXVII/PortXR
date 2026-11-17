@@ -342,7 +342,8 @@ bool alive(const Obj* o) {
     return o && i >= 0 && i < count() && at(i) == o;
 }
 
-// Kept from garbage collection: the item's RootSet flag (EInternalObjectFlags, 1 << 30, UE 4.25 to 5.5).
+// Kept from garbage collection: the item's RootSet flag (EInternalObjectFlags, 1 << 30, UE 4.25 to 5.4; 5.5's collector
+// keeps its roots in a list of its own and skips flagged objects, see hold() in unreal.cpp).
 bool keep(const Obj* o) {
     if (!alive(o) || g.stride < 0x10) return false;
     int32_t i = rd<int32_t>(o, kIndex);
@@ -565,6 +566,8 @@ int invoke(lua_State* L, Obj* o, const char* fnName, int first) {
         else if (i <= top) i = read_value(L, i, f, block, &text);
     }
     if (!call(o, fn, block)) script::fail(L, "%s: %s failed", path(o).c_str(), fnName);
+    // ponytail: a returned string's text is the engine's allocation and stays (bytes per call); free it through the
+    // engine's allocator (GMalloc) if a script turns out to call such functions every frame.
     return ret ? push_value(L, ret, block) : 0;
 }
 
@@ -721,6 +724,13 @@ int get_numbers(const Obj* o, const char* property, double* out, int max) {
 }
 
 Obj* get_object(const Obj* o, const char* property) { return object_prop(o, property); }
+
+bool set_object(Obj* o, const char* property, Obj* value) {
+    const Field* f = o ? prop(class_of(o), property) : nullptr;
+    if (!f || type_of(f) != "ObjectProperty") return false;
+    *(Obj**)((uint8_t*)o + prop_offset(f)) = value;
+    return true;
+}
 
 std::vector<Obj*> get_objects(const Obj* o, const char* property) {
     const Field* f = o ? prop(class_of(o), property) : nullptr;

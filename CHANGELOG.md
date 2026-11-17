@@ -12,7 +12,7 @@
   only), keep the engine's own OpenXR instead of being refused.
 - **Unreal Engine 4.22 to 5.6 games get full VR** on the same core. **Add VR** puts a `dwmapi.dll` beside the game's
   Shipping exe (Remove VR puts the folder back): the engine renders both eyes itself, the game's UI sits on a panel in
-  front, and the controllers act as a gamepad. Full VR and 3D screen (no VR screen: Full VR there instead), head and hand
+  front, and the controllers act as a gamepad. Full VR, 3D screen and VR screen (the 3D screen's view, flat), head and hand
   aim, the crosshair, laser pointer, watch and VR menu. Play starts the VR runtime first; started without a headset, the
   game runs untouched. Runs on SteamVR's test headset in Direct3D 12; not yet tried on a real one. UE 5.5 and newer,
   which dropped the engine's switch for keeping the UI out of the eyes, draw it into a texture of its own the size of
@@ -21,7 +21,7 @@
   properties and functions, found and checked in each game rather than per version. With it, Unreal games get the VR
   menu's **Game camera** picker, **Hide objects** and **Weapon in hand** as Unity and Godot games have, and scripts reach
   the game's actors and components: find, hide, move, read or set any property, call any function (SCRIPTING.md).
-  `on_scene` gets the map's name and `on_camera` the camera the view follows. Tried on UE 5.0, 5.4 and 5.5 games.
+  `on_scene` gets the map's name and `on_camera` the camera the view follows. Tried on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games.
 - **Console commands** for Unreal games: a game's Advanced settings take console variables (`r.MotionBlurQuality 0;
   r.DepthOfFieldQuality 0`), run as each level starts, for the effects that look wrong in VR. Scripts' `call` now passes
   strings and names too, so `KismetSystemLibrary.ExecuteConsoleCommand` and the rest work from scripts.
@@ -70,6 +70,20 @@
 - Library: your games first, then the Steam games that would get Full VR under their own heading. Games Parallax
   can't run keep their Unsupported tab, out of All. The toolbar fits on one row again.
 - The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
+- Unreal 5.5 and newer: the game could crash a minute or so in, more often after its window was resized. The engine's
+  garbage collector took the texture the game's UI is drawn into while the game still drew into it. Fixed: the UI has one
+  texture at the monitor's size, held by the engine for the whole session, and no longer makes one for every size the
+  window passes through (dragging an edge made dozens, about 14 MB each at 1440p).
+- Unreal games get the VR screen: the game flat on a big screen, as in Unity and Godot games (the engine always draws
+  both eyes, so it is the 3D screen's view with no depth). UE 5.5 and newer, Direct3D 11: the desktop window shows the
+  left eye during VR instead of the last frame from before.
+- Linux: Unreal and Godot 4.3+ games are listed and get full VR through Proton. The Steam launch options gain
+  `dwmapi` (`WINEDLLOVERRIDES="winhttp,dwmapi=n,b"`), which loads the Unreal core; the page asks only for what each
+  game needs.
+- The README and app speak of Unity, Unreal and Godot games, and no longer promise camera previews in the VR menu
+  (it lists the game's cameras by name).
+- Godot and Unreal games: after Play, the game page now says when the game is in VR (and later when it was last played
+  in VR) instead of "No VR yet" after 90 seconds.
 - Opening a Godot or other non-Unity game's folder (`Parallax.exe <folder>`) opens its page instead of saying no
   Unity game was found.
 

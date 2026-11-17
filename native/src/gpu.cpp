@@ -162,10 +162,14 @@ void gpu_overlay(BlitParams& p, const Overlay& o, float aspect) {
     p.aspect = aspect;
 }
 
-void gpu_mirror_crop(BlitParams& p, float eye, float screen) {
+void gpu_mirror_crop(BlitParams& p, float eye, float screen, const float crop[4]) {
+    float c[4] = {0, 0, 1, 1};
+    if (crop[2] > crop[0]) memcpy(c, crop, sizeof(c));
+    eye *= (c[2] - c[0]) / (c[3] - c[1]);
     float visible = eye / screen < 1 ? eye / screen : 1.f;
-    p.scaleY = visible;
-    p.offsetY = (1 - visible) / 2;
+    p.scaleX = c[2] - c[0], p.offsetX = c[0];
+    p.scaleY = visible * (c[3] - c[1]);
+    p.offsetY = c[1] + (1 - visible) / 2 * (c[3] - c[1]);
 }
 
 float gpu_opaque_fraction(const uint8_t* data, UINT w, UINT h, UINT pitch, DXGI_FORMAT format) {
