@@ -69,6 +69,9 @@
   Troubleshooting row at the bottom instead of a red button beside Play.
 - Library: your games first, then the Steam games that would get Full VR under their own heading. Games Parallax
   can't run keep their Unsupported tab, out of All. The toolbar fits on one row again.
+- Not installed finds about twice as many Steam games: beyond Wikidata's engine list (which knows the engine of
+  about one game in six), Steam's own app cache gives the engine away through where a game keeps its cloud saves
+  (Unity's AppData\LocalLow, Unreal's Saved\SaveGames, Godot's app_userdata). Nothing extra leaves the PC.
 - The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
 - Unreal 5.5 and newer: the game could crash a minute or so in, more often after its window was resized. The engine's
   garbage collector took the texture the game's UI is drawn into while the game still drew into it. Fixed: the UI has one
