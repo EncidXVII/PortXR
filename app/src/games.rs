@@ -858,7 +858,14 @@ struct Facts {
     release: u64,
     /// The engine its Steam Cloud save folders give away (ufs/savefiles), installed or not.
     engine: Option<&'static str>,
+    /// Online PvP (category 36), and the store's user tags, most voted first (common/store_tags).
+    online_pvp: bool,
+    tags: Vec<(u32, u32)>,
 }
+
+/// Steam tags of competitive play: PvP, Competitive, Team-Based, eSports, Massively Multiplayer, Battle Royale, MOBA, Hero Shooter.
+const COMPETITIVE_TAGS: [u32; 8] = [1775, 3878, 5711, 5055, 128, 176981, 1718, 620519];
+const SINGLEPLAYER_TAG: u32 = 4182;
 
 /// The engine a Steam Cloud save folder belongs to: Unity saves under AppData\LocalLow (Windows), unity3d/ (Linux) or
 /// unity.<company>.<game> (Mac); Unreal under <project>/Saved/SaveGames or Config; Godot under Godot/app_userdata. Matched
@@ -889,15 +896,30 @@ impl Facts {
         } else if self.multiplayer && !self.single_player {
             // Apps with no player modes listed at all (tools, overlays) are not called multiplayer.
             Some("Multiplayer only")
+        } else if self.online_pvp && self.competitive_first() {
+            Some("Competitive online")
         } else {
             None
         }
     }
 }
 
+impl Facts {
+    /// Players rank a competitive tag among its top five, above Singleplayer: a multiplayer game with a token
+    /// single-player mode (bots, training), where a ban costs the most. Co-op and campaign-first games stay.
+    fn competitive_first(&self) -> bool {
+        let mut tags = self.tags.clone();
+        tags.sort();
+        let at = |pred: &dyn Fn(u32) -> bool| tags.iter().position(|&(_, t)| pred(t)).unwrap_or(99);
+        let comp = at(&|t| COMPETITIVE_TAGS.contains(&t));
+        comp < 5 && comp < at(&|t| t == SINGLEPLAYER_TAG)
+    }
+}
+
 fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::collections::HashMap<u32, Facts> {
     let mut out = std::collections::HashMap::new();
     let Ok(b) = fs::read(steam.join("appcache").join("appinfo.vdf")) else { return out };
+    let anti_cheat = anti_cheat_games();
     let u32_at = |p: usize| b.get(p..p + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()));
     let Some(magic) = u32_at(0) else { return out };
     // 0x28: keys inline; 0x29: keys in a string table at the offset after the header.
@@ -936,15 +958,18 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
             let k = key(p);
             let names_ac = |s: &str| {
                 let s = s.to_lowercase();
-                ["anticheat", "anti-cheat", "anti_cheat", "battleye", "start_protected_game"].iter().any(|n| s.contains(n))
+                ["anticheat", "anti-cheat", "anti_cheat", "battleye", "start_protected_game", "_eac", "eac_", "eac runtime", "_be.exe"]
+                    .iter()
+                    .any(|n| s.contains(n))
             };
             found.anti_cheat |= names_ac(&k);
             if path.len() == 3 && path[2] == "category" {
                 match k.as_str() {
                     "category_2" => found.single_player = true,
-                    "category_1" | "category_9" | "category_20" | "category_27" | "category_36" | "category_38" | "category_47" | "category_48" | "category_49" => found.multiplayer = true,
+                    "category_1" | "category_9" | "category_20" | "category_27" | "category_38" | "category_47" | "category_48" | "category_49" => found.multiplayer = true,
                     "category_8" => found.anti_cheat = true,
                     "category_31" | "category_53" | "category_54" => found.vr = true,
+                    "category_36" => (found.multiplayer, found.online_pvp) = (true, true),
                     _ => {}
                 }
             }
@@ -975,6 +1000,9 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
                 }
                 2 | 3 => {
                     let v = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?);
+                    if path.len() == 3 && path[2] == "store_tags" {
+                        found.tags.push((k.parse().unwrap_or(99), v));
+                    }
                     if path.len() == 2 && path[1] == "common" && k == "osarch" {
                         found.osarch = v.to_string();
                     } else if path.len() == 2 && path[1] == "common" && k == "steam_release_date" {
@@ -1004,12 +1032,52 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
                 None => cstr(q),
             };
             if walk(&b, &mut q, &mut Vec::new(), &mut key, &mut found).is_some() {
+                found.anti_cheat |= anti_cheat.contains(&id);
                 out.insert(id, found);
             }
         }
         p = next;
     }
     out
+}
+
+fn anti_cheat_list() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("Parallax").join("anticheat-steam.json")
+}
+
+/// Steam app IDs of games with anti-cheat (Easy Anti-Cheat, BattlEye, EQU8, ...) from the community-kept Are We
+/// Anti-Cheat Yet? list: Steam's own data names it for few of them. Read from the cache, which the library refreshes
+/// weekly off the UI thread; the whole list is downloaded, so nothing about the player's library leaves the machine.
+fn anti_cheat_games() -> std::collections::HashSet<u32> {
+    fs::read(anti_cheat_list()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn refresh_anti_cheat() {
+    let path = anti_cheat_list();
+    let fresh = fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 7 * 86400);
+    if fresh {
+        return;
+    }
+    let url = "https://raw.githubusercontent.com/AreWeAntiCheatYet/AreWeAntiCheatYet/HEAD/games.json";
+    let Some(json) = ureq::get(url)
+        .header("User-Agent", "Parallax (VR injector; anti-cheat list)")
+        .call()
+        .ok()
+        .and_then(|mut r| r.body_mut().with_config().limit(16 << 20).read_json::<serde_json::Value>().ok())
+    else {
+        return;
+    };
+    let ids: Vec<u32> = json
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|g| g["anticheats"].as_array().is_some_and(|a| !a.is_empty()))
+        .filter_map(|g| g["storeIds"]["steam"].as_str()?.parse().ok())
+        .collect();
+    if !ids.is_empty() {
+        let _ = fs::create_dir_all(path.parent().unwrap());
+        let _ = fs::write(&path, serde_json::to_vec(&ids).unwrap_or_default());
+    }
 }
 
 fn engine_list() -> PathBuf {
@@ -1064,10 +1132,11 @@ fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
 /// Steam library games that would get full VR: Steam keeps library art for every app in the library, one folder (or
 /// file prefix, on older clients) per app ID; Wikidata's engine list and, for the many games it doesn't know, the
 /// app cache's Steam Cloud save folders pick the Unity, Unreal and Godot ones, and the app cache drops what Parallax can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the
-/// library is left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the list.
+/// library is left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the engine and anti-cheat lists.
 pub fn steam_library() -> Vec<Owned> {
     let Some(steam) = steam_root() else { return Vec::new() };
     let known = engine_games().unwrap_or_default();
+    refresh_anti_cheat();
     let cache = steam.join("appcache").join("librarycache");
     let ids = fs::read_dir(&cache)
         .into_iter()
@@ -1256,6 +1325,15 @@ fn player_log(g: &Game) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::save_engine;
+
+    #[test]
+    fn competitive_games_need_a_top_tag() {
+        let facts = |tags: &[u32]| super::Facts { online_pvp: true, tags: tags.iter().enumerate().map(|(i, &t)| (i as u32, t)).collect(), ..Default::default() };
+        assert!(facts(&[19, 1775, 4182]).competitive_first()); // PvP above Singleplayer
+        assert!(!facts(&[4182, 1775]).competitive_first()); // campaign first
+        assert!(!facts(&[1, 2, 3, 4, 5, 1775]).competitive_first()); // PvP only sixth
+        assert!(facts(&[1, 2, 5711]).competitive_first()); // no Singleplayer tag at all
+    }
 
     #[test]
     fn save_folders_name_engines() {

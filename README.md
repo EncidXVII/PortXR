@@ -210,7 +210,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 - **Single-player only.** Parallax refuses games with EasyAntiCheat or BattlEye and flags multiplayer-only games. Modding an online game can break its terms of service and get an account banned; do not use Parallax for that.
 - **Reversible.** Adding VR copies BepInEx and the plugin into the game folder and records every file in `.vrinstall.json`; **Remove VR** puts the folder back byte for byte. Steam's "Verify integrity of game files" leaves the added files in place; Remove VR is the way out.
-- **Network.** The app asks GitHub for the latest release (it shows a link; it never downloads or runs an update by itself) and Wikidata for its list of Unity, Unreal and Godot games, to mark Full VR on the Not installed shelf. Nothing else leaves your PC: no account, no telemetry. Logs are only collected when you press **Export logs**, into a zip on your desktop.
+- **Network.** The app asks GitHub for the latest release (it shows a link; it never downloads or runs an update by itself) Wikidata for its list of Unity, Unreal and Godot games, and the Are We Anti-Cheat Yet? list on GitHub for games with anti-cheat, to mark Full VR on the Not installed shelf (both lists are downloaded whole, so your library isn't sent anywhere). Nothing else leaves your PC: no account, no telemetry. Logs are only collected when you press **Export logs**, into a zip on your desktop.
 
 Parallax is an independent project, not affiliated with or endorsed by Unity Technologies, Valve, Meta, or any game's developer or publisher. Game names are trademarks of their owners.
 

@@ -72,6 +72,10 @@
 - Not installed finds about twice as many Steam games: beyond Wikidata's engine list (which knows the engine of
   about one game in six), Steam's own app cache gives the engine away through where a game keeps its cloud saves
   (Unity's AppData\LocalLow, Unreal's Saved\SaveGames, Godot's app_userdata). Nothing extra leaves the PC.
+- Fewer risky games offered: anti-cheat now also comes from the community-kept Are We Anti-Cheat Yet? list (Steam
+  names it for few games; 7 Days to Die, Gears 5 and Aimlabs got through) and from Easy Anti-Cheat and BattlEye
+  launcher names. Competitive online games with a token single-player mode (Verdun, Battlerite, Tekken 7's ranked
+  play) are marked "Competitive online": Steam's Online PvP plus a competitive tag among the game's top five.
 - The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
 - Unreal 5.5 and newer: the game could crash a minute or so in, more often after its window was resized. The engine's
   garbage collector took the texture the game's UI is drawn into while the game still drew into it. Fixed: the UI has one
