@@ -34,13 +34,12 @@ LARGE_INTEGER g_start{}, g_last{};
 std::string g_scene = "\x01", g_camera = "\x01";  // never a real name: the first tick reports both
 
 std::wstring folder() {
-    wchar_t exe[MAX_PATH], app[MAX_PATH];
+    wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     std::wstring stem = exe;
     stem = stem.substr(stem.find_last_of(L"\\/") + 1);
     stem = stem.substr(0, stem.rfind(L'.'));
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", app, MAX_PATH);
-    return std::wstring(app, n) + L"\\Parallax\\scripts\\" + stem;
+    return prx_appdata(L"scripts\\") + stem;
 }
 
 std::string narrow(const std::wstring& w) {

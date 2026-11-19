@@ -4,8 +4,17 @@
 #include <d3d12.h>
 #include <atomic>
 #include <cstdint>
+#include <string>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+
+// `name` in %APPDATA%\Parallax, where the app keeps what every game shares (defaults, theme, scripts, logs). Sized
+// from the variable itself: a redirected profile can make it longer than MAX_PATH.
+inline std::wstring prx_appdata(const wchar_t* name) {
+    std::wstring dir(GetEnvironmentVariableW(L"APPDATA", nullptr, 0), L'\0');
+    if (!dir.empty()) dir.resize(GetEnvironmentVariableW(L"APPDATA", dir.data(), (DWORD)dir.size()));
+    return dir + L"\\Parallax\\" + name;
+}
 
 #define PRX_API extern "C" __declspec(dllexport)
 

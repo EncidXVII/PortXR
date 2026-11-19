@@ -72,11 +72,8 @@ void drain_core_log() {
 }
 
 std::wstring appdata(const wchar_t* name) {
-    wchar_t buf[MAX_PATH];
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", buf, MAX_PATH);
-    std::wstring dir = std::wstring(buf, n) + L"\\Parallax";
-    CreateDirectoryW(dir.c_str(), nullptr);
-    return dir + L"\\" + name;
+    CreateDirectoryW(prx_appdata(L"").c_str(), nullptr);
+    return prx_appdata(name);
 }
 
 std::string read_file(const std::wstring& path) {

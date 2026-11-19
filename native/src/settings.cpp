@@ -1,5 +1,5 @@
 #include "settings.h"
-#include <windows.h>
+#include "common.h"
 #include <io.h>
 #include <share.h>
 #include <algorithm>
@@ -66,18 +66,13 @@ void load() {
     g_defaultsStamp = stamp(g_defaults);
 }
 
-std::wstring appdata(const wchar_t* name) {
-    wchar_t buf[MAX_PATH];
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", buf, MAX_PATH);
-    return std::wstring(buf, n) + L"\\Parallax\\" + name;
-}
 }  // namespace
 
 namespace settings {
 void open(const std::wstring& gameFile, const std::wstring& defaultsFile) {
     std::lock_guard lock(g_mutex);
     g_game = gameFile;
-    g_defaults = defaultsFile.empty() ? appdata(L"defaults.cfg") : defaultsFile;
+    g_defaults = defaultsFile.empty() ? prx_appdata(L"defaults.cfg") : defaultsFile;
     load();
 }
 
@@ -180,7 +175,7 @@ void set(const char* section, const char* key, const std::string& value) {
 void accent(float rgb[3]) {
     static const char* names[] = {"Lime", "Mint", "Aqua", "Sky", "Violet", "Pink", "Amber", "White"};
     static const int rgbs[] = {0xC6FF1A, 0x5CF2A0, 0x3DF2E0, 0x5CC8FF, 0xB49AFF, 0xFF7ADB, 0xFFB627, 0xF5F5F7};
-    std::string t = read(appdata(L"theme.txt"));
+    std::string t = read(prx_appdata(L"theme.txt"));
     int c = rgbs[0];
     for (int i = 0; i < 8; ++i)
         if (t.rfind(names[i], 0) == 0) c = rgbs[i];

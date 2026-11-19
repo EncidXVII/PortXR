@@ -374,10 +374,9 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     let main = exes.iter().min_by_key(|p| (depth(p), std::cmp::Reverse(size(p)))).cloned();
     let (engine, exe) = if shipping.is_some() || root.join("Engine").is_dir() {
         ("Unreal", main.or(shipping.clone())?)
-    } else if let Some(g) = godot {
-        ("Godot", g)
     } else {
-        return None;  // another engine: Parallax has nothing to add
+        // Another engine: Parallax has nothing to add.
+        ("Godot", godot?)
     };
     let names = |d: &Path| -> Vec<String> {
         fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect()

@@ -6,6 +6,7 @@
 #include "canvas.h"
 #include "script.h"
 #include <Xinput.h>
+#include <share.h>
 #include <algorithm>
 
 extern "C" {
@@ -175,7 +176,7 @@ bool frame(const Game& game, Frame& out) {
     g_located = prx_locate(g_views, g_fovs) != 0;
     if (!g_located) return false;
     if (!g_played.empty()) {
-        if (FILE* f = _wfopen(g_played.c_str(), L"w")) fputs("in VR\n", f), fclose(f);
+        if (FILE* f = _wfsopen(g_played.c_str(), L"w", _SH_DENYNO)) fputs("in VR\n", f), fclose(f);
         g_played.clear();
     }
     if (g_testHead) {

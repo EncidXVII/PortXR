@@ -1,6 +1,7 @@
 #include "common.h"
 #include <cstdarg>
 #include <cstdio>
+#include <share.h>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -22,7 +23,7 @@ void prx_log(const char* fmt, ...) {
     // Tests: PARALLAX_LOG_FILE gets every line at once, so the last one before a crash survives.
     static FILE* file = [] {
         char path[MAX_PATH];
-        return GetEnvironmentVariableA("PARALLAX_LOG_FILE", path, MAX_PATH) ? fopen(path, "a") : nullptr;
+        return GetEnvironmentVariableA("PARALLAX_LOG_FILE", path, MAX_PATH) ? _fsopen(path, "a", _SH_DENYNO) : nullptr;
     }();
     if (file) fprintf(file, "%s\n", buf), fflush(file);
 }

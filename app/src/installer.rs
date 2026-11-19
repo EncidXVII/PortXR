@@ -110,14 +110,7 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     // crash or power cut stopped halfway.
     let mut files = Vec::new();
     for rel in &sources {
-        let target = games::native(game_dir, rel);
-        let backed_up = target.exists();
-        if backed_up {
-            let backup = games::native(&game_dir.join(BACKUP_DIR), rel);
-            fs::create_dir_all(backup.parent().unwrap())?;
-            fs::copy(&target, &backup)?;
-            fs::OpenOptions::new().write(true).open(&backup)?.sync_all()?;
-        }
+        let backed_up = back_up(game_dir, rel)?;
         let sha256 = Sha256::digest(fs::read(games::native(&payload, rel))?).iter().map(|b| format!("{b:02x}")).collect();
         files.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
     }
@@ -166,7 +159,7 @@ fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
         return Err("This game's Godot build has no OpenXR, so it can't open VR itself. Play it on the Theater screen instead.".into());
     }
     let exe_dir = game.exe.parent().ok_or("no game folder")?;
-    let rel = |name: &str| exe_dir.join(name).strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into());
+    let rel = |name: &str| beside_exe(game_dir, exe_dir, name);
     let script = exe_dir.join("parallax_vr.gd");
     let existing = fs::read_to_string(exe_dir.join("override.cfg")).unwrap_or_default();
     // Vulkan, Godot's main renderer: with OpenXR on, Godot otherwise switched one game from Vulkan to Direct3D 12.
@@ -190,10 +183,7 @@ fn install_godot_core(game: &games::Game) -> Result<(), Box<dyn Error>> {
         return Err("This game's Godot build has no Direct3D 12, which Parallax needs inside Godot games. Play it on the Theater screen instead.".into());
     }
     let exe_dir = game.exe.parent().ok_or("no game folder")?;
-    let rel = |name: &str| {
-        let p = exe_dir.join(name);
-        p.strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into())
-    };
+    let rel = |name: &str| beside_exe(game_dir, exe_dir, name);
     let folder = rel(GODOT_DIR);
     let created = if exe_dir.join(GODOT_DIR).exists() { Vec::new() } else { vec![folder.clone()] };
     let payload = godot_payload()?;
@@ -228,10 +218,7 @@ fn install_unreal(game: &games::Game) -> Result<(), Box<dyn Error>> {
     if exe_dir.join("dwmapi.dll").exists() {
         return Err("Another mod loader (a dwmapi.dll, such as UE4SS) is in this game. Remove it first, then add VR.".into());
     }
-    let rel = |name: &str| {
-        let p = exe_dir.join(name);
-        p.strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into())
-    };
+    let rel = |name: &str| beside_exe(game_dir, exe_dir, name);
     let payload = std::env::current_exe()?.with_file_name("unreal");
     let mut files = Vec::new();
     for name in UNREAL_CORE {
@@ -252,14 +239,7 @@ fn install_unreal(game: &games::Game) -> Result<(), Box<dyn Error>> {
 fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)], created: Vec<String>) -> Result<(), Box<dyn Error>> {
     let mut entries = Vec::new();
     for (rel, data) in files {
-        let target = games::native(game_dir, rel);
-        let backed_up = target.exists();
-        if backed_up {
-            let backup = games::native(&game_dir.join(BACKUP_DIR), rel);
-            fs::create_dir_all(backup.parent().unwrap())?;
-            fs::copy(&target, &backup)?;
-            fs::OpenOptions::new().write(true).open(&backup)?.sync_all()?;
-        }
+        let backed_up = back_up(game_dir, rel)?;
         let sha256 = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
         entries.push(ReceiptFile { path: rel.clone(), sha256, backed_up });
     }
@@ -271,6 +251,37 @@ fn install_files(game_dir: &Path, files: &[(String, Vec<u8>)], created: Vec<Stri
         fs::write(target, data)?;
     }
     Ok(())
+}
+
+/// Copies the game's own file at `rel`, if there is one, into the backup folder and flushes it. Returns whether
+/// there was one.
+fn back_up(game_dir: &Path, rel: &str) -> std::io::Result<bool> {
+    let target = games::native(game_dir, rel);
+    if !target.exists() {
+        return Ok(false);
+    }
+    let backup = games::native(&game_dir.join(BACKUP_DIR), rel);
+    fs::create_dir_all(backup.parent().unwrap())?;
+    fs::copy(&target, &backup)?;
+    fs::OpenOptions::new().write(true).open(&backup)?.sync_all()?;
+    Ok(true)
+}
+
+/// `name` beside the game's exe, as the receipt stores it: relative to the game folder, backslash-separated.
+fn beside_exe(game_dir: &Path, exe_dir: &Path, name: &str) -> String {
+    exe_dir.join(name).strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_else(|_| name.into())
+}
+
+/// Every one of `names` in `dir` is byte for byte the payload's.
+fn same_files(dir: &Path, payload: &Path, names: &[&str]) -> bool {
+    names.iter().all(|n| fs::read(dir.join(n)).ok().is_some_and(|a| fs::read(payload.join(n)).is_ok_and(|b| a == b)))
+}
+
+/// A receipt path that stays inside the game folder. The receipt lies in that folder, where anything can write it,
+/// and Remove VR deletes what it lists: a path that is absolute or climbs out with `..` is never followed.
+fn inside(rel: &str) -> bool {
+    use std::path::Component;
+    !rel.is_empty() && !rel.contains(':') && Path::new(&rel.replace('\\', "/")).components().all(|c| matches!(c, Component::Normal(_)))
 }
 
 /// Written beside and renamed over, flushed first: a crash leaves the old file or the new one, never a torn or
@@ -303,7 +314,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     }
     if game.unreal_vr() {
         let (dir, payload) = (unreal_dir(game)?, std::env::current_exe()?.with_file_name("unreal"));
-        if UNREAL_CORE.iter().all(|n| fs::read(dir.join(n)).ok().is_some_and(|a| fs::read(payload.join(n)).is_ok_and(|b| a == b))) {
+        if same_files(dir, &payload, &UNREAL_CORE) {
             return Ok(false);
         }
         install_unreal(game)?;
@@ -311,8 +322,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     }
     if game.godot_vr() {
         let current = if game.godot_core() {
-            let (dir, payload) = (game.exe.with_file_name(GODOT_DIR), godot_payload()?);
-            GODOT_CORE.iter().all(|n| fs::read(dir.join(n)).ok().is_some_and(|a| fs::read(payload.join(n)).is_ok_and(|b| a == b)))
+            same_files(&game.exe.with_file_name(GODOT_DIR), &godot_payload()?, &GODOT_CORE)
         } else {
             fs::read(game.exe.with_file_name("parallax_vr.gd")).unwrap_or_default() == GODOT_SCRIPT.as_bytes()
         };
@@ -371,6 +381,9 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
         r => r?,
     };
     let receipt: Receipt = serde_json::from_slice(&bytes)?;
+    if !receipt.created_dirs.iter().chain(receipt.files.iter().map(|f| &f.path)).all(|rel| inside(rel)) {
+        return Err("This game's install record lists files outside the game folder, so nothing was removed. Verify the game's files in its store instead.".into());
+    }
     for dir in &receipt.created_dirs {
         remove_dir(&games::native(game_dir, dir))?;
     }
@@ -405,4 +418,63 @@ fn patient<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> 
         }
     }
     op()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("parallax-installer-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn remove_vr_puts_the_folder_back_as_it_was() {
+        let dir = game_dir("roundtrip");
+        fs::write(dir.join("bin").join("override.cfg"), "theirs").unwrap();
+        let files = vec![
+            (r"bin\override.cfg".to_string(), b"theirs+ours".to_vec()),
+            (r"bin\ParallaxVR\core.dll".to_string(), b"core".to_vec()),
+        ];
+        install_files(&dir, &files, vec![r"bin\ParallaxVR".to_string()]).unwrap();
+        assert_eq!(fs::read(dir.join("bin").join("override.cfg")).unwrap(), b"theirs+ours");
+        assert!(dir.join("bin").join("ParallaxVR").join("core.dll").exists());
+        // The game writes its own files into our folder while it runs; they go with it.
+        fs::write(dir.join("bin").join("ParallaxVR").join("log.txt"), "log").unwrap();
+        uninstall(&dir).unwrap();
+        let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left, ["bin"], "nothing of ours stays");
+        let left: Vec<_> = fs::read_dir(dir.join("bin")).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left, ["override.cfg"]);
+        assert_eq!(fs::read(dir.join("bin").join("override.cfg")).unwrap(), b"theirs");
+        assert!(uninstall(&dir).is_err(), "nothing left to remove");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_receipt_pointing_outside_the_game_is_not_followed() {
+        for (i, bad) in [r"..\victim", "../victim", r"C:\victim", "/victim", r"bin\..\..\victim", ""].iter().enumerate() {
+            assert!(!inside(bad), "{bad}");
+            let root = game_dir(&format!("escape{i}"));
+            let (dir, victim) = (root.join("game"), root.join("victim"));
+            fs::create_dir_all(&dir).unwrap();
+            fs::create_dir_all(&victim).unwrap();
+            fs::write(victim.join("keep.txt"), "keep").unwrap();
+            let receipt = Receipt {
+                version: "0".into(),
+                loader_preexisting: false,
+                created_dirs: vec![r"..\victim".into()],
+                files: vec![ReceiptFile { path: (*bad).into(), sha256: String::new(), backed_up: false }],
+                forced: false,
+            };
+            fs::write(receipt_path(&dir), serde_json::to_vec(&receipt).unwrap()).unwrap();
+            assert!(uninstall(&dir).is_err());
+            assert!(victim.join("keep.txt").exists(), "{bad}");
+            let _ = fs::remove_dir_all(root);
+        }
+        assert!(inside(r"BepInEx\plugins\Parallax\Parallax.Core.dll") && inside("winhttp.dll"));
+    }
 }

@@ -194,11 +194,6 @@ std::wstring folder(std::wstring p) {
     return p;
 }
 
-std::wstring appdata(const wchar_t* name) {
-    wchar_t buf[MAX_PATH];
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", buf, MAX_PATH);
-    return std::wstring(buf, n) + L"\\Parallax\\" + name;
-}
 
 class Menu {
 public:
@@ -236,10 +231,10 @@ public:
         dirty = true;
     }
 
-    menu::Requests frame(bool pointing_, float u, float v, float trigger, float dt) {
+    menu::Requests frame(bool pointing_, float u, float v, float trigger, float seconds) {
         req = {};
-        now += dt;
-        frameMs[historyAt] = dt * 1000;
+        now += seconds;
+        frameMs[historyAt] = seconds * 1000;
         historyAt = (historyAt + 1) % History;
         if (!open) return req;
         if (settings::refresh()) dirty = true;
@@ -249,7 +244,7 @@ public:
         bool held = triggerDown ? trigger > 0.4f : trigger > 0.6f;
         if (pointing && held && !triggerDown) press = true;
         triggerDown = held;
-        this->dt = dt;
+        dt = seconds;
         // Logic: clicks and hover, no pixels.
         painting = false;
         animating = false;
@@ -338,7 +333,7 @@ private:
     Style centredMuted() const { return {canvas::Body, Small, Ink2, canvas::Center}; }
 
     static int theme_index() {
-        std::wstring path = appdata(L"theme.txt");
+        std::wstring path = prx_appdata(L"theme.txt");
         static std::string last;
         static ULONGLONG at = 0;
         if (GetTickCount64() - at > 1000) {
@@ -502,10 +497,10 @@ private:
         }
         for (auto& w : widths) w = std::max(w, even);
         std::string v = settings::get(section, key, fallback);
-        int current = -1;
+        int chosen = -1;
         for (size_t i = 0; i < values.size(); ++i)
-            if (values[i] == v) current = (int)i;
-        int picked = segment(name, labels, widths, current);
+            if (values[i] == v) chosen = (int)i;
+        int picked = segment(name, labels, widths, chosen);
         if (picked >= 0) settings::set(section, key, values[picked]);
         ui.end();
         ui.gap(12);
@@ -665,7 +660,7 @@ private:
 
     void step(const char* number, const std::string& t) {
         ui.begin_row();
-        float h = natural(t, label()) > W - 2 * Pad - 72 ? 80 : 48;
+        float h = natural(t, label()) > W - 2 * Pad - 72 ? 80.f : 48.f;
         label(number, eyebrowWord(), 72, h);
         text(ui.take(0, h), t, label());
         ui.end();
@@ -692,7 +687,7 @@ private:
         }
         // Back to the player's all-games values, else the defaults (an empty value here reads as the default).
         std::map<std::string, std::string> all;
-        if (FILE* f = _wfsopen(appdata(L"defaults.cfg").c_str(), L"rb", _SH_DENYNO)) {
+        if (FILE* f = _wfsopen(prx_appdata(L"defaults.cfg").c_str(), L"rb", _SH_DENYNO)) {
             std::string text, section;
             char buf[4096];
             for (size_t n; (n = fread(buf, 1, sizeof(buf), f)) > 0;) text.append(buf, n);
@@ -787,7 +782,7 @@ private:
     // Accent colour for every game and the app: one dot per theme, the chosen one ringed and named.
     void theme_row() {
         ui.begin_row();
-        int current = theme_index();
+        int chosen = theme_index();
         label("Theme", label(), 360);
         for (int i = 0; i < 8; ++i) {
             Rect r = ui.take(Row + 6, Row);
@@ -796,14 +791,14 @@ private:
             bool o = over(cellRect);
             float h = eased(cellRect, o);
             if (paint()) {
-                if (i == current) ring(cellRect, Ink, cellRect.w / 2);
+                if (i == chosen) ring(cellRect, Ink, cellRect.w / 2);
                 else if (h > 0.01f) ring(cellRect, Ink3, cellRect.w / 2);
                 round(dot, theme_color(i), dot.w / 2);
             }
             hover(cellRect);
-            if (clicked(cellRect) && i != current) {
-                std::wstring path = appdata(L"theme.txt");
-                if (FILE* f = _wfopen(path.c_str(), L"wb")) {
+            if (clicked(cellRect) && i != chosen) {
+                std::wstring path = prx_appdata(L"theme.txt");
+                if (FILE* f = _wfsopen(path.c_str(), L"wb", _SH_DENYNO)) {
                     fputs(kThemes[i], f);
                     fclose(f);
                 }
@@ -812,7 +807,7 @@ private:
             }
         }
         ui.gap(12);
-        label(kThemes[current], muted(), 0);
+        label(kThemes[chosen], muted(), 0);
         ui.end();
         ui.gap(12);
     }
@@ -902,12 +897,12 @@ private:
         if (button("Cancel", false, 160)) picking = -1, dirty = true;
         ui.end();
         ui.gap(8);
-        std::string current = binding(gesture, picking);
+        std::string bound = binding(gesture, picking);
         const int columns = 6, n = (int)(sizeof(kKeys) / sizeof(kKeys[0]));
         for (int start = 0; start < n && picking >= 0; start += columns) {
             ui.begin_row();
             for (int j = start; j < std::min(start + columns, n); ++j) {
-                if (button(shown_key(kKeys[j]), current == kKeys[j], 160)) {
+                if (button(shown_key(kKeys[j]), bound == kKeys[j], 160)) {
                     settings::set("Bindings", (std::string(kInputs[picking]) + kSuffix[gesture]).c_str(), kKeys[j]);
                     picking = -1;
                     break;
@@ -979,7 +974,7 @@ private:
         libPage = 0;
         covers.clear();
         std::string text;
-        if (FILE* f = _wfsopen(appdata(L"vr-games.txt").c_str(), L"rb", _SH_DENYNO)) {
+        if (FILE* f = _wfsopen(prx_appdata(L"vr-games.txt").c_str(), L"rb", _SH_DENYNO)) {
             char buf[4096];
             for (size_t n; (n = fread(buf, 1, sizeof(buf), f)) > 0;) text.append(buf, n);
             fclose(f);
