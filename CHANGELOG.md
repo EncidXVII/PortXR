@@ -73,7 +73,8 @@
   about one game in six), Steam's own app cache gives the engine away through where a game keeps its cloud saves
   (Unity's AppData\LocalLow, Unreal's Saved\SaveGames, Godot's app_userdata). Nothing extra leaves the PC.
 - Fewer risky games offered: anti-cheat now also comes from the community-kept Are We Anti-Cheat Yet? list (Steam
-  names it for few games; 7 Days to Die, Gears 5 and Aimlabs got through) and from Easy Anti-Cheat and BattlEye
+  names it for few games; 7 Days to Die, Gears 5 and Aimlabs got through), built in and refreshed weekly, so it holds
+  offline and on a first start too, and from Easy Anti-Cheat and BattlEye
   launcher names. Competitive online games with a token single-player mode (Verdun, Battlerite, Tekken 7's ranked
   play) are marked "Competitive online": Steam's Online PvP plus a competitive tag among the game's top five.
 - The VR menu costs the game less: a repaint averages 1.1 to 1.6 ms (was 1.6 to 2.4) and at most 6.5 ms (was 9.1).

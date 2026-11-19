@@ -1046,10 +1046,13 @@ fn anti_cheat_list() -> PathBuf {
 }
 
 /// Steam app IDs of games with anti-cheat (Easy Anti-Cheat, BattlEye, EQU8, ...) from the community-kept Are We
-/// Anti-Cheat Yet? list: Steam's own data names it for few of them. Read from the cache, which the library refreshes
-/// weekly off the UI thread; the whole list is downloaded, so nothing about the player's library leaves the machine.
+/// Anti-Cheat Yet? list: Steam's own data names it for few of them. The copy built in holds offline and on a first
+/// start; the cache, which the library refreshes weekly off the UI thread, adds games listed since. The whole list is
+/// downloaded, so nothing about the player's library leaves the machine.
 fn anti_cheat_games() -> std::collections::HashSet<u32> {
-    fs::read(anti_cheat_list()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    let built_in: Vec<u32> = serde_json::from_str(include_str!("../assets/anticheat-steam.json")).unwrap_or_default();
+    let fetched: Vec<u32> = fs::read(anti_cheat_list()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    built_in.into_iter().chain(fetched).collect()
 }
 
 fn refresh_anti_cheat() {
@@ -1325,6 +1328,12 @@ fn player_log(g: &Game) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::save_engine;
+
+    #[test]
+    fn anti_cheat_list_is_built_in() {
+        // 7 Days to Die (Easy Anti-Cheat), whatever the cache holds.
+        assert!(super::anti_cheat_games().contains(&251570));
+    }
 
     #[test]
     fn competitive_games_need_a_top_tag() {
