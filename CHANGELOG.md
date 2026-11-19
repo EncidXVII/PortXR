@@ -83,13 +83,15 @@
 - The app uses about a quarter of the memory: covers load only when on screen, and at most 60 stay held (462 MB to
   126 MB private with a 200-game library).
 - The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
-- Unreal 5.5 and newer: the game could crash a minute or so in, more often after its window was resized. The engine's
-  garbage collector took the texture the game's UI is drawn into while the game still drew into it. Fixed: the UI has one
-  texture at the monitor's size, held by the engine for the whole session, and no longer makes one for every size the
-  window passes through (dragging an edge made dozens, about 14 MB each at 1440p).
+- Unreal 5.5 and newer: the game could crash a minute or so in. The engine's garbage collector took the texture the
+  game's UI is drawn into while the game still drew into it; the engine now holds those textures. A new one is made
+  only once the window keeps a new size for half a second (dragging an edge made dozens, about 14 MB each at 1440p),
+  and a size the window returns to (a fullscreen toggle) uses its texture again. Known: resizing the window during VR
+  can still crash the game, about once in 70 size changes in a stress test.
 - Unreal games get the VR screen: the game flat on a big screen, as in Unity and Godot games (the engine always draws
   both eyes, so it is the 3D screen's view with no depth). UE 5.5 and newer, Direct3D 11: the desktop window shows the
-  left eye during VR instead of the last frame from before.
+  left eye during VR instead of the last frame from before. While a loading screen
+  shows, the laser and the wrist watch now draw over it.
 - Linux: Unreal and Godot 4.3+ games are listed and get full VR through Proton. The Steam launch options gain
   `dwmapi` (`WINEDLLOVERRIDES="winhttp,dwmapi=n,b"`), which loads the Unreal core; the page asks only for what each
   game needs.

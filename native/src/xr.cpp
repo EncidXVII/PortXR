@@ -621,7 +621,8 @@ void do_submit(int slot) {
         }
     }
     const PrxLayer& shown = f.window ? f.windowLayer[0] : f.eye[0];
-    g_gpu->set_mirror(f.mirror && (f.window || stereo) ? shown.texture : nullptr, f.window ? nullptr : f.eyeCrop[0], shown.flipY != 0);
+    // The left eye's part of it: an engine with both eyes in one texture (Unreal) crops the window's layers too.
+    g_gpu->set_mirror(f.mirror && (f.window || stereo) ? shown.texture : nullptr, f.eyeCrop[0], shown.flipY != 0);
     end_frame(layers, count);
     std::lock_guard lock(g_statsMutex);
     g_stereoSubmitted += stereo && f.quadAlpha && !f.window;

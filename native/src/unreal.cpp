@@ -859,25 +859,52 @@ std::vector<std::pair<void*, int>> native_chain(void* start, uint32_t want_w, ui
 }
 
 
-// UE 5.5+: Slate draws the game's UI into the viewport's own texture (its handle on it), laid out at the window's
-// size and stretched over the whole texture. Its handles are pointed at our texture instead: one render target at the
-// size of the window's monitor, made once (any window size fits it, and the panel shows it at the window's shape),
-// cleared each frame. It is never freed: Slate may still draw into it, and a freed one crashes the render thread.
+// UE 5.5+: Slate draws the game's UI into the viewport's own texture (its handle on it), laid out over the whole
+// texture and clipped to the window's size. Its handles are pointed at our texture instead: a render target of the
+// window's size (a larger one shows the UI cut to the window's part of it), cleared each frame.
 ue::Obj* g_uiTarget;                 // game thread
 std::string g_uiName;                // its name: an object made later in its place in the list isn't it
 uint32_t g_uiW, g_uiH;
+// One texture per window size the game settles at, used again on a return to that size. None is freed: Slate may
+// still draw into one it was handed, and a freed one crashes the render thread (seen with the engine resizing ours
+// and with the garbage collector taking the one in use).
+// ponytail: never freed, ~14 MB at 1440p per size. Fine for fullscreen toggles; free the oldest if a game resizes often.
+// Known: the move to another size's texture still crashed the render thread once in about 70 moves (a test resizing
+// the window 16 times in 13 s); cause not found. A game that keeps its window size never makes the move.
+struct UiTexture {
+    ue::Obj* o;
+    std::string name;
+    uint32_t w, h;
+};
+std::vector<UiTexture> g_uiKept;
 std::atomic<void*> g_uiRhi, g_uiNative;  // its engine and native textures
 void* g_viewport;                    // the game viewport (FSceneViewport), found from its client
 
-// Held from garbage collection: the RootSet flag is enough until UE 5.4, but 5.5's collector keeps its roots in a list
-// of its own and took the texture at its next pass (about a minute). So the engine also holds it, in its GameSingleton
-// slot (empty unless a game configures one).
-void hold(ue::Obj* t) {
-    ue::keep(t);
+// Held from garbage collection: UE 5.5's collector takes an object with the RootSet flag alone at its next pass (about
+// a minute). So the engine holds them: its GameSingleton slot (empty unless a game configures one) gets a dynamic
+// material of ours, whose texture parameters are strong references, one per texture. A game that uses the slot: the
+// flag, as before.
+void hold(ue::Obj* t, ue::Obj* owner) {
+    static ue::Obj* holder;
+    static int count;
     ue::Obj* engine = ue::engine();
     ue::Obj* slot = engine ? ue::get_object(engine, "GameSingleton") : nullptr;
-    bool held = engine && (!slot || slot == g_uiTarget) && ue::set_object(engine, "GameSingleton", t);
-    if (!held) note("Unreal: the game uses the engine's GameSingleton; the UI's texture has its root flag alone");
+    if (engine && !slot) {
+        auto materials = ue::objects_of(ue::find_class("Material"));
+        ue::Invoke make(ue::statics("KismetMaterialLibrary"), "CreateDynamicMaterialInstance");
+        if (make && !materials.empty()) make.set("WorldContextObject", owner).set("Parent", materials[0]);
+        holder = make && !materials.empty() && make.run() ? make.get("ReturnValue") : nullptr;
+        if (holder && !ue::set_object(engine, "GameSingleton", holder)) holder = nullptr;
+        slot = holder;
+        note("Unreal: the UI's textures are held by %s", holder ? "the engine" : "their root flag alone (no holder made)");
+    }
+    std::string name = "ParallaxUI" + std::to_string(count++);
+    bool held = holder && slot == holder && ue::alive(holder) &&
+                ue::Invoke(holder, "SetTextureParameterValue").set("ParameterName", name.c_str()).set("Value", t).run();
+    if (!held) {
+        ue::keep(t);
+        if (count == 1) note("Unreal: the UI's texture has its root flag alone (the engine's GameSingleton is the game's)");
+    }
 }
 
 void ui_target() {
@@ -886,30 +913,37 @@ void ui_target() {
     ue::Obj* world = ue::world();
     ue::Obj* lib = ue::statics("KismetRenderingLibrary");
     if (!world || !lib) return;
-    if (!g_uiTarget || !ue::alive(g_uiTarget) || ue::name(g_uiTarget) != g_uiName) {
-        // The monitor's own pixels (its display mode: the game may see a DPI-scaled size), or the window's if larger.
-        MONITORINFOEXW mi{};
-        mi.cbSize = sizeof mi;
-        DEVMODEW dm{};
-        dm.dmSize = sizeof dm;
-        RECT rc{};
-        GetClientRect(g_window, &rc);
-        if (!GetMonitorInfoW(MonitorFromWindow(g_window, MONITOR_DEFAULTTONEAREST), &mi) ||
-            !EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
-            return;
-        uint32_t w = std::clamp<uint32_t>(std::max<uint32_t>(dm.dmPelsWidth, rc.right), 64, 8192);
-        uint32_t h = std::clamp<uint32_t>(std::max<uint32_t>(dm.dmPelsHeight, rc.bottom), 64, 8192);
-        // Made inside the viewport client, which outlives maps (its world is the current one): a map's objects go with it.
-        ue::Obj* owner = ue::get_object(ue::engine(), "GameViewport");
-        ue::Invoke make(lib, "CreateRenderTarget2D");
-        make.set("WorldContextObject", owner ? owner : world).set("Width", {(double)w}).set("Height", {(double)h});
-        make.set("Format", {2}).set("ClearColor", {0, 0, 0, 0});  // RTF_RGBA8
-        ue::Obj* t = make.run() ? make.get("ReturnValue") : nullptr;
-        if (!t) return;
-        if (g_uiTarget) note("Unreal: the UI's texture went");
-        hold(t);
+    RECT rc{};
+    GetClientRect(g_window, &rc);
+    if (rc.right < 64 || rc.bottom < 64 || rc.right > 16384 || rc.bottom > 16384) return;  // minimized, or past a texture's limit
+    uint32_t w = rc.right, h = rc.bottom;
+    auto alive = [](ue::Obj* o, const std::string& name) { return o && ue::alive(o) && ue::name(o) == name; };
+    bool current = alive(g_uiTarget, g_uiName);
+    // A new window size counts once the window has kept it for half a second (dragging its edge goes through dozens).
+    static uint32_t seenW, seenH;
+    static ULONGLONG seenAt;
+    ULONGLONG now = GetTickCount64();
+    if (w != seenW || h != seenH) seenW = w, seenH = h, seenAt = now;
+    if (!current || ((w != g_uiW || h != g_uiH) && now - seenAt >= 500)) {
+        std::erase_if(g_uiKept, [&](const UiTexture& k) { return !alive(k.o, k.name); });
+        ue::Obj* t = nullptr;
+        for (const UiTexture& k : g_uiKept)
+            if (k.w == w && k.h == h) t = k.o;
+        if (!t) {
+            // Made inside the viewport client, which outlives maps (its world is the current one): a map's objects go with it.
+            ue::Obj* owner = ue::get_object(ue::engine(), "GameViewport");
+            if (!owner) owner = world;
+            ue::Invoke make(lib, "CreateRenderTarget2D");
+            make.set("WorldContextObject", owner).set("Width", {(double)w}).set("Height", {(double)h});
+            make.set("Format", {2}).set("ClearColor", {0, 0, 0, 0});  // RTF_RGBA8
+            t = make.run() ? make.get("ReturnValue") : nullptr;
+            if (!t) return;
+            hold(t, owner);
+            g_uiKept.push_back({t, ue::name(t), w, h});
+        }
+        if (g_uiTarget) note("Unreal: the UI's texture went (%s)", current ? "window resized" : "collected");
         g_uiTarget = t, g_uiName = ue::name(t), g_uiW = w, g_uiH = h, g_uiRhi = g_uiNative = nullptr;
-        note("Unreal: the game's UI gets its own %ux%u texture", w, h);
+        note("Unreal: the game's UI gets its own %ux%u texture (%zu kept)", w, h, g_uiKept.size());
     }
     if (!g_uiRhi) {
         auto chain = native_chain(g_uiTarget, g_uiW, g_uiH, 0x400);  // the object, its resource, the RHI texture, native
@@ -1106,6 +1140,9 @@ void on_present(IDXGISwapChain* sc) {
             } else {
                 f.stereo = f.beam || f.watch;
             }
+            // No game camera (a loading screen): the flat picture on the VR screen, opaque as in Unity and Godot
+            // games, so the beam and the watch go over it and the room stays around it.
+            if (g_out.mode == 2) f.quadAlpha = 0;
             prx_set_frame(g_slot, &f);
             event(EvSubmit | (g_slot << 8));
             g_slot = (g_slot + 1) % 4;
