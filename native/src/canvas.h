@@ -26,6 +26,9 @@ enum Align { Left, Center, TopLeft };
 struct Image {
     int w = 0, h = 0;
     std::vector<uint8_t> rgba;  // straight alpha
+    // The size it was last drawn at, box-filtered once: resampling a 600x900 cover every paint cost about 1 ms.
+    mutable int sw = 0, sh = 0;
+    mutable std::vector<uint8_t> scaled;
 };
 // JPG or PNG from disk (stb_image); false when it cannot be read.
 bool load_image(const std::wstring& path, Image& out);

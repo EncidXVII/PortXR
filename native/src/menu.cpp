@@ -228,6 +228,9 @@ public:
         } else {
             welcome = false;
             screenUnlocked = false;
+            // Its cost on the game's frame: painting runs on the CPU, in the frame that asks for it.
+            if (paints) prx_log("menu: %d paints, %.2f ms on average, %.2f ms at most", paints, paintMs / paints, paintMax);
+            paints = 0, paintMs = paintMax = 0;
         }
         prx_haptic_pulse(0, 0.4f, 0.03f);
         dirty = true;
@@ -262,6 +265,8 @@ public:
         bool diag = tab == DiagnosticsTab && now - paintedAt > 0.1f;
         if (dirty || pressed || hovered != hoverBefore || animating || diag || now - openedAt < Fast * 2 || triggerDown != lastTrigger) {
             painting = true;
+            LARGE_INTEGER t0, t1, freq;
+            QueryPerformanceCounter(&t0);
             canvas.resize((int)W, (int)H);
             canvas.fade = motion_on() ? std::clamp((now - openedAt) / Fast, 0.f, 1.f) : 1.f;
             canvas.fade = 1 - (1 - canvas.fade) * (1 - canvas.fade);
@@ -273,6 +278,10 @@ public:
             painting = false;
             version++;
             paintedAt = now;
+            QueryPerformanceCounter(&t1);
+            QueryPerformanceFrequency(&freq);
+            float ms = (float)((t1.QuadPart - t0.QuadPart) * 1000.0 / freq.QuadPart);
+            ++paints, paintMs += ms, paintMax = std::max(paintMax, ms);
         }
         lastTrigger = triggerDown;
         return req;
@@ -286,6 +295,8 @@ private:
     static constexpr float CardGap = 16, NowHeight = 148, ThumbWidth = 64, ThumbW = 304, ThumbH = 171;
     Layout ui;
     float now = 0, dt = 0, openedAt = -10, paintedAt = 0;
+    int paints = 0;
+    float paintMs = 0, paintMax = 0;
     bool painting = false, animating = false, dirty = true, pointing = false, triggerDown = false, press = false, lastTrigger = false;
     float mx = -1, my = -1, hovered = 0, lastHovered = 0;
     Rect hoverRect;

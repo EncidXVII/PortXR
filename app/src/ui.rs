@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fs;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -1567,19 +1568,46 @@ fn cover(ui: &mut Ui, g: &Game, rect: Rect) {
     cover_image(ui, &g.cover, &g.name, rect);
 }
 
+#[derive(Clone, Default)]
+struct HeldCovers(HashMap<String, u64>);
+
+// A cover's image, held while shown. Past 60 held (each about 2 MB decoded), the ones longest off screen are let go;
+// one scrolled back loads again.
+fn held_cover(ctx: &egui::Context, path: &Path) -> String {
+    const HOLD: usize = 60;
+    let uri = format!("file:///{}", path.display());
+    let now = ctx.cumulative_pass_nr();
+    let gone: Vec<String> = ctx.data_mut(|d| {
+        let held = &mut d.get_temp_mut_or_default::<HeldCovers>(egui::Id::NULL).0;
+        held.insert(uri.clone(), now);
+        let mut old: Vec<(u64, String)> = held.iter().filter(|&(_, &t)| t + 1 < now).map(|(u, &t)| (t, u.clone())).collect();
+        old.sort();
+        old.truncate(held.len().saturating_sub(HOLD));
+        old.into_iter().map(|(_, u)| held.remove(&u).map(|_| u).unwrap()).collect()
+    });
+    for u in gone {
+        ctx.forget_image(&u);
+    }
+    uri
+}
+
 fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
+    // Off screen: nothing to load (each cover held decoded is about 2 MB).
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
     match cover {
         // A wide header (no 2:3 cover cached) is shown whole, centred on the surface, never stretched.
         Some(path) if path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("header.jpg")) => {
             ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
             let h = rect.width() * 215.0 / 460.0;
             let inner = Rect::from_center_size(rect.center(), vec2(rect.width(), h));
-            egui::Image::new(format!("file:///{}", path.display())).show_loading_spinner(false).paint_at(ui, inner);
+            egui::Image::new(held_cover(ui.ctx(), path)).show_loading_spinner(false).paint_at(ui, inner);
         }
         // The surface shows while the image loads, the shape of the card already in place.
         Some(path) => {
             ui.painter_at(rect).rect_filled(rect, RADIUS, SURFACE);
-            egui::Image::new(format!("file:///{}", path.display())).corner_radius(RADIUS).show_loading_spinner(false).paint_at(ui, rect);
+            egui::Image::new(held_cover(ui.ctx(), path)).corner_radius(RADIUS).show_loading_spinner(false).paint_at(ui, rect);
         }
         None => {
             let p = ui.painter_at(rect);
@@ -1791,4 +1819,26 @@ fn style(ctx: &egui::Context) {
             s.text_styles.insert(style, body(size));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn covers_off_screen_are_let_go() {
+        let ctx = egui::Context::default();
+        for pass in 0..5 {
+            let mut out = ctx.run_pass(Default::default(), |ctx| {
+                for i in 0..50 {
+                    held_cover(ctx, Path::new(&format!("cover{pass}_{i}.jpg")));
+                }
+            });
+            out.textures_delta.clear();
+        }
+        // This pass's and the last pass's covers stay (still on screen); older ones go once past 60.
+        let held = ctx.data_mut(|d| d.get_temp::<HeldCovers>(egui::Id::NULL)).unwrap().0;
+        assert_eq!(held.len(), 100);
+        assert!(held.keys().all(|u| u.contains("cover3_") || u.contains("cover4_")));
+    }
 }

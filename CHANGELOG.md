@@ -76,6 +76,11 @@
   names it for few games; 7 Days to Die, Gears 5 and Aimlabs got through) and from Easy Anti-Cheat and BattlEye
   launcher names. Competitive online games with a token single-player mode (Verdun, Battlerite, Tekken 7's ranked
   play) are marked "Competitive online": Steam's Online PvP plus a competitive tag among the game's top five.
+- The VR menu costs the game less: a repaint averages 1.1 to 1.6 ms (was 1.6 to 2.4) and at most 6.5 ms (was 9.1).
+  Cover art is shrunk once to its card size (sharper too) instead of resampled every paint, and rounded shapes fill
+  their corner rows in one span. The log says what each opening of the menu cost.
+- The app uses about a quarter of the memory: covers load only when on screen, and at most 60 stay held (462 MB to
+  126 MB private with a 200-game library).
 - The library lists only Unity, Unreal and Godot games: games in other engines are no longer listed for the VR screen.
 - Unreal 5.5 and newer: the game could crash a minute or so in, more often after its window was resized. The engine's
   garbage collector took the texture the game's UI is drawn into while the game still drew into it. Fixed: the UI has one

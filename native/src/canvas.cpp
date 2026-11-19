@@ -206,12 +206,15 @@ void Canvas::round(const Rect& r, Color c, float radius, int mode) {
     float a = c.a * fade;
     uint32_t solid = (uint32_t)(c.r * 255 + 0.5f) | (uint32_t)(c.g * 255 + 0.5f) << 8 | (uint32_t)(c.b * 255 + 0.5f) << 16 | 0xFF000000u;
     for (int y = y0; y < y1; ++y) {
-        // A filled shape's rows between the corners are covered from edge to edge but for the rim pixels: one span.
+        // A filled shape's rows are covered from edge to edge but for the rim pixels (between the corners) or the
+        // corners (rows through them, a pixel inside the top and bottom edges): one span.
         float qy = std::fabs(y + 0.5f - cy) - (hy - radius);
         int s0 = x1, s1 = x1;
-        if (mode == 0 && qy <= 0 && qy <= radius - 0.5f) {
-            s0 = std::clamp((int)std::ceil(r.x), x0, x1);
-            s1 = std::clamp((int)std::floor(r.x + r.w - 1) + 1, s0, x1);
+        bool between = qy <= 0 && qy <= radius - 0.5f, inRows = y >= r.y && y + 1 <= r.y + r.h;
+        if (mode == 0 && (between || inRows)) {
+            float inset = between ? 0 : radius;
+            s0 = std::clamp((int)std::ceil(r.x + inset), x0, x1);
+            s1 = std::clamp((int)std::floor(r.x + r.w - inset - 1) + 1, s0, x1);
             if (a >= 1) std::fill_n((uint32_t*)&px_[((size_t)y * w_ + s0) * 4], s1 - s0, solid);
             else
                 for (int x = s0; x < s1; ++x) blend(x, y, c, 1);
@@ -233,20 +236,29 @@ void Canvas::round(const Rect& r, Color c, float radius, int mode) {
 
 void Canvas::image(const Rect& r, const Image& img) {
     if (img.w <= 0 || img.h <= 0) return;
-    int x0 = std::max(0, (int)std::floor(r.x)), y0 = std::max(0, (int)std::floor(r.y));
-    int x1 = std::min(w_, (int)std::ceil(r.x + r.w)), y1 = std::min(h_, (int)std::ceil(r.y + r.h));
-    for (int y = y0; y < y1; ++y)
-        for (int x = x0; x < x1; ++x) {
-            float u = ((x + 0.5f) - r.x) / r.w * img.w - 0.5f, v = ((y + 0.5f) - r.y) / r.h * img.h - 0.5f;
-            int iu = std::clamp((int)std::floor(u), 0, img.w - 1), iv = std::clamp((int)std::floor(v), 0, img.h - 1);
-            int iu1 = std::min(iu + 1, img.w - 1), iv1 = std::min(iv + 1, img.h - 1);
-            float fu = std::clamp(u - iu, 0.f, 1.f), fv = std::clamp(v - iv, 0.f, 1.f);
-            float c[4];
-            for (int k = 0; k < 4; ++k) {
-                auto at = [&](int a, int b) { return img.rgba[((size_t)b * img.w + a) * 4 + k] / 255.f; };
-                c[k] = (at(iu, iv) * (1 - fu) + at(iu1, iv) * fu) * (1 - fv) + (at(iu, iv1) * (1 - fu) + at(iu1, iv1) * fu) * fv;
+    int tw = std::max(1, (int)std::lround(r.w)), th = std::max(1, (int)std::lround(r.h));
+    if (img.sw != tw || img.sh != th) {
+        // Each target pixel averages the source pixels under it (at least one: larger targets repeat them).
+        img.scaled.assign((size_t)tw * th * 4, 0);
+        for (int y = 0; y < th; ++y) {
+            int v0 = y * img.h / th, v1 = std::max(v0 + 1, (y + 1) * img.h / th);
+            for (int x = 0; x < tw; ++x) {
+                int u0 = x * img.w / tw, u1 = std::max(u0 + 1, (x + 1) * img.w / tw);
+                uint32_t sum[4] = {};
+                for (int v = v0; v < v1; ++v)
+                    for (int u = u0; u < u1; ++u)
+                        for (int k = 0; k < 4; ++k) sum[k] += img.rgba[((size_t)v * img.w + u) * 4 + k];
+                uint32_t n = (uint32_t)((v1 - v0) * (u1 - u0));
+                for (int k = 0; k < 4; ++k) img.scaled[((size_t)y * tw + x) * 4 + k] = (uint8_t)((sum[k] + n / 2) / n);
             }
-            blend(x, y, {c[0], c[1], c[2], c[3]}, 1);
+        }
+        img.sw = tw, img.sh = th;
+    }
+    int ox = (int)std::lround(r.x), oy = (int)std::lround(r.y);
+    for (int y = std::max(0, oy); y < std::min(h_, oy + th); ++y)
+        for (int x = std::max(0, ox); x < std::min(w_, ox + tw); ++x) {
+            const uint8_t* q = &img.scaled[((size_t)(y - oy) * tw + (x - ox)) * 4];
+            blend(x, y, {q[0] / 255.f, q[1] / 255.f, q[2] / 255.f, q[3] / 255.f}, 1);
         }
 }
 
