@@ -1,6 +1,9 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // OpenXR is right-handed (-Z forward), Unity left-handed (+Z forward): mirror Z.
     internal static class Xr

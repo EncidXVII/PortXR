@@ -1,7 +1,10 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // A "Screen Space - Camera" canvas is drawn only by the camera it names. Bound to the head camera (or to one whose
     // world the eyes took over), it would vanish: that camera draws nothing now and the eyes are other cameras

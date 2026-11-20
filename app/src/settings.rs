@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! The plugin's BepInEx config file (`[Section]` headers, `Key = Value` lines). Keys are written in place so the
 //! descriptions BepInEx adds survive; missing keys are appended and BepInEx fills in the rest on the next launch.
 
@@ -54,7 +57,7 @@ pub const ADVANCED: &[Def] = &[
     def("Controls", "Pointer", "Laser pointer", "Auto", Kind::Choice(&[("Auto", "With game cursor"), ("MenuOnly", "Menu only")]), ""),
     def("Controls", "WristMenu", "Wrist glance menu", "true", Kind::Toggle, "Look at the back of your left hand and pull the right trigger for the VR menu."),
     def("Controls", "WeaponInHand", "Weapon in hand", "true", Kind::Toggle, "With hand aim, the game's gun and arms move into your right hand."),
-    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "Parallax's"), ("Off", "Off")]), "Game's: the game's own crosshair moves to where you aim. Parallax's: ours instead."),
+    def("Controls", "Crosshair", "Crosshair", "Game", Kind::Choice(&[("Game", "Game's"), ("Lime", "PortXR's"), ("Off", "Off")]), "Game's: the game's own crosshair moves to where you aim. PortXR's: ours instead."),
     def("Game", "CameraName", "Game camera", "", Kind::Text, "Easier in the VR menu's Game tab, which lists the game's cameras."),
     def("Game", "Console", "Console commands", "", Kind::Text, "Run as each level starts, separated by ;  For example: r.MotionBlurQuality 0; r.DepthOfFieldQuality 0"),
 ];
@@ -178,7 +181,7 @@ pub fn all() -> impl Iterator<Item = &'static Def> {
     QUICK.iter().chain(ADVANCED).chain(BINDINGS.iter())
 }
 
-/// The all-games value: the defaults file's, else Parallax's own.
+/// The all-games value: the defaults file's, else PortXR's own.
 pub fn global(defaults: &str, d: &Def) -> String {
     if d.per_game() { None } else { get(defaults, d.section, d.key) }.unwrap_or_else(|| d.default.into())
 }

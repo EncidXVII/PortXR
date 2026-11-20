@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "gpu.h"
 #include <MinHook.h>
 #include <wrl/client.h>
@@ -276,7 +279,7 @@ bool gpu_hook_present(IUnknown* deviceOrQueue) {
     WNDCLASSW wc{};
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(nullptr);
-    wc.lpszClassName = L"ParallaxProbe";
+    wc.lpszClassName = L"PortXRProbe";
     RegisterClassW(&wc);
     HWND hwnd = CreateWindowExW(0, wc.lpszClassName, L"", WS_POPUP, 0, 0, 8, 8, nullptr, nullptr, wc.hInstance, nullptr);
     ComPtr<IDXGIFactory2> factory;

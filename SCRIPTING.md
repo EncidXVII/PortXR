@@ -8,17 +8,17 @@ objects (Unity's GameObjects, Godot's nodes, Unreal's actors and components).
 ## Where scripts go
 
 In the app, open the game, then **04 Scripts → Import script**. Or put `.lua` files in
-`%APPDATA%\Parallax\scripts\<game exe name>\` yourself (**Open scripts folder** opens it). For `Hollow Knight.exe` that
-is `%APPDATA%\Parallax\scripts\Hollow Knight\`. Unreal games run a second exe, `<Game>-Win64-Shipping.exe`, and the
+`%APPDATA%\PortXR\scripts\<game exe name>\` yourself (**Open scripts folder** opens it). For `Hollow Knight.exe` that
+is `%APPDATA%\PortXR\scripts\Hollow Knight\`. Unreal games run a second exe, `<Game>-Win64-Shipping.exe`, and the
 folder is named after that one (the app's button opens the right folder).
 
 - Scripts outlive an uninstall: they are not in the game folder.
 - A game loads its scripts when VR starts, and reloads them within two seconds of a file changing, so you can edit
   while playing.
-- Scripts are sandboxed: no files, no programs, no network. Only the `parallax` table below and plain Lua
+- Scripts are sandboxed: no files, no programs, no network. Only the `portxr` table below and plain Lua
   (`string`, `math`, `table`, `utf8`).
 - Errors go to the game's log with the file and line (**Open log** in the app): BepInEx's `LogOutput.log` in Unity
-  games, `ParallaxVR\parallax.log` beside the game's exe in Godot games and beside the Shipping exe in Unreal games. A
+  games, `PortXR\portxr.log` beside the game's exe in Godot games and beside the Shipping exe in Unreal games. A
   script that fails is switched off until its file changes; one that runs over a second (an endless loop) is stopped,
   so it can't freeze the game.
 
@@ -30,16 +30,16 @@ Define any of these as global functions:
 |---|---|
 | `on_frame(dt)` | every frame; `dt` in seconds |
 | `on_scene(name)` | when the active scene changes, and once at load. Unity: the scene's name; Godot: the scene file's name (`level_2` for `res://levels/level_2.tscn`); Unreal: the world's (map's) name |
-| `on_camera(name)` | when Parallax picks a new head camera (Unreal: the camera component the view follows) |
+| `on_camera(name)` | when PortXR picks a new head camera (Unreal: the camera component the view follows) |
 
-## The `parallax` table
+## The `portxr` table
 
 ### Every engine
 
 | Call | Does |
 |---|---|
 | `log(text)` | writes to the game's log |
-| `get(key)`, `set(key, value)` | reads or changes a Parallax setting by its key in the game's settings file: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Display` (`Stereo`, `Parallax`, `Theater`), `Depth`, `ScreenYaw`, `ScreenPitch`, `ScreenDistance`, `ScreenWidth`, `Mode`… |
+| `get(key)`, `set(key, value)` | reads or changes a PortXR setting by its key in the game's settings file: `WorldScale`, `Height`, `HeadAim`, `CameraName`, `Display` (`Stereo`, `Parallax`, `Theater`), `Depth`, `ScreenYaw`, `ScreenPitch`, `ScreenDistance`, `ScreenWidth`, `Mode`… |
 | `scene()` | the active scene's name (as `on_scene` gets it) |
 | `camera()` | the head camera's name, or nil |
 | `time()` | seconds since scripts started |
@@ -97,7 +97,7 @@ An object is found by a name the player's objects start from (`"Pawn"`, `"Player
 | `call(path, function, ...)` | calls a function of the object (any `UFUNCTION`, by name) with numbers, booleans, strings, names, objects (paths) or structs (their numbers in order), and returns what it returns |
 
 Console variables: the game's `Console` setting (Advanced in the app) runs its commands, separated by `;`, as each
-level starts. From a script: `parallax.call("KismetSystemLibrary", "ExecuteConsoleCommand", "World", "r.MotionBlurQuality 0")`;
+level starts. From a script: `portxr.call("KismetSystemLibrary", "ExecuteConsoleCommand", "World", "r.MotionBlurQuality 0")`;
 read one back with `GetConsoleVariableIntValue` (or `Float`, `Bool`). Shipping games ignore cheat variables.
 
 Objects are reached while the game draws its world; between those frames (a loading screen) `find` is false and the
@@ -109,7 +109,7 @@ Use the game's own player camera, not its cutscene camera:
 
 ```lua
 function on_scene(name)
-  if name ~= "Menu" then parallax.set("CameraName", "PlayerCamera") end
+  if name ~= "Menu" then portxr.set("CameraName", "PlayerCamera") end
 end
 ```
 
@@ -117,8 +117,8 @@ Godot: hide the arms model the camera carries, and slow the game's own head bob:
 
 ```lua
 function on_scene(name)
-  if parallax.find("Arms") then parallax.hide("Arms") end
-  if parallax.find("Player") then parallax.field("Player", "bob_amount", 0) end
+  if portxr.find("Arms") then portxr.hide("Arms") end
+  if portxr.find("Player") then portxr.field("Player", "bob_amount", 0) end
 end
 ```
 
@@ -126,8 +126,8 @@ Unreal: hide the first-person arms and walk slower, for comfort:
 
 ```lua
 function on_scene(name)
-  if parallax.find("Pawn/Mesh1P") then parallax.hide("Pawn/Mesh1P") end
-  if parallax.find("Pawn/CharacterMovement") then parallax.field("Pawn/CharacterMovement", "MaxWalkSpeed", 400) end
+  if portxr.find("Pawn/Mesh1P") then portxr.hide("Pawn/Mesh1P") end
+  if portxr.find("Pawn/CharacterMovement") then portxr.field("Pawn/CharacterMovement", "MaxWalkSpeed", 400) end
 end
 ```
 
@@ -135,15 +135,15 @@ Unity: hide the vignette quad stuck to the camera and turn off a depth-of-field 
 
 ```lua
 function on_camera(name)
-  parallax.hide("Main Camera/Vignette")
-  parallax.enabled("Main Camera", "DepthOfField", false)
+  portxr.hide("Main Camera/Vignette")
+  portxr.enabled("Main Camera", "DepthOfField", false)
 end
 ```
 
 Eyes 10 cm higher and a little forward, out of the character's head:
 
 ```lua
-parallax.eye_offset(0, 0.10, 0.05)
+portxr.eye_offset(0, 0.10, 0.05)
 ```
 
 F1 switches between Stereo and Parallax:
@@ -151,9 +151,9 @@ F1 switches between Stereo and Parallax:
 ```lua
 local was = false
 function on_frame(dt)
-  local down = parallax.key(0x70)
+  local down = portxr.key(0x70)
   if down and not was then
-    parallax.set("Display", parallax.get("Display") == "Parallax" and "Stereo" or "Parallax")
+    portxr.set("Display", portxr.get("Display") == "Parallax" and "Stereo" or "Parallax")
   end
   was = down
 end

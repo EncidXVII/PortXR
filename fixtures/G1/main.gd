@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 # G1: a splash camera first (like Explosiovania's shader preload), then the player. The player starts in a menu (cursor
 # shown, a PLAY button); PLAY captures the mouse and the player looks with the mouse or the right stick and walks with
 # WASD or the left stick, like a first-person game. Esc shows the cursor again. Everything the game receives is kept in

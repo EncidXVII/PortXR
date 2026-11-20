@@ -1,6 +1,9 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using BepInEx.Configuration;
 
-namespace Parallax
+namespace PortXR
 {
     // Keyboard & mouse mode: which key or mouse button each controller input presses, by name in the config ([Bindings]
     // section). The core reads and applies them (native/src/rig.cpp bindings) and the VR menu edits them; declared here

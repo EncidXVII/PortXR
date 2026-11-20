@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Writes `out`, a C++ file defining `const unsigned char <name>[]` and `const size_t <name>Size` for each NAME FILE pair:
 # the app's fonts, built into the core so every engine's VR menu has them.
 function(embed_files out)

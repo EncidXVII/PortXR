@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // The player in the game world, engine-neutral: the Unity plugin's Rig behaviour moved into the core so every engine
 // adapter shares it. Each frame the adapter reports the game camera and what only the engine knows; the rig recentres,
@@ -30,11 +33,11 @@ struct GameFrame {
     Pose menuPose;                // the open VR menu in tracking space (its quad), and its size in metres
     float menuWidth = 0, menuHeight = 0;
     bool screenUnlocked = false;  // the menu's Screen: Unlocked (Theater and Parallax): the handles show
-    float fovY = 1.f;             // the game camera's vertical field of view, radians (Parallax's window)
+    float fovY = 1.f;             // the game camera's vertical field of view, radians (PortXR's window)
     float nearClip = 0.05f;
     float focus = 0;              // what sits at the middle of the view, metres along the camera (0: unknown)
     mathx::V3 up{0, 1, 0};        // the player's up: world up, or a body's own where the game applies its own gravity
-    float sceneScale = 1;         // 2D scenes: the player scaled up so the play plane sits 2.5 m off (Parallax's focus too)
+    float sceneScale = 1;         // 2D scenes: the player scaled up so the play plane sits 2.5 m off (PortXR's focus too)
     mathx::V3 eyeOffset;          // a game script's nudge to the eyes, metres in tracking space
     bool worldPointer = false;    // the hide-objects tool: the laser goes into the game world and game input pauses
     float worldReach = 3;         // ... ending this far along it (metres in tracking space: what it would hide)
@@ -79,7 +82,7 @@ struct Result {
     Watch watch;
     int mode = Stereo;
     Screen screen;
-    // Parallax: each eye's window camera, from the game camera: an offset along its right (game units) and its frustum
+    // PortXR: each eye's window camera, from the game camera: an offset along its right (game units) and its frustum
     // (tangents of left, right, up, down).
     float windowOffset[2] = {};
     PrxFov windowFov[2] = {};

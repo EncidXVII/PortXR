@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Regenerates build\deps\interop-f3, the interop assemblies the IL2CPP plugin compiles against. BepInEx 6 writes them
 # on a game's first launch, so this runs a scratch copy of fixture F3 once (batchmode: no window) with BepInEx 6 in it.
 # Needs fixtures\F3\Build (fixtures\build.ps1 -Name F3) and build\deps\bepinex6 (first .\build.ps1 run).
@@ -9,7 +12,7 @@ $out = Join-Path $root "build\deps\interop-$($Name.ToLower())"
 if (-not (Test-Path "$game\$Name.exe")) { throw "build the fixture first: fixtures\build.ps1 -Name $Name" }
 if (-not (Test-Path $bepinex)) { throw "run .\build.ps1 once to download BepInEx 6" }
 
-$scratch = Join-Path ([IO.Path]::GetTempPath()) "parallax-interop-$Name"
+$scratch = Join-Path ([IO.Path]::GetTempPath()) "portxr-interop-$Name"
 if (Test-Path $scratch) { Remove-Item -Recurse -Force $scratch }
 Copy-Item $game $scratch -Recurse
 Copy-Item "$bepinex\*" $scratch -Recurse

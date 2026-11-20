@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #if !IL2CPP
 using System;
 using System.Collections.Generic;
@@ -5,7 +8,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // Camera.CopyFrom skips components, so render-pipeline settings (post-processing, renderer, AA) are copied
     // field by field from the game camera to the eye cameras. Types are found by name: the plugin never links

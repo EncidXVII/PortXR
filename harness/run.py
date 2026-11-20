@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Automated gate: runs a fixture under the SteamVR null driver and asserts stereo, UI, input, theater, menu."""
 import argparse
 import ctypes
@@ -21,7 +24,7 @@ import windows
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "harness", "out")
-APP = os.path.join(ROOT, "dist", "Parallax.exe")
+APP = os.path.join(ROOT, "dist", "PortXR.exe")
 PORT = 47800
 MENU_BIT, A_BIT = 64, 1
 POST_FIXTURES = {"F2", "F5", "F7", "F10", "F11"}  # fixtures whose game camera has post-processing to carry over
@@ -60,7 +63,7 @@ class Game:
     def start(self):
         if os.path.exists(self.log):
             os.remove(self.log)
-        env = dict(os.environ, PARALLAX_TEST_PORT=str(PORT), FIXTURE_LOG=self.log, XR_RUNTIME_JSON=steamvr.runtime_json())
+        env = dict(os.environ, PORTXR_TEST_PORT=str(PORT), FIXTURE_LOG=self.log, XR_RUNTIME_JSON=steamvr.runtime_json())
         self.proc = subprocess.Popen([self.exe, "-screen-fullscreen", "0"] + self.window_args, env=env)
 
     def drain(self):
@@ -380,7 +383,7 @@ def gate_pad(g):
         g.cmd("set Mode KeyboardMouse")
     moved = f1["pos"][2] - f0["pos"][2]
     turned = f2["yaw"] - f1["yaw"]
-    ok = f1["pad"] == "ParallaxPad" and moved > 1.0 and turned > 20 and f3["jumps"] > f2["jumps"]
+    ok = f1["pad"] == "PortXRPad" and moved > 1.0 and turned > 20 and f3["jumps"] > f2["jumps"]
     check("7 gamepad (Input System)", ok,
           f"pad {f1['pad']!r}, forward {moved:.2f}m, turned {turned:.0f}deg, jumps {f2['jumps']}->{f3['jumps']}")
 
@@ -593,7 +596,7 @@ def gate_window(g):
     differ = np.abs(left[..., :3].astype(int) - right[..., :3].astype(int)).mean()
     lean = np.abs(left[..., :3].astype(int) - leaned[..., :3].astype(int)).mean()
     vr_stopped = b["stereo"] == a["stereo"] or b["stereo"] - a["stereo"] <= 2
-    check("18 parallax window", filled > 0.9 and 0.2 < differ and lean < differ / 2 and vr_stopped and b["focus"] > 0,
+    check("18 portxr window", filled > 0.9 and 0.2 < differ and lean < differ / 2 and vr_stopped and b["focus"] > 0,
           f"filled {filled:.0%}, eyes differ {differ:.2f}, leaning changes {lean:.2f}, VR layer stopped {vr_stopped}, focus {b['focus']}")
 
 
@@ -650,7 +653,7 @@ def gate_beam(g):
     def lime(img):
         return int(mask(img, (198, 255, 26), 45).sum())
     # The theme is one file for every game and the app; the run puts back whatever the player had.
-    theme = os.path.join(os.environ["APPDATA"], "Parallax", "theme.txt")
+    theme = os.path.join(os.environ["APPDATA"], "PortXR", "theme.txt")
     kept = open(theme, encoding="utf-8").read() if os.path.exists(theme) else None
     g.cmd("menu 1")
     try:

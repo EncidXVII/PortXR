@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #if IL2CPP
 using System;
 using System.Collections.Generic;
@@ -7,7 +10,7 @@ using UnityEngine;
 using IlFlags = Il2CppSystem.Reflection.BindingFlags;
 using IlType = Il2CppSystem.Type;
 
-namespace Parallax
+namespace PortXR
 {
     // IL2CPP build of CameraExtras: interop proxies expose game fields as properties over native memory, so the copy
     // goes through IL2CPP's own reflection. Nested serializable classes are shared rather than cloned (IL2CPP games

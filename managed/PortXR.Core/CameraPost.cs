@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Linq;
 using UnityEngine;
@@ -5,7 +8,7 @@ using UnityEngine;
 using Il2CppInterop.Runtime;
 #endif
 
-namespace Parallax
+namespace PortXR
 {
     // Pipeline post-processing writes alpha 1 over the whole screen, so a hidden camera that still runs it turns the
     // see-through UI panel opaque. Off() switches it off on one camera (URP post and AA, the PPv2 layer's volumes and

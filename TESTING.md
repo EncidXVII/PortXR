@@ -1,20 +1,20 @@
-# Testing Parallax
+# Testing PortXR
 
 Thanks for trying it. This build plays flat Unity games in VR. Expect rough edges: what breaks and where is exactly
 what we need.
 
 ## Before you start
 
-- **Single-player, offline games only.** Parallax injects a mod into the game. The app refuses games with
+- **Single-player, offline games only.** PortXR injects a mod into the game. The app refuses games with
   EasyAntiCheat or BattlEye, but do not use it in any online or multiplayer game: you could be banned.
 - A PC VR headset with an OpenXR runtime: SteamVR, Virtual Desktop, Quest Link or similar.
-- Windows may warn that `Parallax.exe` is from an unknown publisher (the build is not signed yet): **More info → Run
+- Windows may warn that `PortXR.exe` is from an unknown publisher (the build is not signed yet): **More info → Run
   anyway**. Some antivirus tools flag `winhttp.dll`, the mod loader's (BepInEx) entry point inside game folders.
 
 ## Set up
 
-1. Unzip anywhere and keep the folder together (`Parallax.exe` needs the `payload` folders next to it).
-2. Start your headset runtime, then run `Parallax.exe`. It lists the Unity games it finds (Steam, Epic, GOG, itch and
+1. Unzip anywhere and keep the folder together (`PortXR.exe` needs the `payload` folders next to it).
+2. Start your headset runtime, then run `PortXR.exe`. It lists the Unity games it finds (Steam, Epic, GOG, itch and
    the usual game folders). Missing one? **Add game +** and pick its folder. **Not installed** lists the Unity games
    in your Steam library that are not on this PC: click one and Steam installs it.
    A game with a problem only it has may be fixable with a script: see `SCRIPTING.md`, and send us any script that helped.
@@ -47,7 +47,7 @@ right stick. Was it easy to put where you wanted?
 For each game, send:
 
 1. The game's name and what you saw (a phone photo through the lens helps).
-2. Its logs: select the game in `Parallax.exe` → **Export logs**. That saves one zip to your desktop.
+2. Its logs: select the game in `PortXR.exe` → **Export logs**. That saves one zip to your desktop.
 3. Your headset and runtime, for example "Quest 3, Virtual Desktop".
 
 Works perfectly? Tell us that too: knowing what works is as useful as knowing what breaks.

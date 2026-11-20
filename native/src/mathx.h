@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // Small vector and quaternion maths for the engine-neutral parts of the core. Right-handed, Y up, -Z forward: OpenXR's
 // convention (and Godot's); the Unity plugin converts at its edge.

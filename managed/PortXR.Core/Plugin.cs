@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
@@ -5,7 +8,7 @@ using BepInEx.Logging;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Parallax
+namespace PortXR
 {
     public enum DisplayMode { Stereo, Parallax, Theater }
     public enum ScreenBackground { Dark, Passthrough }
@@ -65,7 +68,7 @@ namespace Parallax
             RenderScale = cfg.Bind("View", "RenderScale", 1f, "Eye resolution relative to the headset's recommendation.");
             AutoRenderScale = cfg.Bind("View", "AutoRenderScale", true, "Lower the eye resolution (down to half of RenderScale) while the headset misses frames.");
             Display = cfg.Bind("View", "Display", DisplayMode.Stereo,
-                "Stereo: you stand in the game. Parallax: the game in 3D inside a big screen, played as on a monitor. Theater: the flat game on a big screen.");
+                "Stereo: you stand in the game. PortXR: the game in 3D inside a big screen, played as on a monitor. Theater: the flat game on a big screen.");
             // Before Display, a Theater switch: carried over once, then dropped from the file.
             var theater = cfg.Bind("View", "Theater", false, "");
             if (theater.Value) Display.Value = DisplayMode.Theater;
@@ -100,7 +103,7 @@ namespace Parallax
                 "With hand aim, move the weapon the game hangs under its camera (arms and gun) into the right hand while the eyes render.");
             Crosshair = cfg.Bind("Controls", "Crosshair", CrosshairMode.Game,
                 "While aiming, the game's crosshair sits on the flat UI panel and misses. Game: the middle of the UI (crosshair, grab and use " +
-                "icons, prompts, hit markers) moves to what the camera aims at, at its depth. Lime: Parallax's own crosshair there instead, in the theme colour. Off: as the game draws it.");
+                "icons, prompts, hit markers) moves to what the camera aims at, at its depth. Lime: PortXR's own crosshair there instead, in the theme colour. Off: as the game draws it.");
             MenuKey = cfg.Bind("Controls", "MenuKey", 0x7A, "Windows virtual-key code that toggles the VR menu (0x7A = F11).");
             WristMenu = cfg.Bind("Controls", "WristMenu", true, "Look at the back of your left hand and pull the right trigger to open the VR menu.");
             FirstRun = cfg.Bind("Menu", "FirstRun", true, "Show the welcome card (recenter, scale, controls) the first time VR starts in this game.");
@@ -111,7 +114,7 @@ namespace Parallax
         }
     }
 
-    [BepInPlugin("parallax.core", "Parallax", "0.2.0")]
+    [BepInPlugin("portxr.core", "PortXR", "0.2.0")]
 #if IL2CPP
     public class Plugin : BepInEx.Unity.IL2CPP.BasePlugin
     {
@@ -143,7 +146,7 @@ namespace Parallax
             string antiCheat = AntiCheat();
             if (antiCheat != null)
             {
-                Log.LogError($"{antiCheat} found: Parallax stays off and disables its loader. Remove it with the Parallax app.");
+                Log.LogError($"{antiCheat} found: PortXR stays off and disables its loader. Remove it with the PortXR app.");
                 try
                 {
                     string ini = Path.Combine(Paths.GameRootPath, "doorstop_config.ini");
@@ -162,7 +165,7 @@ namespace Parallax
             }
             if (!Native.Load(Path.GetDirectoryName(typeof(Plugin).Assembly.Location)))
             {
-                Log.LogError("parallax_xr.dll failed to load; VR stays off.");
+                Log.LogError("portxr_xr.dll failed to load; VR stays off.");
                 return false;
             }
             return true;

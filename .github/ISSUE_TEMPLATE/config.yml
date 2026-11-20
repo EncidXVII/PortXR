@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Writing a script for a game
-    url: https://github.com/EncidXVII/Parallax/blob/main/SCRIPTING.md
+    url: https://github.com/EncidXVII/PortXR/blob/main/SCRIPTING.md
     about: How per-game Lua scripts work, with examples.

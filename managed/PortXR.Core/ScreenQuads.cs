@@ -1,7 +1,10 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // Some games draw full-screen effects (fog, vignettes, damage flashes) on a quad held just in front of the camera
     // and sized to its view (PEAK's "Post Fog"). The eyes see wider and sit 3 cm to each side, so they would look past

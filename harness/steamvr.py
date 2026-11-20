@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 """SteamVR null-driver session: headless HMD for automated runs, user settings restored afterwards."""
 import contextlib
 import glob
@@ -103,9 +106,9 @@ def null_driver(window=None, extra=None):
     if running():
         raise RuntimeError("SteamVR is running; close it so its settings can be swapped safely")
     path = os.path.join(steam_root(), "config", "steamvr.vrsettings")
-    backup = path + ".parallax-backup"
+    backup = path + ".portxr-backup"
     chaperone = os.path.join(steam_root(), "config", "chaperone_info.vrchap")
-    chaperone_backup = chaperone + ".parallax-backup"
+    chaperone_backup = chaperone + ".portxr-backup"
     if os.path.exists(backup):
         # A previous run was killed before it could clean up: its backups are the user's real files.
         restore(backup, path)
@@ -116,8 +119,8 @@ def null_driver(window=None, extra=None):
     # Overlay apps set to start with SteamVR (a desktop or fitness overlay) would start again with every test session,
     # and some show an "already running" dialog. Autolaunch is off for the session and put back after it.
     apps = os.path.join(steam_root(), "config", "vrappconfig")
-    for left in glob.glob(os.path.join(apps, "*.vrappconfig.parallax-backup")):
-        restore(left, left[: -len(".parallax-backup")])
+    for left in glob.glob(os.path.join(apps, "*.vrappconfig.portxr-backup")):
+        restore(left, left[: -len(".portxr-backup")])
     paused = []
     for app in glob.glob(os.path.join(apps, "*.vrappconfig")):
         try:
@@ -126,7 +129,7 @@ def null_driver(window=None, extra=None):
         except (OSError, ValueError):
             continue
         if conf.get("autolaunch"):
-            copy_durable(app, app + ".parallax-backup")
+            copy_durable(app, app + ".portxr-backup")
             conf["autolaunch"] = False
             with open(app, "w", encoding="utf-8") as f:
                 json.dump(conf, f, indent=3)
@@ -176,7 +179,7 @@ def null_driver(window=None, extra=None):
                 break
         restore(backup, path)
         for app in paused:
-            restore(app + ".parallax-backup", app)
+            restore(app + ".portxr-backup", app)
         if had_chaperone:
             restore(chaperone_backup, chaperone)
         elif os.path.exists(chaperone):

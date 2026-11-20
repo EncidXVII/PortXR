@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.IO;
 using UnityEditor;
@@ -32,7 +35,7 @@ public static partial class FixtureBuild
     public static void Configure()
     {
         AddRightStickAxis();
-        PlayerSettings.companyName = "Parallax";
+        PlayerSettings.companyName = "PortXR";
         PlayerSettings.productName = Name;
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
         PlayerSettings.defaultScreenWidth = 1280;
@@ -141,7 +144,7 @@ public static partial class FixtureBuild
 
         var title = Rect("Title", canvasGo.transform, new Vector2(0.5f, 1f), new Vector2(0, -40), new Vector2(800, 80));
         var text = title.gameObject.AddComponent<Text>();
-        text.text = "PARALLAX FIXTURE " + sceneName.ToUpperInvariant();
+        text.text = "PORTXR FIXTURE " + sceneName.ToUpperInvariant();
         text.font = font;
         text.fontSize = 48;
         text.alignment = TextAnchor.MiddleCenter;

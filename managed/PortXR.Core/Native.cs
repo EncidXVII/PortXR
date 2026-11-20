@@ -1,9 +1,12 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Parallax
+namespace PortXR
 {
     // Mirrors native/src/common.h field for field.
     [StructLayout(LayoutKind.Sequential)]
@@ -139,7 +142,7 @@ namespace Parallax
 
     internal static class Native
     {
-        const string Dll = "parallax_xr";
+        const string Dll = "portxr_xr";
         public const int EvInit = 1, EvBegin = 2, EvSubmit = 3, EvShutdown = 4, EvCaptureBackbuffer = 5;
         public const uint EvMenuToggle = 1;
 

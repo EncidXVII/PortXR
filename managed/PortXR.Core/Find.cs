@@ -1,6 +1,9 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     internal static class Find
     {

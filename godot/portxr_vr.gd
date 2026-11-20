@@ -1,4 +1,7 @@
-# Parallax for Godot 4 games: the engine's own OpenXR, switched on by override.cfg beside the game's exe, which also
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
+# PortXR for Godot 4 games: the engine's own OpenXR, switched on by override.cfg beside the game's exe, which also
 # loads this script as an autoload. Nothing else in the game is changed.
 #
 # The game's window keeps only its 2D UI (3D off, transparent background). The headset gets the game's world from a
@@ -8,7 +11,7 @@
 # another camera current in the game's viewport froze a game whose splash screen drives its own camera.
 extends Node
 
-const LOG := "Parallax: "
+const LOG := "PortXR: "
 const UI_DISTANCE := 2.0
 const UI_WIDTH := 1.6
 const UI_LAYER := 1 << 19  # the last visual layer, for the UI panel only
@@ -28,7 +31,7 @@ var _view_picture: Control
 var _hidden: CanvasItem
 var _hidden_alpha := 1.0
 var _last_report := 0
-var _shots := OS.get_environment("PARALLAX_GODOT_SHOTS")  # tests: folder for the game window's picture
+var _shots := OS.get_environment("PORTXR_GODOT_SHOTS")  # tests: folder for the game window's picture
 
 
 func _ready() -> void:

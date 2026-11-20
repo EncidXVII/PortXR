@@ -1,10 +1,13 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // The laser pointer on the game's own UI, through its EventSystem instead of the OS mouse: Unity reads the mouse
     // through raw input, so moved cursors and posted clicks reach it only while its window is in front, and an OS click

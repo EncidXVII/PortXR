@@ -11,32 +11,32 @@ back to one commit.
    foreach ($f in "F0","F1","F2","F3","F4","F5","F6","F7","F8","F10","F11") { python harness\run.py --fixture $f --secondary }
    ```
    For a change to a real-game behaviour, also check that game offline (single-player titles only).
-3. **Pack**: `.\release.ps1 -Test` gives `release\Parallax-<version>-test-<commit>.zip` and `SHA256SUMS.txt`. The zip
-   holds `Parallax.exe`, both payloads, the licence notices and `TESTING.md` (what to try, how to report).
+3. **Pack**: `.\release.ps1 -Test` gives `release\PortXR-<version>-test-<commit>.zip` and `SHA256SUMS.txt`. The zip
+   holds `PortXR.exe`, both payloads, the licence notices and `TESTING.md` (what to try, how to report).
 4. **Send** the zip and its SHA-256, and say which games to focus on. Note the commit in the tracker so reports map to it.
 5. **Collect**: testers send a description, the game's **Export logs** zip and their headset and runtime. The log
    zip names the plugin version; the commit is in the zip's file name.
 6. **Fix and resend**: a new test build from the new commit. Testers unzip it over the old folder (or anywhere) and
-   start `Parallax.exe`, which updates the plugin in every game it installed into. **Play in VR** updates it too.
+   start `PortXR.exe`, which updates the plugin in every game it installed into. **Play in VR** updates it too.
 
 ## Releases (public)
 
-1. Bump the version in `managed\Parallax.Core\Plugin.cs` (`BepInPlugin`) and `app\Cargo.toml`. They must match:
+1. Bump the version in `managed\PortXR.Core\Plugin.cs` (`BepInPlugin`) and `app\Cargo.toml`. They must match:
    `release.ps1` checks.
 2. Update `COMPAT.md` with the games verified for this version. Then commit, regress and run `.\release.ps1`, which
-   gives `release\Parallax-<version>.zip`.
+   gives `release\PortXR-<version>.zip`.
 3. Tag `v<version>` and publish a GitHub release with the zip and `SHA256SUMS.txt`, its notes taken from this
    version's `CHANGELOG.md` section. The app's update check reads GitHub releases. Publishing is outward-facing: only
    on an explicit go-ahead.
    ```
    git tag v0.2.0; git push origin main v0.2.0
-   gh release create v0.2.0 release\Parallax-0.2.0.zip release\SHA256SUMS.txt --title "Parallax 0.2.0" --notes-file notes.md
+   gh release create v0.2.0 release\PortXR-0.2.0.zip release\SHA256SUMS.txt --title "PortXR 0.2.0" --notes-file notes.md
    ```
 
 ## First publish (once)
 
-1. Create the repository `EncidXVII/Parallax` (public, no template files: they are here already), then
-   `git remote add origin https://github.com/EncidXVII/Parallax.git` and push `main`. The app's links (Guide, Report a
+1. Create the repository `EncidXVII/PortXR` (public, no template files: they are here already), then
+   `git remote add origin https://github.com/EncidXVII/PortXR.git` and push `main`. The app's links (Guide, Report a
    problem, update check, scripting guide) and the README badges point there.
 2. **About** (the gear beside it on the repository page). GitHub search ranks the name, description, topics and
    README; topic pages list repositories by stars.
@@ -63,7 +63,7 @@ back to one commit.
 - **Record a 30-60 s clip in the headset first**: hand aim in an FPS, the VR menu, Theater. A clip moves far more people
   than text; put it (as a GIF or MP4, under 10 MB, which GitHub plays inline) at the top of the README and the release
   notes, and use it in every post.
-- Within GitHub: open pull requests adding Parallax to curated lists people browse (for example `awesome-vr`,
+- Within GitHub: open pull requests adding PortXR to curated lists people browse (for example `awesome-vr`,
   `awesome-openxr`, `awesome-unity`), each following that list's own rules.
 - Outside it, where the stars that drive GitHub Trending come from: r/virtualreality, r/SteamVR, r/oculus,
   r/OculusQuest (PC VR flair), r/VRGaming, the Flat2VR community Discord, and a Show HN on Hacker News for the

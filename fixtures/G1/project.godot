@@ -1,9 +1,9 @@
-; Godot 4.5 test game for Parallax's Godot VR: a 3D room with coloured boxes, a HUD and a 50% white square.
+; Godot 4.5 test game for PortXR's Godot VR: a 3D room with coloured boxes, a HUD and a 50% white square.
 config_version=5
 
 [application]
 
-config/name="Parallax G1"
+config/name="PortXR G1"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 

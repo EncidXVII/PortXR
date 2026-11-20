@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // The VR menu, shared by every engine: the Unity plugin's Menu.cs (tabs, rows, look and motion) drawn by the core on a
 // CPU canvas and shown as its own headset layer. It reads and writes the same settings files as the app; what only an
@@ -23,7 +26,7 @@ struct Host {
 
 // What the adapter should do this frame.
 struct Requests {
-    bool quit = false;           // Quit game (and, with `next`, Parallax.exe starts that game after)
+    bool quit = false;           // Quit game (and, with `next`, PortXR.exe starts that game after)
     bool recenter = false;
     bool hideObjects = false, showHidden = false;
     bool renderScale = false;    // Resolution changed: make the eye targets again

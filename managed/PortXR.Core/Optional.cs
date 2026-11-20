@@ -1,6 +1,9 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 
-namespace Parallax
+namespace PortXR
 {
     // An engine call an IL2CPP game may have stripped. The first failure turns the feature off for the session (one
     // log line) instead of breaking every frame.

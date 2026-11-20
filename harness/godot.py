@@ -1,10 +1,13 @@
-"""Godot VR gate: fixture G1 (Godot 4.5, fixtures/G1) run with Parallax's Godot install (override.cfg + the script) on
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
+"""Godot VR gate: fixture G1 (Godot 4.5, fixtures/G1) run with PortXR's Godot install (override.cfg + the script) on
 the SteamVR null driver, checked in what the compositor shows the test headset.
 
     python harness/godot.py [--secondary]
 
 Needs the Godot 4.5 editor (GODOT, default E:\\Godot\\Godot_v4.5-stable_win64_console.exe): G1 runs as a project, so no
-export templates. The runtime is woken first (ParallaxTheater.exe --wake), as the app does before a Godot game.
+export templates. The runtime is woken first (PortXRTheater.exe --wake), as the app does before a Godot game.
 """
 import argparse
 import ctypes
@@ -23,8 +26,8 @@ import windows
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GODOT = os.environ.get("GODOT", r"E:\Godot\Godot_v4.5-stable_win64_console.exe")
 G1 = os.path.join(ROOT, "fixtures", "G1")
-SCRIPT = os.path.join(ROOT, "godot", "parallax_vr.gd")
-HOST = os.path.join(ROOT, "build", "native", "Release", "ParallaxTheater.exe")
+SCRIPT = os.path.join(ROOT, "godot", "portxr_vr.gd")
+HOST = os.path.join(ROOT, "build", "native", "Release", "PortXRTheater.exe")
 OUT = os.path.join(run.OUT, "g1")
 results = []
 
@@ -87,13 +90,13 @@ def main():
     # The same override.cfg the app writes (installer.rs, install_godot).
     with open(os.path.join(G1, "override.cfg"), "w") as f:
         f.write('\n[xr]\n\nopenxr/enabled=true\nshaders/enabled=true\n\n[rendering]\n\nrendering_device/driver.windows="vulkan"\n\n'
-                f'[autoload]\n\nParallaxVR="*{SCRIPT.replace(os.sep, "/")}"\n')
+                f'[autoload]\n\nPortXR="*{SCRIPT.replace(os.sep, "/")}"\n')
     screen = steamvr.secondary_monitor() if args.secondary else None
     _, hmd = run.placement(secondary=args.secondary)
     x, y = (screen[0] + 40, screen[1] + 40) if screen else (40, 40)
     env = dict(os.environ, XR_RUNTIME_JSON=steamvr.runtime_json())
     log = os.path.join(OUT, "stdout.log")
-    names = {os.path.basename(GODOT).lower(), "parallaxtheater.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
+    names = {os.path.basename(GODOT).lower(), "portxrtheater.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
     try:
         # The dashboard opens over a session the null driver gives no controllers to close it with.
         with steamvr.null_driver(hmd, {"dashboard": {"enableDashboard": False}}), windows.keep_on(screen, names):
@@ -112,7 +115,7 @@ def main():
     finally:
         os.remove(os.path.join(G1, "override.cfg"))
     text = open(log, encoding="utf-8", errors="replace").read()
-    check("G1 openxr", "Parallax: OpenXR on" in text, "the game's own OpenXR started through override.cfg")
+    check("G1 openxr", "PortXR: OpenXR on" in text, "the game's own OpenXR started through override.cfg")
     check("G1 camera", "camera /root/Main/Player" in text, "the headset follows the game's player camera")
     if img is None:
         check("G1 headset", False, "no Headset Window")

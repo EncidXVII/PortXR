@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "script.h"
 #include "common.h"
 #include "settings.h"
@@ -64,7 +67,7 @@ void watchdog(lua_State* L, lua_Debug*) {
 // The setting's section in the game's file, which the app writes in full.
 std::string section_of(lua_State* L, const char* key) {
     std::string section = settings::section_of(key);
-    if (section.empty()) script::fail(L, "no Parallax setting named %s", key);
+    if (section.empty()) script::fail(L, "no PortXR setting named %s", key);
     return section;
 }
 
@@ -108,7 +111,7 @@ void shared_calls(lua_State* L) {
     });
 }
 
-// Plain Lua and the parallax table: no files, programs, network or loading code from strings.
+// Plain Lua and the portxr table: no files, programs, network or loading code from strings.
 lua_State* sandbox() {
     lua_State* L = luaL_newstate();
     const luaL_Reg libs[] = {{LUA_GNAME, luaopen_base}, {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
@@ -118,7 +121,7 @@ lua_State* sandbox() {
     lua_newtable(L);
     shared_calls(L);
     if (g_engine) g_engine(L);
-    lua_setglobal(L, "parallax");
+    lua_setglobal(L, "portxr");
     lua_sethook(L, watchdog, LUA_MASKCOUNT, 100000);
     return L;
 }

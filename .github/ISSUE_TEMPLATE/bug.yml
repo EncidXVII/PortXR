@@ -1,5 +1,5 @@
 name: Bug
-description: Something in Parallax itself (the app, the VR menu, install or uninstall)
+description: Something in PortXR itself (the app, the VR menu, install or uninstall)
 body:
   - type: textarea
     id: what
@@ -10,9 +10,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Parallax version
+      label: PortXR version
     validations:
       required: true
   - type: markdown
     attributes:
-      value: If a game was involved, attach the zip from **Export logs** in Parallax.exe.
+      value: If a game was involved, attach the zip from **Export logs** in PortXR.exe.

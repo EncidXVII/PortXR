@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +19,7 @@ pub enum Compat {
     LinuxBuild,
     X86,
     Stripped,
-    /// Not Unity: Parallax cannot go inside, so the game's window is shown on the Theater screen.
+    /// Not Unity: PortXR cannot go inside, so the game's window is shown on the Theater screen.
     Theater,
 }
 
@@ -32,10 +35,10 @@ pub struct Game {
     pub il2cpp: bool,
     pub x86: bool,
     pub stripped: bool,
-    /// Steam installed the game's own Linux version: Parallax needs the Windows one, run by Proton.
+    /// Steam installed the game's own Linux version: PortXR needs the Windows one, run by Proton.
     #[serde(default)]
     pub linux_build: bool,
-    /// Steam lists its own VR support: it is played in VR without Parallax.
+    /// Steam lists its own VR support: it is played in VR without PortXR.
     #[serde(default)]
     pub native_vr: bool,
     /// A Godot build without Direct3D 12 (custom engine builds): VR from the engine's own OpenXR, not the core.
@@ -78,7 +81,7 @@ impl Game {
         self.unity() || self.godot_core() || self.unreal_vr()
     }
 
-    /// A Godot 4 game: full VR (override.cfg and Parallax beside the exe).
+    /// A Godot 4 game: full VR (override.cfg and PortXR beside the exe).
     pub fn godot_vr(&self) -> bool {
         self.engine == "Godot" && self.unity.starts_with("4.")
     }
@@ -98,7 +101,7 @@ impl Game {
         };
         let dir = exe.parent().unwrap_or(&self.dir);
         let rel = dir.strip_prefix(&self.dir).map(|p| p.to_string_lossy().replace('/', "\\")).unwrap_or_default();
-        if rel.is_empty() { r"ParallaxVR\parallax.cfg".into() } else { format!(r"{rel}\ParallaxVR\parallax.cfg") }
+        if rel.is_empty() { r"PortXR\portxr.cfg".into() } else { format!(r"{rel}\PortXR\portxr.cfg") }
     }
 
     pub fn config_file(&self) -> PathBuf {
@@ -108,7 +111,7 @@ impl Game {
     /// Where VR writes what happened (script errors included): BepInEx's log in Unity games, the core's beside its
     /// settings in Godot and Unreal games.
     pub fn log_file(&self) -> PathBuf {
-        if self.unity() { self.file(r"BepInEx\LogOutput.log") } else { self.config_file().with_file_name("parallax.log") }
+        if self.unity() { self.file(r"BepInEx\LogOutput.log") } else { self.config_file().with_file_name("portxr.log") }
     }
 
     pub fn compat(&self) -> Compat {
@@ -145,7 +148,7 @@ impl Game {
         }
     }
 
-    /// Why a game Parallax would normally leave alone can still get VR if the player insists, and what to expect;
+    /// Why a game PortXR would normally leave alone can still get VR if the player insists, and what to expect;
     /// None for games that are fine, and for those it must never touch (anti-cheat, 32-bit, the Linux build).
     pub fn caution(&self) -> Option<&'static str> {
         match self.compat() {
@@ -158,7 +161,7 @@ impl Game {
         }
     }
 
-    /// Parallax runs in it: supported, or VR added anyway after the caution.
+    /// PortXR runs in it: supported, or VR added anyway after the caution.
     pub fn usable(&self) -> bool {
         matches!(self.compat(), Compat::Supported | Compat::Theater) || (self.caution().is_some() && self.installed())
     }
@@ -215,7 +218,7 @@ pub fn edit(file: &Path) -> io::Result<()> {
 
 /// Proton loads the Windows mod loader only with this override; with it, Monado and WiVRn reach the game too.
 /// Proton loads the game folder's own winhttp.dll (Unity's mod loader) and dwmapi.dll (the Unreal core) only when told;
-/// a game without one keeps Wine's. Godot games load Parallax themselves and need only the OpenXR runtime passed in.
+/// a game without one keeps Wine's. Godot games load PortXR themselves and need only the OpenXR runtime passed in.
 pub const WINE_DLL: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\"";
 pub const LAUNCH_OPTIONS: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
 
@@ -229,7 +232,7 @@ fn leak_opt<'de, D: Deserializer<'de>>(d: D) -> Result<Option<&'static str>, D::
 }
 
 fn library_cache() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("library.json")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("library.json")
 }
 
 /// The last scan's games, shown at start while the new scan runs (Play checks the folder again before anything runs).
@@ -375,7 +378,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     let (engine, exe) = if shipping.is_some() || root.join("Engine").is_dir() {
         ("Unreal", main.or(shipping.clone())?)
     } else {
-        // Another engine: Parallax has nothing to add.
+        // Another engine: PortXR has nothing to add.
         ("Godot", godot?)
     };
     let names = |d: &Path| -> Vec<String> {
@@ -411,7 +414,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         dir: root.to_path_buf(),
         exe,
     };
-    // Linux: the VR screen captures windows through Windows, so only the games Parallax goes inside.
+    // Linux: the VR screen captures windows through Windows, so only the games PortXR goes inside.
     (cfg!(windows) || game.godot_core() || game.unreal_vr()).then_some(game)
 }
 
@@ -519,7 +522,7 @@ fn is_x86(exe: &Path) -> io::Result<bool> {
 }
 
 fn manual_list() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("games.txt")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("games.txt")
 }
 
 /// Remembers a picked folder: the game in it, or every game one level inside it (a folder like D:\Games).
@@ -555,7 +558,7 @@ pub fn remove_folder(dir: &Path) -> io::Result<()> {
 /// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
 #[cfg(not(windows))]
 fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
-    // On Linux, Parallax works through Proton: Steam games, and folders added by hand.
+    // On Linux, PortXR works through Proton: Steam games, and folders added by hand.
     Vec::new()
 }
 
@@ -694,7 +697,7 @@ fn game_user_dir(g: &Game, roaming: bool) -> Option<PathBuf> {
 }
 
 /// Linux: Steam's saved launch options for the game lack the loader override, so Proton would start it without
-/// Parallax. Asked every frame by the game page, so Steam's file is read at most every two seconds.
+/// PortXR. Asked every frame by the game page, so Steam's file is read at most every two seconds.
 pub fn needs_launch_options(g: &Game) -> bool {
     if cfg!(windows) || g.app_id == 0 {
         return false;
@@ -712,14 +715,14 @@ pub fn needs_launch_options(g: &Game) -> bool {
 }
 
 fn played_list() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("played.txt")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("played.txt")
 }
 
 /// Records a launch from the app (`<unix seconds>\t<game dir>` lines) for the library's "Recently played" order.
 /// When VR last started in this game: the plugin notes its first frame sent to the headset beside itself.
 pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
     // The Unity plugin's, or the Godot and Unreal core's beside its settings.
-    let file = if g.unity() { g.file(r"BepInEx\plugins\Parallax\played.txt") } else { g.config_file().with_file_name("played.txt") };
+    let file = if g.unity() { g.file(r"BepInEx\plugins\PortXR\played.txt") } else { g.config_file().with_file_name("played.txt") };
     fs::metadata(file).and_then(|m| m.modified()).ok()
 }
 
@@ -734,7 +737,7 @@ pub fn write_vr_list(games: &[Game]) {
         let cover = g.cover.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
         text += &format!("{}\t{}\t{}\n", g.name.replace('\t', " "), g.dir.display(), cover);
     }
-    let path = dirs::config_dir().unwrap_or_default().join("Parallax").join("vr-games.txt");
+    let path = dirs::config_dir().unwrap_or_default().join("PortXR").join("vr-games.txt");
     if fs::read_to_string(&path).is_ok_and(|old| old == text) {
         return;
     }
@@ -764,11 +767,11 @@ fn cover_in(cache: &Path) -> Option<PathBuf> {
     ["library_600x900.jpg", "library_capsule.jpg", "header.jpg", "library_header.jpg"].into_iter().find_map(find)
 }
 
-/// The game's Lua scripts folder, where the plugin or core looks: `%APPDATA%\Parallax\scripts\<exe name>` (keyed by
+/// The game's Lua scripts folder, where the plugin or core looks: `%APPDATA%\PortXR\scripts\<exe name>` (keyed by
 /// the process's name: for Unreal, the Shipping exe). Outside the game folder, so scripts survive an uninstall.
 pub fn scripts_dir(g: &Game) -> PathBuf {
     let exe = g.unreal_exe.as_ref().filter(|_| g.unreal_vr()).unwrap_or(&g.exe);
-    game_user_dir(g, true).or_else(dirs::config_dir).unwrap_or_default().join("Parallax").join("scripts").join(exe.file_stem().unwrap_or_default())
+    game_user_dir(g, true).or_else(dirs::config_dir).unwrap_or_default().join("PortXR").join("scripts").join(exe.file_stem().unwrap_or_default())
 }
 
 pub fn scripts(g: &Game) -> Vec<PathBuf> {
@@ -797,7 +800,7 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
     Ok(to)
 }
 
-/// A game in the Steam library, installed or not, that gets full VR (a Unity, Unreal or Godot game Parallax can run).
+/// A game in the Steam library, installed or not, that gets full VR (a Unity, Unreal or Godot game PortXR can run).
 #[derive(Clone)]
 pub struct Owned {
     pub app_id: u32,
@@ -1041,7 +1044,7 @@ fn steam_facts(steam: &Path, ids: &std::collections::HashSet<u32>) -> std::colle
 }
 
 fn anti_cheat_list() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("anticheat-steam.json")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("anticheat-steam.json")
 }
 
 /// Steam app IDs of games with anti-cheat (Easy Anti-Cheat, BattlEye, EQU8, ...) from the community-kept Are We
@@ -1062,7 +1065,7 @@ fn refresh_anti_cheat() {
     }
     let url = "https://raw.githubusercontent.com/AreWeAntiCheatYet/AreWeAntiCheatYet/HEAD/games.json";
     let Some(json) = ureq::get(url)
-        .header("User-Agent", "Parallax (VR injector; anti-cheat list)")
+        .header("User-Agent", "PortXR (VR injector; anti-cheat list)")
         .call()
         .ok()
         .and_then(|mut r| r.body_mut().with_config().limit(16 << 20).read_json::<serde_json::Value>().ok())
@@ -1083,10 +1086,10 @@ fn refresh_anti_cheat() {
 }
 
 fn engine_list() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("engines-steam.json")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("engines-steam.json")
 }
 
-/// Steam app ID to (name, engine) for every game Wikidata knows in an engine Parallax goes inside: Unity, Unreal
+/// Steam app ID to (name, engine) for every game Wikidata knows in an engine PortXR goes inside: Unity, Unreal
 /// Engine 4 or 5, Godot. The whole list is downloaded, so nothing about the player's library leaves the machine; it is
 /// cached for a week.
 fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
@@ -1103,7 +1106,7 @@ fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
         let fetched = ["https://qlever.dev/api/wikidata", "https://query.wikidata.org/sparql"].iter().find_map(|url| {
             ureq::get(*url)
                 .query("query", query)
-                .header("User-Agent", "Parallax (VR injector; engine game list)")
+                .header("User-Agent", "PortXR (VR injector; engine game list)")
                 .header("Accept", "application/sparql-results+json")
                 .call()
                 .ok()
@@ -1133,7 +1136,7 @@ fn engine_games() -> Option<std::collections::HashMap<u32, (String, String)>> {
 
 /// Steam library games that would get full VR: Steam keeps library art for every app in the library, one folder (or
 /// file prefix, on older clients) per app ID; Wikidata's engine list and, for the many games it doesn't know, the
-/// app cache's Steam Cloud save folders pick the Unity, Unreal and Godot ones, and the app cache drops what Parallax can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the
+/// app cache's Steam Cloud save folders pick the Unity, Unreal and Godot ones, and the app cache drops what PortXR can't run (anti-cheat, multiplayer only, its own VR mode, 32-bit). The rest of the
 /// library is left out: once installed, any game plays on the VR screen. Network: the first call of the week downloads the engine and anti-cheat lists.
 pub fn steam_library() -> Vec<Owned> {
     let Some(steam) = steam_root() else { return Vec::new() };
@@ -1296,7 +1299,7 @@ pub fn export_logs(g: &Game) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let stem: String = g.name.chars().filter(|c| !r#"<>:"/\|?*"#.contains(*c)).collect();
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
     let desktop = dirs::desktop_dir().or_else(dirs::home_dir).ok_or("no desktop folder")?;
-    let path = desktop.join(format!("Parallax logs - {stem} - {stamp}.zip"));
+    let path = desktop.join(format!("PortXR logs - {stem} - {stamp}.zip"));
     let mut zip = zip::ZipWriter::new(File::create(&path)?);
     let opts = zip::write::SimpleFileOptions::default();
     let files = [

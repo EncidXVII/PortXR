@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 #include "common.h"
 #include <dxgi1_4.h>

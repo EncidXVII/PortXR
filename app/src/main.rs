@@ -1,4 +1,6 @@
 #![windows_subsystem = "windows"]
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
 
 mod games;
 mod installer;
@@ -8,8 +10,8 @@ mod ui;
 use std::path::Path;
 use std::process::ExitCode;
 
-// CLI: Parallax.exe install|install-anyway|uninstall|detect|export <gameDir> (used by the harness), and
-// play <gameDir> [<pid>] (the VR menu's Library tab: starts that game once process <pid>, the game it ran in, has quit). Parallax.exe <gameDir> opens the
+// CLI: PortXR.exe install|install-anyway|uninstall|detect|export <gameDir> (used by the harness), and
+// play <gameDir> [<pid>] (the VR menu's Library tab: starts that game once process <pid>, the game it ran in, has quit). PortXR.exe <gameDir> opens the
 // app on that game's page (shortcuts); no arguments opens the library.
 fn attach_console() {
     #[cfg(windows)]
@@ -18,7 +20,7 @@ fn attach_console() {
     };
 }
 
-/// Windows' "Animation effects" setting (Settings > Accessibility > Visual effects), as DesktopVR reads it; on when
+/// Windows' "Animation effects" setting (Settings > Accessibility > Visual effects), as WristXR reads it; on when
 /// unknown. Off keeps every state change and drops the movement.
 pub fn animations_enabled() -> bool {
     #[cfg(windows)]

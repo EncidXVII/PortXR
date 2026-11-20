@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Drives the gesture engine with a fake clock: ctest -C Release in build\native.
 #include "../src/gesture.h"
 #include <cstdio>

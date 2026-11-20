@@ -1,4 +1,7 @@
-// Parallax's VR core as a Godot 4.3+ GDExtension. The game loads it at runtime from the ParallaxVR folder beside its
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
+// PortXR's VR core as a Godot 4.3+ GDExtension. The game loads it at runtime from the PortXR folder beside its
 // exe (GDExtensionManager.load_extension from our autoload): no change to the game's pack. Godot renders; the core
 // owns the OpenXR session, as it does in Unity games. Direct3D 12 only (the core has no Vulkan backend yet).
 #include "bridge.h"
@@ -38,7 +41,7 @@ bridge::Pose pose(const Transform3D& t) {
     return {{(float)t.origin.x, (float)t.origin.y, (float)t.origin.z}, {(float)q.x, (float)q.y, (float)q.z, (float)q.w}};
 }
 
-// --- Game scripts: the parallax table's node calls (SCRIPTING.md) ---------------------------------------------------
+// --- Game scripts: the portxr table's node calls (SCRIPTING.md) ---------------------------------------------------
 // A node by name anywhere ("Player"), by path from the current scene ("Player/Gun"), or from the root ("/root/Main").
 Node* find(const char* at) {
     SceneTree* tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
@@ -170,34 +173,34 @@ void godot_calls(lua_State* L) {
 }
 }  // namespace
 
-class ParallaxCore : public RefCounted {
-    GDCLASS(ParallaxCore, RefCounted)
+class PortXRCore : public RefCounted {
+    GDCLASS(PortXRCore, RefCounted)
 
 protected:
     static void _bind_methods() {
-        ClassDB::bind_method(D_METHOD("start", "app"), &ParallaxCore::start);
-        ClassDB::bind_method(D_METHOD("attach", "texture"), &ParallaxCore::attach);
-        ClassDB::bind_method(D_METHOD("state"), &ParallaxCore::state);
-        ClassDB::bind_method(D_METHOD("begin"), &ParallaxCore::begin);
-        ClassDB::bind_method(D_METHOD("locate"), &ParallaxCore::locate);
-        ClassDB::bind_method(D_METHOD("submit_quad", "texture", "pose", "size", "flip_y"), &ParallaxCore::submit_quad);
-        ClassDB::bind_method(D_METHOD("submit_eyes", "left", "right", "flip_y"), &ParallaxCore::submit_eyes);
-        ClassDB::bind_method(D_METHOD("native_texture", "texture"), &ParallaxCore::native_texture);
-        ClassDB::bind_method(D_METHOD("poll_log"), &ParallaxCore::poll_log);
-        ClassDB::bind_method(D_METHOD("open_settings", "path"), &ParallaxCore::open_settings);
-        ClassDB::bind_method(D_METHOD("setting", "section", "key", "fallback"), &ParallaxCore::setting);
-        ClassDB::bind_method(D_METHOD("set_setting", "section", "key", "value"), &ParallaxCore::set_setting);
-        ClassDB::bind_method(D_METHOD("recenter"), &ParallaxCore::recenter);
-        ClassDB::bind_method(D_METHOD("frame", "game"), &ParallaxCore::frame);
-        ClassDB::bind_method(D_METHOD("set_window", "hwnd"), &ParallaxCore::set_window);
-        ClassDB::bind_method(D_METHOD("pad"), &ParallaxCore::pad);
-        ClassDB::bind_method(D_METHOD("test_controllers", "controllers"), &ParallaxCore::test_controllers);
-        ClassDB::bind_method(D_METHOD("test_point", "u", "v", "screen"), &ParallaxCore::test_point, DEFVAL(false));
-        ClassDB::bind_method(D_METHOD("set_menu_host", "host"), &ParallaxCore::set_menu_host);
-        ClassDB::bind_method(D_METHOD("toggle_menu"), &ParallaxCore::toggle_menu);
-        ClassDB::bind_method(D_METHOD("capture", "dir"), &ParallaxCore::capture);
-        ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &ParallaxCore::submit_view);
-        ClassDB::bind_method(D_METHOD("render_scale"), &ParallaxCore::render_scale);
+        ClassDB::bind_method(D_METHOD("start", "app"), &PortXRCore::start);
+        ClassDB::bind_method(D_METHOD("attach", "texture"), &PortXRCore::attach);
+        ClassDB::bind_method(D_METHOD("state"), &PortXRCore::state);
+        ClassDB::bind_method(D_METHOD("begin"), &PortXRCore::begin);
+        ClassDB::bind_method(D_METHOD("locate"), &PortXRCore::locate);
+        ClassDB::bind_method(D_METHOD("submit_quad", "texture", "pose", "size", "flip_y"), &PortXRCore::submit_quad);
+        ClassDB::bind_method(D_METHOD("submit_eyes", "left", "right", "flip_y"), &PortXRCore::submit_eyes);
+        ClassDB::bind_method(D_METHOD("native_texture", "texture"), &PortXRCore::native_texture);
+        ClassDB::bind_method(D_METHOD("poll_log"), &PortXRCore::poll_log);
+        ClassDB::bind_method(D_METHOD("open_settings", "path"), &PortXRCore::open_settings);
+        ClassDB::bind_method(D_METHOD("setting", "section", "key", "fallback"), &PortXRCore::setting);
+        ClassDB::bind_method(D_METHOD("set_setting", "section", "key", "value"), &PortXRCore::set_setting);
+        ClassDB::bind_method(D_METHOD("recenter"), &PortXRCore::recenter);
+        ClassDB::bind_method(D_METHOD("frame", "game"), &PortXRCore::frame);
+        ClassDB::bind_method(D_METHOD("set_window", "hwnd"), &PortXRCore::set_window);
+        ClassDB::bind_method(D_METHOD("pad"), &PortXRCore::pad);
+        ClassDB::bind_method(D_METHOD("test_controllers", "controllers"), &PortXRCore::test_controllers);
+        ClassDB::bind_method(D_METHOD("test_point", "u", "v", "screen"), &PortXRCore::test_point, DEFVAL(false));
+        ClassDB::bind_method(D_METHOD("set_menu_host", "host"), &PortXRCore::set_menu_host);
+        ClassDB::bind_method(D_METHOD("toggle_menu"), &PortXRCore::toggle_menu);
+        ClassDB::bind_method(D_METHOD("capture", "dir"), &PortXRCore::capture);
+        ClassDB::bind_method(D_METHOD("submit_view", "left", "right", "ui", "ui_aspect"), &PortXRCore::submit_view);
+        ClassDB::bind_method(D_METHOD("render_scale"), &PortXRCore::render_scale);
     }
 
     bridge::Pose eyes_[2]{};
@@ -414,12 +417,12 @@ public:
 
 namespace {
 void initialize(ModuleInitializationLevel level) {
-    if (level == MODULE_INITIALIZATION_LEVEL_SCENE) GDREGISTER_CLASS(ParallaxCore);
+    if (level == MODULE_INITIALIZATION_LEVEL_SCENE) GDREGISTER_CLASS(PortXRCore);
 }
 void uninitialize(ModuleInitializationLevel) {}
 }  // namespace
 
-extern "C" GDExtensionBool GDE_EXPORT parallax_godot_init(GDExtensionInterfaceGetProcAddress getProcAddress,
+extern "C" GDExtensionBool GDE_EXPORT portxr_godot_init(GDExtensionInterfaceGetProcAddress getProcAddress,
                                                           GDExtensionClassLibraryPtr library,
                                                           GDExtensionInitialization* init) {
     GDExtensionBinding::InitObject object(getProcAddress, library, init);

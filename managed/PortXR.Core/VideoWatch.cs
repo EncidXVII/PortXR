@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Linq;
 using UnityEngine;
@@ -5,7 +8,7 @@ using UnityEngine;
 using Il2CppInterop.Runtime;
 #endif
 
-namespace Parallax
+namespace PortXR
 {
     // Videos drawn on a camera's near or far plane (intros, cutscenes) only show through that camera, which the eyes
     // replace; while one plays, the view switches to the theater screen. VideoPlayer is found by name, so games

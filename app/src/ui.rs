@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 use std::error::Error;
 use std::fs;
 use std::collections::HashMap;
@@ -11,7 +14,7 @@ use crate::games::{self, Compat, Game};
 use crate::installer;
 use crate::settings::{self, Def, Kind};
 
-// "Night Lime" tokens in DesktopVR's graphite greys, shared with the VR menu (Menu.cs): dark stage, one lime accent,
+// "Night Lime" tokens in WristXR's graphite greys, shared with the VR menu (Menu.cs): dark stage, one lime accent,
 // filled soft cells. Spacing scale 4/8/12/16/24/32/48/64.
 const BG: Color32 = Color32::from_rgb(11, 11, 12);
 const SURFACE: Color32 = Color32::from_rgb(20, 20, 22);
@@ -22,7 +25,7 @@ const PLACEHOLDER: Color32 = Color32::from_rgb(56, 56, 61);
 const INK: Color32 = Color32::from_rgb(245, 245, 247);
 const INK2: Color32 = Color32::from_rgb(168, 168, 175);
 const INK3: Color32 = Color32::from_rgb(136, 136, 143);
-// The accent follows the theme (Parallax/theme.txt in %APPDATA%, shared with the VR menu); dark text on it works for all.
+// The accent follows the theme (PortXR/theme.txt in %APPDATA%, shared with the VR menu); dark text on it works for all.
 const THEMES: [(&str, u32); 8] = [
     ("Lime", 0xC6FF1A),
     ("Mint", 0x5CF2A0),
@@ -51,7 +54,7 @@ fn lime_pressed() -> Color32 {
 }
 
 fn theme_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("theme.txt")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("theme.txt")
 }
 
 fn load_theme() {
@@ -86,22 +89,22 @@ const BRAND: f32 = 30.0;
 const BODY: f32 = 16.0;
 const SMALL: f32 = 14.0;
 const LABEL: f32 = 13.0;
-const REPO: &str = "EncidXVII/Parallax";
+const REPO: &str = "EncidXVII/PortXR";
 
 /// The app icon for the window and taskbar (the same one the exe carries, see build.rs).
 fn window_icon() -> Option<egui::IconData> {
-    let img = image::load_from_memory(include_bytes!("../assets/brand/parallax-256.png")).ok()?.to_rgba8();
+    let img = image::load_from_memory(include_bytes!("../assets/brand/portxr-256.png")).ok()?.to_rgba8();
     Some(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() })
 }
 
 pub fn run(open: Option<PathBuf>) -> eframe::Result {
     let mut viewport =
-        egui::ViewportBuilder::default().with_title("Parallax").with_inner_size([1120.0, 720.0]).with_min_inner_size([960.0, 560.0]);
+        egui::ViewportBuilder::default().with_title("PortXR").with_inner_size([1120.0, 720.0]).with_min_inner_size([960.0, 560.0]);
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("Parallax", options, Box::new(|cc| Ok(Box::new(App::new(cc, open)))))
+    eframe::run_native("PortXR", options, Box::new(|cc| Ok(Box::new(App::new(cc, open)))))
 }
 
 #[derive(Deserialize, Clone)]
@@ -396,7 +399,7 @@ impl App {
                     Entry::Here(i) => self.games[*i].store,
                     Entry::Steam(_) => "Steam",
                 };
-                // All is what can be played; the games Parallax can't run stay in their own tab.
+                // All is what can be played; the games PortXR can't run stay in their own tab.
                 (if self.filter == Filter::All { *f != Filter::Unsupported } else { *f == self.filter }) && self.store.is_none_or(|s| store == s) && name(e).contains(&query)
             })
             .collect();
@@ -666,7 +669,7 @@ impl App {
                 let _ = games::edit(&g.log_file());
             }
             // Only hand-added folders can be forgotten (store games come back on every scan), and not while installed,
-            // or the game would vanish from the app with Parallax still in it.
+            // or the game would vanish from the app with PortXR still in it.
             if let Some(root) = g.added.as_ref().filter(|_| !g.installed())
                 && tertiary(ui, "Remove from library").clicked() {
                     match games::remove_folder(root) {
@@ -710,8 +713,8 @@ impl App {
         ui.horizontal(|ui| {
             eyebrow(ui, "01", "Basics");
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let parallax = settings::all().all(|d| settings::same(&settings::global(&self.defaults, d), d.default));
-                if !parallax && tertiary(ui, "Reset all").on_hover_text("Back to Parallax's own defaults").clicked() {
+                let stock = settings::all().all(|d| settings::same(&settings::global(&self.defaults, d), d.default));
+                if !stock && tertiary(ui, "Reset all").on_hover_text("Back to PortXR's own defaults").clicked() {
                     self.defaults = settings::all().fold(self.defaults.clone(), |t, d| settings::set(&t, d.section, d.key, d.default));
                     self.dirty = true;
                 }
@@ -733,7 +736,7 @@ impl App {
         section_break(ui);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 24.0;
-            ui.label(RichText::new(format!("PARALLAX {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK3).extra_letter_spacing(TRACK));
+            ui.label(RichText::new(format!("PORTXR {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK3).extra_letter_spacing(TRACK));
             if tertiary(ui, "Guide ↗").clicked() {
                 let _ = games::open(format!("https://github.com/{REPO}#readme"));
             }
@@ -821,7 +824,7 @@ impl App {
             ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
             self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
         }
-        // A game Parallax would leave alone, for players who want to try anyway: the caution first, then a confirm.
+        // A game PortXR would leave alone, for players who want to try anyway: the caution first, then a confirm.
         if let Some(caution) = g.caution().filter(|_| !g.installed()) {
             let label = if self.confirm_anyway { "Confirm: add VR anyway" } else { "Add VR anyway" };
             if destructive(ui, label, self.confirm_anyway).clicked() {
@@ -938,10 +941,10 @@ impl App {
         // UI black keys Unity's UI panel; Godot and Unreal hand over their UI with its own transparency.
         let unity = !game || matches!(self.page, Page::Game(i) if self.games.get(i).is_some_and(|g| g.unity()));
         let display = value("Display");
-        let (parallax, screen) = (display == "Parallax", display == "Parallax" || display == "Theater");
+        let (window3d, screen) = (display == "Parallax", display == "Parallax" || display == "Theater");
         let (aim, hand) = (value("HeadAim") != "Off", value("AimWith") == "Hand");
         let relevant = |d: &Def| match d.key {
-            "Depth" => parallax,
+            "Depth" => window3d,
             "Background" => screen,
             "AimWith" | "Crosshair" => aim,
             "WeaponInHand" => aim && hand,
@@ -1052,13 +1055,13 @@ fn warning(g: &Game) -> (String, Tone) {
     }
     match (g.compat(), g.other_loader) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("Multiplayer only: mods online can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
-        (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so Parallax stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
-        (Compat::NativeVr, _) => ("Has its own VR mode: start it in VR from Steam. Add VR anyway to try Parallax instead.".into(), Tone::Info),
+        (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so PortXR stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
+        (Compat::NativeVr, _) => ("Has its own VR mode: start it in VR from Steam. Add VR anyway to try PortXR instead.".into(), Tone::Info),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. In Steam: Properties → Compatibility → force Proton, then come back.".into(), Tone::Info),
-        (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load Parallax: {}", games::LAUNCH_OPTIONS), Tone::Info),
+        (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load PortXR: {}", games::LAUNCH_OPTIONS), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity code trimming, which usually stops the mod loader. Add VR anyway to try.".into(), Tone::Info),
-        (_, Some(l)) if !g.installed() => (format!("{l} is already installed. Parallax adds itself alongside; other mods may interfere."), Tone::Info),
+        (_, Some(l)) if !g.installed() => (format!("{l} is already installed. PortXR adds itself alongside; other mods may interfere."), Tone::Info),
         _ => (String::new(), Tone::Info),
     }
 }
@@ -1071,7 +1074,7 @@ impl eframe::App for App {
         egui::Panel::top("top").frame(bar).show(ui, |ui| {
             ui.horizontal(|ui| {
                 // The name, then the places (tabs, left); the one action of the page sits alone on the right.
-                ui.label(RichText::new("PARALLAX").font(display(BRAND)).color(INK));
+                ui.label(RichText::new("PORTXR").font(display(BRAND)).color(INK));
                 ui.add_space(32.0);
                 ui.spacing_mut().item_spacing.x = 24.0;
                 if nav(ui, "Library", self.page != Page::Settings).clicked() && self.page != Page::Library {
@@ -1334,7 +1337,7 @@ fn destructive(ui: &mut Ui, text: &str, armed: bool) -> egui::Response {
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-// Cells side by side in a rounded track, the chosen one filled ink (DesktopVR's segment). `lime` fills the chosen
+// Cells side by side in a rounded track, the chosen one filled ink (WristXR's segment). `lime` fills the chosen
 // one lime instead, for the library's status filter. The fill eases from the old choice to the new one.
 fn segmented<T: Copy + PartialEq>(ui: &mut Ui, options: &[(T, &str)], current: T, lime: bool) -> Option<T> {
     let mut picked = None;
@@ -1671,12 +1674,12 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     Ok("Launching.".into())
 }
 
-// Games Parallax cannot go inside: ParallaxTheater.exe (beside the app, in theater\) waits for the game's window and
+// Games PortXR cannot go inside: PortXRTheater.exe (beside the app, in theater\) waits for the game's window and
 // shows it on the Theater screen. Nothing is written to the game folder.
 fn play_theater(g: &Game) -> Result<String, Box<dyn Error>> {
-    let host = std::env::current_exe()?.with_file_name("theater").join("ParallaxTheater.exe");
+    let host = std::env::current_exe()?.with_file_name("theater").join("PortXRTheater.exe");
     if !host.exists() {
-        return Err(format!("{} is missing; reinstall Parallax.", host.display()).into());
+        return Err(format!("{} is missing; reinstall PortXR.", host.display()).into());
     }
     std::process::Command::new(&host).arg("--dir").arg(&g.dir).spawn()?;
     g.launch()?;
@@ -1685,9 +1688,9 @@ fn play_theater(g: &Game) -> Result<String, Box<dyn Error>> {
 }
 
 // Godot opens VR itself as it starts, and gets none from a runtime that is still starting (SteamVR from cold): the
-// Theater host wakes the runtime first (ParallaxTheater.exe --wake, seconds), then the game is launched.
+// Theater host wakes the runtime first (PortXRTheater.exe --wake, seconds), then the game is launched.
 fn play_godot(g: &Game) -> Result<String, Box<dyn Error>> {
-    let host = std::env::current_exe()?.with_file_name("theater").join("ParallaxTheater.exe");
+    let host = std::env::current_exe()?.with_file_name("theater").join("PortXRTheater.exe");
     let game = g.clone();
     std::thread::spawn(move || {
         let _ = std::process::Command::new(&host).arg("--wake").status();
@@ -1709,11 +1712,11 @@ fn uninstall(g: &Game) -> Result<String, Box<dyn Error>> {
 // Settings live in the game's BepInEx config while installed; a copy in %APPDATA% survives uninstalls.
 fn saved_path(g: &Game) -> PathBuf {
     let stem: String = g.dir.file_name().unwrap_or_default().to_string_lossy().chars().filter(|c| c.is_alphanumeric() || " -_".contains(*c)).collect();
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("settings").join(format!("{stem}.cfg"))
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("settings").join(format!("{stem}.cfg"))
 }
 
 fn defaults_path() -> PathBuf {
-    dirs::config_dir().unwrap_or_default().join("Parallax").join("defaults.cfg")
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("defaults.cfg")
 }
 
 fn load_cfg(g: &Game) -> String {
@@ -1736,7 +1739,7 @@ fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 fn latest_release() -> Option<Release> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let r: Release = ureq::get(&url).header("User-Agent", "Parallax").call().ok()?.body_mut().read_json().ok()?;
+    let r: Release = ureq::get(&url).header("User-Agent", "PortXR").call().ok()?.body_mut().read_json().ok()?;
     (version(&r.tag_name) > version(env!("CARGO_PKG_VERSION"))).then_some(r)
 }
 

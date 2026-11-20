@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Builds a fixture player: copies fixtures\shared into the Unity project, then Configure + Build in batchmode.
 #   F0  Unity 2018.4, built-in pipeline, Mono on the .NET 3.5 runtime (old games; no CaptureScreenshotIntoRenderTexture)
 #   F1  Unity 2022.3, built-in pipeline, Mono

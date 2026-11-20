@@ -1,10 +1,13 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal struct MenuHost
@@ -22,9 +25,9 @@ namespace Parallax
     // the settings in step: the core and BepInEx write the same file.
     internal class Menu
     {
-        [DllImport("parallax_xr", CharSet = CharSet.Unicode)] static extern void prx_menu_settings(string gameFile);
-        [DllImport("parallax_xr")] static extern void prx_menu_host(ref MenuHost host);
-        [DllImport("parallax_xr")] static extern void prx_menu_show(int page, int unlock);
+        [DllImport("portxr_xr", CharSet = CharSet.Unicode)] static extern void prx_menu_settings(string gameFile);
+        [DllImport("portxr_xr")] static extern void prx_menu_host(ref MenuHost host);
+        [DllImport("portxr_xr")] static extern void prx_menu_show(int page, int unlock);
 
         static float fade = 1;
         readonly Rig rig;

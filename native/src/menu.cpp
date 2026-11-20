@@ -1,4 +1,7 @@
-﻿#include "menu.h"
+﻿// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
+#include "menu.h"
 #include "canvas.h"
 #include "common.h"
 #include "settings.h"
@@ -418,6 +421,8 @@ private:
         std::string shown = dataText ? t : upper(t);
         Style style = look ? *look : on ? cellOn() : cell();
         Rect r = ui.take(width > 0 ? width : natural(shown, style) + 48, Row);
+        // A fixed width holds what fits of it: a game's camera names run to any length.
+        if (width > 0) shown = canvas.fit(shown, style.face, style.size, width - 24);
         return cell_(r, shown, style, on ? Ink : Surface, on);
     }
     bool quiet_button(const std::string& t, float width) {
@@ -917,12 +922,13 @@ private:
     void draw_game() {
         if (host.hideObjects) {
             ui.begin_row();
-            label("In your view? Point at it, pull the trigger. B stops.", muted(), 680);
+            // The hint and both buttons share one row: each as wide as its words, or the second button leaves the menu.
+            label("In your view? Point at it, pull the trigger. B stops.", muted(), 0);
             ui.flex();
-            if (host.hidden > 0 && button(host.hidden == 1 ? "Show 1 hidden" : "Show " + std::to_string(host.hidden) + " hidden", false, 260))
+            if (host.hidden > 0 && button(host.hidden == 1 ? "Show 1 hidden" : "Show " + std::to_string(host.hidden) + " hidden", false, 0))
                 req.showHidden = true;
             ui.gap(4);
-            if (button("Hide objects", false, 260)) {
+            if (button("Hide objects", false, 0)) {
                 toggle();
                 req.hideObjects = true;
             }
@@ -956,7 +962,7 @@ private:
 
     void aim_rows() {
         if (!host.aimExtras || settings::get("Controls", "HeadAim", "Auto") == "Off") return;
-        options("Crosshair", "Controls", "Crosshair", {"Game", "Lime", "Off"}, {"Game's", "Parallax's", "Off"}, "Game");
+        options("Crosshair", "Controls", "Crosshair", {"Game", "Lime", "Off"}, {"Game's", "PortXR's", "Off"}, "Game");
         if (host.handHeld && settings::get("Controls", "AimWith", "Hand") == "Hand") toggle_row("Weapon in hand", "Controls", "WeaponInHand", true);
     }
 
@@ -966,7 +972,7 @@ private:
         req.camera = name;
     }
 
-    // --- Library: quit, or start another game with VR added (through Parallax.exe), as Menu.cs ----------------------
+    // --- Library: quit, or start another game with VR added (through PortXR.exe), as Menu.cs ----------------------
     void load_library() {
         appPath.clear();
         haveCurrent = false;
@@ -1061,9 +1067,9 @@ private:
         if (appPath.empty() || others.empty()) {
             round(shelf, Surface, CellRadius);
             bool noApp = appPath.empty();
-            text({shelf.x, shelf.cy() - 40, shelf.w, 40}, noApp ? "Switching games needs Parallax.exe" : "No other games with VR yet", centredLabel());
+            text({shelf.x, shelf.cy() - 40, shelf.w, 40}, noApp ? "Switching games needs PortXR.exe" : "No other games with VR yet", centredLabel());
             text({shelf.x, shelf.cy() + 4, shelf.w, 36},
-                 noApp ? "Open it once on this PC, then your VR games show up here." : "Add VR to another game in Parallax.exe and it shows up here.",
+                 noApp ? "Open it once on this PC, then your VR games show up here." : "Add VR to another game in PortXR.exe and it shows up here.",
                  centredMuted());
             return;
         }
@@ -1131,7 +1137,7 @@ private:
         else confirming = i;
     }
 
-    // Quits the game; with `next`, Parallax.exe starts that game folder once this process has ended.
+    // Quits the game; with `next`, PortXR.exe starts that game folder once this process has ended.
     void leave(const std::wstring& next) {
         confirming = NoConfirm;
         if (!next.empty()) {
@@ -1141,7 +1147,7 @@ private:
             STARTUPINFOW si{sizeof(si)};
             PROCESS_INFORMATION pi{};
             if (!CreateProcessW(appPath.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-                prx_log("menu: could not start Parallax.exe to switch games (%lu)", GetLastError());
+                prx_log("menu: could not start PortXR.exe to switch games (%lu)", GetLastError());
                 return;
             }
             CloseHandle(pi.hThread);
@@ -1272,6 +1278,17 @@ PRX_API void prx_menu_show(int32_t page, int32_t unlock) {
         g_menu.show(page);
     }
     if (unlock >= 0) g_menu.unlock(unlock != 0);
+}
+
+// One frame of the menu with nobody pointing at it, and its picture (premultiplied RGBA8, w x h): the menu drawn
+// without a headset, for screenshots and for looking over its text (harness/menu_shots.py).
+PRX_API const uint8_t* prx_menu_render(float dt, int32_t* w, int32_t* h) {
+    menu::frame(false, 0, 0, 0, dt);
+    bool changed = false;
+    int cw = 0, ch = 0;
+    const uint8_t* px = menu::pixels(cw, ch, changed);
+    *w = cw, *h = ch;
+    return px;
 }
 
 }

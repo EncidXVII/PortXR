@@ -1,13 +1,16 @@
-// Parallax Theater: the Theater screen for games Parallax cannot go inside (any engine, any store). It captures the
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
+// PortXR Theater: the Theater screen for games PortXR cannot go inside (any engine, any store). It captures the
 // game's window with Windows Graphics Capture and shows it on the curved screen through the same VR core the plugin
 // uses; the controllers drive the keyboard and mouse, and a laser pointer clicks where it points while the game shows
 // its cursor. Nothing is added to the game or its folder.
 //
-//   ParallaxTheater.exe --dir <game folder> [--wait <seconds>] [--capture <dir> [--capture-frame <n>]]
-//   ParallaxTheater.exe --wake   (start the headset runtime and wait until it is ready, then exit)
+//   PortXRTheater.exe --dir <game folder> [--wait <seconds>] [--capture <dir> [--capture-frame <n>]]
+//   PortXRTheater.exe --wake   (start the headset runtime and wait until it is ready, then exit)
 //
 // Waits for a window from a process started from <game folder>, follows it while the game runs (also when the game
-// makes a new window), and exits once no such window is left. Log: %APPDATA%\Parallax\theater.log.
+// makes a new window), and exits once no such window is left. Log: %APPDATA%\PortXR\theater.log.
 #include <unknwn.h>
 #include "common.h"
 #include <dwmapi.h>
@@ -354,7 +357,7 @@ int wake() {
     int32_t w = 0, h = 0;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &level, 1, D3D11_SDK_VERSION, &device,
                                  nullptr, &ctx)) ||
-        !prx_init("Parallax", 11, &w, &h)) {
+        !prx_init("PortXR", 11, &w, &h)) {
         drain_core_log();
         log("no VR runtime to wake");
         return 1;
@@ -390,9 +393,9 @@ int wmain(int argc, wchar_t** argv) {
     while (!g_dir.empty() && (g_dir.back() == L'\\' || g_dir.back() == L'/')) g_dir.pop_back();
     if (g_dir.empty()) return 2;
     g_log = _wfsopen(appdata(L"theater.log").c_str(), L"w", _SH_DENYNO);
-    log("Parallax Theater for %ls", g_dir.c_str());
+    log("PortXR Theater for %ls", g_dir.c_str());
 
-    HANDLE single = CreateMutexW(nullptr, TRUE, L"Local\\ParallaxTheater");
+    HANDLE single = CreateMutexW(nullptr, TRUE, L"Local\\PortXRTheater");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         log("already running");
         return 0;
@@ -431,7 +434,7 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     int32_t eyeW = 0, eyeH = 0;
-    if (!prx_init("Parallax Theater", 11, &eyeW, &eyeH)) {
+    if (!prx_init("PortXR Theater", 11, &eyeW, &eyeH)) {
         drain_core_log();
         log("no VR runtime");
         return 1;

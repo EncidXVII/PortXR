@@ -1,9 +1,12 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // Games on Unity's Input System package do not read the hooked XInput functions (2021+ players go through
     // Windows.Gaming.Input), so Gamepad mode also adds a virtual Input System gamepad fed with the same state.
@@ -74,7 +77,7 @@ namespace Parallax
             rightStick = stateType.GetField("rightStick");
             leftTrigger = stateType.GetField("leftTrigger");
             rightTrigger = stateType.GetField("rightTrigger");
-            device = add.Invoke(null, new object[] { "Gamepad", "ParallaxPad", null });
+            device = add.Invoke(null, new object[] { "Gamepad", "PortXRPad", null });
             Plugin.Log.LogInfo("Input System gamepad added");
             return true;
         }

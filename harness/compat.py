@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Smoke-runs installed games under the null driver and records a tier guess in compat/results.csv.
 
 A: stereo frames with a non-black image; C: only the theater/UI layer reached the headset; Fail: no session or crash.

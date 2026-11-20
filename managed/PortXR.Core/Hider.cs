@@ -1,8 +1,11 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Parallax
+namespace PortXR
 {
     // Objects the player hid from the Game tab (a helmet, a body, a screen overlay mesh in front of the camera):
     // aim the right controller at one and pull the trigger. Stored per game as hierarchy paths and hidden again on

@@ -1,7 +1,10 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // Hand aim already turns the game camera, and with it the weapon an FPS hangs under that camera, to where the right
     // controller points; the weapon still sits at the head. While the eyes render, the camera's children that draw

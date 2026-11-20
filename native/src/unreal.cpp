@@ -1,4 +1,7 @@
-// Parallax inside Unreal Engine 4.22 to 5.6 games, loaded as dwmapi.dll from beside the game's Shipping exe (every
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
+// PortXR inside Unreal Engine 4.22 to 5.6 games, loaded as dwmapi.dll from beside the game's Shipping exe (every
 // dwmapi export forwards to the system copy).
 //
 // How a game runs with it, in the order of this file's sections:
@@ -10,7 +13,7 @@
 // 3. Present: the core submits the eyes and the UI, then waits for the headset's next frame.
 // 4. Startup: the game's command line waits for a headset check. With a headset the engine starts with the stereo device;
 //    without one the game runs untouched.
-// Tests: a ParallaxVR\ue-test file beside the exe runs without a headset (Direct3D 11) and writes what the engine renders.
+// Tests: a PortXR\ue-test file beside the exe runs without a headset (Direct3D 11) and writes what the engine renders.
 #include "unreal_dwmapi.h"
 
 #include "bridge.h"
@@ -898,7 +901,7 @@ void hold(ue::Obj* t, ue::Obj* owner) {
         slot = holder;
         note("Unreal: the UI's textures are held by %s", holder ? "the engine" : "their root flag alone (no holder made)");
     }
-    std::string name = "ParallaxUI" + std::to_string(count++);
+    std::string name = "PortXRUI" + std::to_string(count++);
     bool held = holder && slot == holder && ue::alive(holder) &&
                 ue::Invoke(holder, "SetTextureParameterValue").set("ParameterName", name.c_str()).set("Value", t).run();
     if (!held) {
@@ -1166,8 +1169,8 @@ bool headset() {
     if (!gpa || XR_FAILED(gpa(XR_NULL_HANDLE, "xrCreateInstance", (PFN_xrVoidFunction*)&create)))
         return note("Unreal: no OpenXR loader or runtime (%s)", m ? "no xrCreateInstance" : "openxr_loader.dll"), false;
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
-    strcpy_s(ici.applicationInfo.applicationName, "Parallax");
-    strcpy_s(ici.applicationInfo.engineName, "Parallax");
+    strcpy_s(ici.applicationInfo.applicationName, "PortXR");
+    strcpy_s(ici.applicationInfo.engineName, "PortXR");
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     XrInstance instance;
     if (XrResult res = create(&ici, &instance); XR_FAILED(res)) return note("Unreal: OpenXR instance: error %d", (int)res), false;
@@ -1200,10 +1203,10 @@ void install(void** vt, const Slots& s) {
 }
 
 DWORD WINAPI boot(void*) {
-    std::wstring dir = g_dir + L"\\ParallaxVR";
+    std::wstring dir = g_dir + L"\\PortXR";
     CreateDirectoryW(dir.c_str(), nullptr);
-    g_log = _wfsopen(((g_test.empty() ? dir : g_test) + L"\\parallax.log").c_str(), L"w", _SH_DENYNO);
-    bridge::settings_open(dir + L"\\parallax.cfg");
+    g_log = _wfsopen(((g_test.empty() ? dir : g_test) + L"\\portxr.log").c_str(), L"w", _SH_DENYNO);
+    bridge::settings_open(dir + L"\\portxr.cfg");
     ULONGLONG t0 = GetTickCount64();
     void** vt = find_vtable();
     Slots s = vt ? find_slots(vt) : Slots{};
@@ -1241,10 +1244,10 @@ bool under_loader_lock() {
     return (DWORD)(uintptr_t)lock->OwningThread == GetCurrentThreadId();
 }
 
-// The headset check in a process of its own (rundll32 on this DLL: ParallaxProbe): SteamVR's runtime can't start inside
+// The headset check in a process of its own (rundll32 on this DLL: PortXRProbe): SteamVR's runtime can't start inside
 // a game that hasn't reached its main yet, and takes about 20 s from cold.
 bool headset_apart() {
-    std::wstring cmd = L"rundll32.exe \"" + g_dir + L"\\dwmapi.dll\",ParallaxProbe";
+    std::wstring cmd = L"rundll32.exe \"" + g_dir + L"\\dwmapi.dll\",PortXRProbe";
     STARTUPINFOW si{sizeof(si)};
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
@@ -1292,11 +1295,11 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
     GetModuleFileNameW(self, path, MAX_PATH);
     g_dir = path;
     g_dir.resize(g_dir.rfind(L'\\'));
-    // Loaded by rundll32 for the headset check (ParallaxProbe), not by the game beside it: nothing to set up.
+    // Loaded by rundll32 for the headset check (PortXRProbe), not by the game beside it: nothing to set up.
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     if (_wcsnicmp(exe, g_dir.c_str(), g_dir.size()) != 0 || exe[g_dir.size()] != L'\\') return TRUE;
-    if (GetFileAttributesW((g_dir + L"\\ParallaxVR\\ue-test").c_str()) != INVALID_FILE_ATTRIBUTES) g_test = g_dir + L"\\ParallaxVR";
+    if (GetFileAttributesW((g_dir + L"\\PortXR\\ue-test").c_str()) != INVALID_FILE_ATTRIBUTES) g_test = g_dir + L"\\PortXR";
     // The engine reads its command line once, early in WinMain: the stereo device, and the console variables that must
     // already hold at startup (HZB occlusion crashes the scene renderer's constructor in stereo, UE 5.0). find_cvars
     // keeps them, and those registered too late for this (Slate's), in memory afterwards.
@@ -1311,5 +1314,5 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID) {
     return TRUE;
 }
 
-// rundll32 "<dir>\dwmapi.dll",ParallaxProbe: exits 0 when a headset answers (see headset_apart).
-extern "C" __declspec(dllexport) void CALLBACK ParallaxProbe(HWND, HINSTANCE, LPSTR, int) { ExitProcess(headset() ? 0 : 1); }
+// rundll32 "<dir>\dwmapi.dll",PortXRProbe: exits 0 when a headset answers (see headset_apart).
+extern "C" __declspec(dllexport) void CALLBACK PortXRProbe(HWND, HINSTANCE, LPSTR, int) { ExitProcess(headset() ? 0 : 1); }

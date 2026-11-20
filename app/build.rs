@@ -1,10 +1,13 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! Puts the app icon into the Windows executable (Explorer, taskbar, Alt+Tab), as group 1. It comes from
 //! assets/brand (drawn by marks.py) and goes in as a compiled resource file, which the MSVC linker takes as an
 //! input, so no resource compiler is needed.
 
 use std::path::{Path, PathBuf};
 
-const ICONS: [(u16, &str); 1] = [(1, "parallax.ico")];
+const ICONS: [(u16, &str); 1] = [(1, "portxr.ico")];
 const RT_ICON: u16 = 3;
 const RT_GROUP_ICON: u16 = 14;
 

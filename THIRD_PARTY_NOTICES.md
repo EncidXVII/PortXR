@@ -1,6 +1,6 @@
 # Third-party notices
 
-Parallax ships or downloads the following components. Each remains under its own license.
+PortXR ships or downloads the following components. Each remains under its own license.
 
 ## BepInEx 5.4.23.5
 Plugin loader copied into Mono game folders on install. LGPL-2.1. https://github.com/BepInEx/BepInEx
@@ -21,7 +21,7 @@ https://github.com/KhronosGroup/OpenXR-SDK-Source
 Copyright (c) 2014-2016, Marco Mastropaolo. https://github.com/moonsharp-devs/moonsharp
 
 ## Lua 5.4.7
-Statically linked into the VR core (`parallax_xr.dll`, the Godot extension, Unreal's `dwmapi.dll`) for per-game
+Statically linked into the VR core (`portxr_xr.dll`, the Godot extension, Unreal's `dwmapi.dll`) for per-game
 scripts in Godot and Unreal games; source in `native/third_party/lua`. MIT. https://www.lua.org
 
     Copyright (C) 1994-2024 Lua.org, PUC-Rio.
@@ -41,7 +41,7 @@ scripts in Godot and Unreal games; source in `native/third_party/lua`. MIT. http
     SOFTWARE.
 
 ## MinHook 1.3.4
-Statically linked into `parallax_xr.dll`. BSD-2-Clause.
+Statically linked into `portxr_xr.dll`. BSD-2-Clause.
 
     MinHook - The Minimalistic API Hooking Library for x64/x86
     Copyright (C) 2009-2017 Tsuda Kageyu. All rights reserved.
@@ -63,7 +63,7 @@ Statically linked into `parallax_xr.dll`. BSD-2-Clause.
 
 ## Are We Anti-Cheat Yet? game list
 The Steam app IDs of its games with anti-cheat, bundled as `app/assets/anticheat-steam.json` (a snapshot; the app
-also downloads the current list weekly) so Parallax never offers them. MIT. https://github.com/AreWeAntiCheatYet/AreWeAntiCheatYet
+also downloads the current list weekly) so PortXR never offers them. MIT. https://github.com/AreWeAntiCheatYet/AreWeAntiCheatYet
 
     Copyright (c) 2021 Starz0r, Curve
 
@@ -81,11 +81,11 @@ also downloads the current list weekly) so Parallax never offers them. MIT. http
     TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
-## Rust crates in Parallax.exe
+## Rust crates in PortXR.exe
 Statically linked. egui, eframe, egui_extras, egui-winit, winit, glow, glutin, accesskit (MIT OR Apache-2.0); image, serde, serde_json, sha2, ureq, rustls, zip, dirs, winreg, rfd, windows-sys (MIT OR Apache-2.0, or MIT); ring (ISC and BSD-style); webpki-roots (CDLA-Permissive-2.0). Full list with versions: `app/Cargo.lock`.
 
 ## Anton font
-Bundled in Parallax.exe as the headline face. SIL Open Font License 1.1.
+Bundled in PortXR.exe as the headline face. SIL Open Font License 1.1.
 
     Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)
     
@@ -182,6 +182,6 @@ Bundled in Parallax.exe as the headline face. SIL Open Font License 1.1.
     OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ## Barlow font
-Bundled in Parallax.exe as the body and label faces (Regular and SemiBold). SIL Open Font License 1.1, text as under Anton above.
+Bundled in PortXR.exe as the body and label faces (Regular and SemiBold). SIL Open Font License 1.1, text as under Anton above.
 
     Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)

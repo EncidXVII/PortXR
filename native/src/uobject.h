@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // Unreal's object system, read from the game's memory: the global object list, names, classes, properties and
 // functions, and ProcessEvent to call any UFunction. Nothing is hard-coded per version: each layout (UE 4.25 to 5.x) is

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Keeps test windows off the user's main screen while a run is in progress.
 
 Games and SteamVR open windows wherever they like (SteamVR's status window, the null HMD window, players that ignore

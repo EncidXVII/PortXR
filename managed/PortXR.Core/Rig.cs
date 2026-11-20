@@ -1,9 +1,12 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Parallax
+namespace PortXR
 {
     internal partial class Rig : MonoBehaviour
     {
@@ -120,7 +123,7 @@ namespace Parallax
             CreateEyeTargets();
             for (int e = 0; e < 2; e++)
             {
-                var go = new GameObject("Parallax Eye " + e);
+                var go = new GameObject("PortXR Eye " + e);
                 DontDestroyOnLoad(go);
                 Eyes[e] = go.AddComponent<Camera>();
                 Eyes[e].enabled = false;
@@ -187,7 +190,7 @@ namespace Parallax
                 // 32-bit depth: with the near plane of a weapon camera and a far plane of a kilometre, 24 bits z-fight.
                 eyeTargets[e] = new RenderTexture(w, h, 32, format, RenderTextureReadWrite.Default)
                 {
-                    name = "Parallax Eye " + e,
+                    name = "PortXR Eye " + e,
                     // The D3D12 path reads the camera's own target, which must not be multisampled.
                     antiAliasing = D3D12 ? 1 : Mathf.Max(1, QualitySettings.antiAliasing),
                 };
@@ -407,7 +410,7 @@ namespace Parallax
                 if (refreshExtras) CameraExtras.Copy(cam, eye);
                 if (windowShown)
                 {
-                    // Parallax: the window's two cameras, beside the game camera along its right, through the core's frustum.
+                    // PortXR: the window's two cameras, beside the game camera along its right, through the core's frustum.
                     float offset = e == 0 ? Out.windowOffsetL : Out.windowOffsetR;
                     eye.transform.SetPositionAndRotation(camT2.position + camT2.rotation * new Vector3(offset, 0, 0), camT2.rotation);
                     SetProjection(eye, e == 0 ? Out.windowFovL : Out.windowFovR);
@@ -465,7 +468,7 @@ namespace Parallax
                 var o = others[stack[k]];
                 if (k == passes.Count)
                 {
-                    var go = new GameObject("Parallax Eye " + e + "." + k);
+                    var go = new GameObject("PortXR Eye " + e + "." + k);
                     DontDestroyOnLoad(go);
                     var c = go.AddComponent<Camera>();
                     eyeIds.Add(c.GetInstanceID());
@@ -511,7 +514,7 @@ namespace Parallax
         RenderTexture[] windowTargets = new RenderTexture[2];
         readonly IntPtr[] windowPtrs = new IntPtr[2];
         bool windowShown;
-        readonly Optional focusRay = new Optional("Parallax focus");
+        readonly Optional focusRay = new Optional("PortXR focus");
 
         internal bool WindowShown => windowShown;
         internal float Focus => Out.focus;
@@ -560,7 +563,7 @@ namespace Parallax
                     if (Eyes[e] != null && Eyes[e].targetTexture == windowTargets[e]) Eyes[e].targetTexture = null;
                     Destroy(windowTargets[e]);
                 }
-                windowTargets[e] = new RenderTexture(w, h, 32, eye.format, RenderTextureReadWrite.Default) { name = "Parallax Window " + e, antiAliasing = eye.antiAliasing };
+                windowTargets[e] = new RenderTexture(w, h, 32, eye.format, RenderTextureReadWrite.Default) { name = "PortXR Window " + e, antiAliasing = eye.antiAliasing };
                 windowTargets[e].Create();
                 windowPtrs[e] = windowTargets[e].GetNativeTexturePtr();
             }
@@ -612,7 +615,7 @@ namespace Parallax
             });
             if (native && !D3D12) GL.IssuePluginEvent(renderEvent, Native.EvCaptureBackbuffer);
             bool window = eyesRendered && windowShown, stereo = eyesRendered && !window;
-            // The theater screen and the Parallax window still need eye images for the hand menu and the beam:
+            // The theater screen and the PortXR window still need eye images for the hand menu and the beam:
             // transparent ones, drawn over the screen.
             bool layered = stereo || window || ((Out.watch != 0 || Out.beam != 0) && !VideoWatch.Playing());
             var f = new Frame { stereo = layered ? 1 : 0, quad = 1, quadFromBackbuffer = native ? 1 : 0, quadAlpha = stereo || window ? 1 : 0 };
@@ -709,7 +712,7 @@ namespace Parallax
             if (uiTarget != null) Destroy(uiTarget);
             uiTarget = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default)
             {
-                name = "Parallax UI",
+                name = "PortXR UI",
             };
             uiTarget.Create();
             uiPtr = uiTarget.GetNativeTexturePtr();
@@ -819,7 +822,7 @@ namespace Parallax
         {
             var rt = cam.targetTexture;
             if (rt == null) return true;
-            if (cam.orthographic || cam.name.StartsWith("Parallax")) return false;
+            if (cam.orthographic || cam.name.StartsWith("PortXR")) return false;
             float screen = (float)Screen.width / Mathf.Max(1, Screen.height), aspect = (float)rt.width / Mathf.Max(1, rt.height);
             return Mathf.Abs(aspect - screen) < screen * 0.1f;
         }
@@ -891,7 +894,7 @@ namespace Parallax
             {
                 if (GameCam.targetTexture == sink) GameCam.targetTexture = null;
                 if (sink != null) Destroy(sink);
-                sink = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32) { name = "Parallax Sink" };
+                sink = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32) { name = "PortXR Sink" };
             }
             if (GameCam.targetTexture == null) GameCam.targetTexture = sink;
             screenCleared = false;

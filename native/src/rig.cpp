@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "rig.h"
 #include "settings.h"
 #include <algorithm>
@@ -406,9 +409,9 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surf
     }
 }
 
-// The wrist watch, as the plugin's WristGlance (and DesktopVR's clock): the back of the left hand turned toward the
+// The wrist watch, as the plugin's WristGlance (and WristXR's clock): the back of the left hand turned toward the
 // eyes, close to the face, with the eyes on it. Shows wide, stays wider, held at least 0.3 s so it never blinks at the
-// edge. The angles are DesktopVR's: it shows with the face within about 66 degrees of the eyes and the watch within 52
+// edge. The angles are WristXR's: it shows with the face within about 66 degrees of the eyes and the watch within 52
 // degrees of where the head looks, and stays until those pass 81 and 70. Lit when turned toward the eyes or under the
 // laser; then the right trigger opens the VR menu (returns true).
 bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2]) {

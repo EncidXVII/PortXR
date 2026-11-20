@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "gpu.h"
 #include <wrl/client.h>
 #include <algorithm>
@@ -719,7 +722,7 @@ PRX_API int32_t prx_init(const char* appName, int32_t api, int32_t* recommendedW
     if (g_fbPassthrough) enabled.push_back(XR_FB_PASSTHROUGH_EXTENSION_NAME);
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strncpy_s(ici.applicationInfo.applicationName, appName, _TRUNCATE);
-    strcpy_s(ici.applicationInfo.engineName, "Parallax");
+    strcpy_s(ici.applicationInfo.engineName, "PortXR");
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     ici.enabledExtensionCount = (uint32_t)enabled.size();
     ici.enabledExtensionNames = enabled.data();

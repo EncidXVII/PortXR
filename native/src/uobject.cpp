@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Unreal's object system read from memory (uobject.h). How each part is found:
 // - Names: the name pool's block list, whose first block starts with the entries "None" and "ByteProperty".
 // - Objects: the chunked object array (64K items a chunk), told by its counts; an item's object holds its own index.

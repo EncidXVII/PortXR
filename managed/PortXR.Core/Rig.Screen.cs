@@ -1,6 +1,9 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // The UI panel, the Theater and Parallax screen, its handles and the laser pointer that works them are the core's
     // (native/src/rig.cpp); here, what tests and diagnostics read of them, and the pointer's dot on the game's UI.

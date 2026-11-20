@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "common.h"
 #include "gesture.h"
 #include <MinHook.h>

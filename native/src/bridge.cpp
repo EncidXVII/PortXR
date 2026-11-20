@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "bridge.h"
 #include "common.h"
 #include "settings.h"
@@ -354,7 +357,7 @@ bool pad(Pad& out) {
     return true;
 }
 
-// While aiming, where the game camera aims (what it hits, else 40 m), seen from each eye: Parallax's reticle there, or
+// While aiming, where the game camera aims (what it hits, else 40 m), seen from each eye: PortXR's reticle there, or
 // the UI panel's middle (the game's own crosshair) moved there, as the Unity plugin does.
 void crosshair(PrxFrame& f, bool game) {
     using mathx::V3;

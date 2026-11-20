@@ -1,5 +1,8 @@
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Godot on the shared VR core: fixture G1 exported as a game (the Godot 4.5 binary beside G1.pck; a pack needs no
-export templates), VR added by the app as for a player (dist\\Parallax.exe install: the ParallaxVR folder and
+export templates), VR added by the app as for a player (dist\\PortXR.exe install: the PortXR folder and
 override.cfg), Direct3D 12, SteamVR null driver. Checks what the compositor shows the test headset and the shared
 behaviour through the adapter's test channel, then that Remove VR leaves the game folder byte-identical. No real
 keyboard or mouse input: controllers are faked in the core and the gamepad goes into the game.
@@ -23,26 +26,26 @@ from godot import GODOT, G1, ROOT, headset_view
 OUT = os.path.join(run.OUT, "g1core")
 GAME = os.path.join(OUT, "game")
 EXE = os.path.join(GAME, "G1.exe")
-PACK = os.path.join(GAME, "ParallaxVR")
+PACK = os.path.join(GAME, "PortXR")
 PORT = 47812
 # Game scripts for G1 (the core's Lua host keys them by the exe's name); removed after the run.
-SCRIPTS = os.path.join(os.environ["APPDATA"], "Parallax", "scripts", "G1")
+SCRIPTS = os.path.join(os.environ["APPDATA"], "PortXR", "scripts", "G1")
 SCRIPT_FILES = {
     "harness_ok.lua": """
 local frames = 0
-parallax.log("harness sandbox io=" .. tostring(io) .. " os=" .. tostring(os) .. " load=" .. tostring(load))
-function on_scene(name) parallax.log("harness scene=" .. name .. " player=" .. tostring(parallax.find("Player")) .. " cam=" .. tostring(parallax.camera())) end
-function on_camera(name) parallax.log("harness camera=" .. name) end
+portxr.log("harness sandbox io=" .. tostring(io) .. " os=" .. tostring(os) .. " load=" .. tostring(load))
+function on_scene(name) portxr.log("harness scene=" .. name .. " player=" .. tostring(portxr.find("Player")) .. " cam=" .. tostring(portxr.camera())) end
+function on_camera(name) portxr.log("harness camera=" .. name) end
 function on_frame(dt)
   frames = frames + 1
   if frames == 60 then
-    local x, y, z = parallax.position("Player")
-    parallax.log(string.format("harness frame player=%.2f,%.2f,%.2f class=%s mode=%s", x, y, z,
-      parallax.call("Player", "get_class"), parallax.get("Mode")))
+    local x, y, z = portxr.position("Player")
+    portxr.log(string.format("harness frame player=%.2f,%.2f,%.2f class=%s mode=%s", x, y, z,
+      portxr.call("Player", "get_class"), portxr.get("Mode")))
   end
 end
 """,
-    "harness_bad.lua": "function on_frame(dt) parallax.position('NoSuchNode') end",
+    "harness_bad.lua": "function on_frame(dt) portxr.position('NoSuchNode') end",
     "harness_loop.lua": "while true do end",
 }
 results = []
@@ -111,13 +114,13 @@ def main():
     pristine = run.tree_hash(GAME)
     subprocess.run([run.APP, "install", GAME], check=True)
     # This game's settings, as the app writes them on Add VR; the tests change them through the core.
-    with open(os.path.join(PACK, "parallax.cfg"), "w") as f:
+    with open(os.path.join(PACK, "portxr.cfg"), "w") as f:
         f.write("[Controls]\nMode = Gamepad\nHeadAim = Off\nAimWith = Head\n\n[Comfort]\nTurning = Smooth\n\n[Menu]\nFirstRun = false\n")
     screen = steamvr.secondary_monitor() if args.secondary else None
     _, hmd = run.placement(secondary=args.secondary)
     x, y = (screen[0] + 40, screen[1] + 40) if screen else (40, 40)
-    env = dict(os.environ, XR_RUNTIME_JSON=steamvr.runtime_json(), PARALLAX_TEST_PORT=str(PORT),
-               PARALLAX_LOG_FILE=os.path.join(OUT, "core.log"))
+    env = dict(os.environ, XR_RUNTIME_JSON=steamvr.runtime_json(), PORTXR_TEST_PORT=str(PORT),
+               PORTXR_LOG_FILE=os.path.join(OUT, "core.log"))
     log = os.path.join(OUT, "stdout.log")
     names = {"g1.exe"} | {p + ".exe" for p in steamvr.PROCESSES}
     os.makedirs(SCRIPTS, exist_ok=True)
@@ -142,9 +145,9 @@ def main():
                 if "\x01" in core:
                     missing.append("no placeholder names in callbacks")
                 # The same lines in the game's own log, which the app's Open log shows.
-                game_log = os.path.join(PACK, "parallax.log")
+                game_log = os.path.join(PACK, "portxr.log")
                 if "harness_bad.lua stopped" not in (open(game_log, encoding="utf-8", errors="replace").read() if os.path.exists(game_log) else ""):
-                    missing.append("ParallaxVR/parallax.log")
+                    missing.append("PortXR/portxr.log")
                 # The game camera from the settings (the VR menu's pick, the app's Game camera), followed while running.
                 ch.cmd("set Game/CameraName Splash")
                 try:
@@ -198,7 +201,7 @@ def main():
                 check("head aim", abs(angle(turned, start)) > 5, f"camera turned {angle(start, turned):+.0f}, steered back to {angle(start, s['heading']):+.1f} deg of the head")
 
                 # Crosshair, the core's as in Unity games: while aiming, the UI's middle on its own layer at the aim
-                # point (Game's), or the theme's reticle drawn into the eyes there (Parallax's).
+                # point (Game's), or the theme's reticle drawn into the eyes there (PortXR's).
                 cap = os.path.join(OUT, "aim")
                 shutil.rmtree(cap, ignore_errors=True)
                 os.makedirs(cap)
@@ -219,7 +222,7 @@ def main():
                 time.sleep(1)
                 lime = reticle("aim_lime.png")
                 ch.cmd("set Controls/Crosshair Game")
-                check("crosshair", patch and lime > off, f"Game's: UI middle layer {'captured' if patch else 'missing'}; Parallax's: {lime} reticle pixels ({off} with it off)")
+                check("crosshair", patch and lime > off, f"Game's: UI middle layer {'captured' if patch else 'missing'}; PortXR's: {lime} reticle pixels ({off} with it off)")
 
                 # Snap turning: a flick of the right stick turns the body by 30 degrees (aim on: the body turns, aim follows).
                 ch.cmd("set Comfort/Turning Snap30")
@@ -307,7 +310,7 @@ def main():
                 ch.cmd("set View/Display Parallax")
                 ch.wait(lambda s: s["mode"] == 1, 5, "Parallax")
                 time.sleep(2)
-                img = headset_view(os.path.join(OUT, "parallax.png"))
+                img = headset_view(os.path.join(OUT, "portxr.png"))
                 red, green = colours(img) if img is not None else (0, 0)
                 ch.cmd("capture " + cap)
                 time.sleep(1)
@@ -316,7 +319,7 @@ def main():
                 if os.path.exists(wl) and os.path.exists(wr):
                     a_, b_ = load_bmp(wl), load_bmp(wr)
                     differ = float(abs(a_[..., :3].astype(int) - b_[..., :3].astype(int)).mean())
-                check("parallax", red > 0.001 and green > 0.001 and differ > 0.5,
+                check("portxr", red > 0.001 and green > 0.001 and differ > 0.5,
                       f"the window on the screen: red {red:.2%}, green {green:.2%}; the eyes' windows differ by {differ:.2f}")
 
                 # Screen handles: Theater, the menu's Screen set to Unlocked, the bar dragged to the right, then RESET.

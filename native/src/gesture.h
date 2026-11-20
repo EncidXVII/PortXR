@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // Per-button gestures for keyboard + mouse mode: press, double press, hold, and grip + button combos. Pure logic
 // (no Windows calls) so tests can drive it with their own clock.

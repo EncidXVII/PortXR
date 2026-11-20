@@ -1,4 +1,7 @@
-# Parallax in Godot 4.3+ games: the engine adapter for the shared VR core (parallax_godot.dll, a GDExtension loaded at
+# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
+# PortXR in Godot 4.3+ games: the engine adapter for the shared VR core (portxr_godot.dll, a GDExtension loaded at
 # runtime from beside this script). override.cfg beside the game's exe loads this script as an autoload and puts Godot
 # on Direct3D 12; Godot's own OpenXR stays off, as the core owns the VR session as it does in Unity games.
 #
@@ -7,10 +10,10 @@
 # layers are the core's (native/src: view, settings, xr), shared with Unity and every engine after it.
 extends Node
 
-const LOG := "Parallax: "
+const LOG := "PortXR: "
 
 var core: RefCounted
-var _log_file: FileAccess  # ParallaxVR/parallax.log, which the app opens (Open log)
+var _log_file: FileAccess  # PortXR/portxr.log, which the app opens (Open log)
 var _views: Array[SubViewport] = []
 var _cams: Array[Camera3D] = []
 var _attached := false
@@ -59,16 +62,16 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	process_priority = 10000  # after the game has moved its camera this frame
 	var dir := (get_script() as Script).resource_path.get_base_dir()
-	_log_file = FileAccess.open(dir.path_join("parallax.log"), FileAccess.WRITE)
-	GDExtensionManager.load_extension(dir.path_join("parallax.gdextension"))
-	if not ClassDB.class_exists("ParallaxCore"):
+	_log_file = FileAccess.open(dir.path_join("portxr.log"), FileAccess.WRITE)
+	GDExtensionManager.load_extension(dir.path_join("portxr.gdextension"))
+	if not ClassDB.class_exists("PortXRCore"):
 		_say(str("the VR core did not load; the game stays flat"))
 		return
 	if RenderingServer.get_current_rendering_driver_name() != "d3d12":
 		_say(str("VR needs Direct3D 12 (this game runs ", RenderingServer.get_current_rendering_driver_name(), "); the game stays flat"))
 		return
-	core = ClassDB.instantiate("ParallaxCore")
-	core.open_settings(dir.path_join("parallax.cfg"))
+	core = ClassDB.instantiate("PortXRCore")
+	core.open_settings(dir.path_join("portxr.cfg"))
 	var info: Dictionary = core.start(ProjectSettings.get_setting("application/config/name", "Godot game"))
 	_eye_size = Vector2i(info["width"], info["height"])
 	_log()
@@ -95,7 +98,7 @@ func _ready() -> void:
 	RenderingServer.frame_post_draw.connect(_after_draw)
 	core.set_window(DisplayServer.window_get_native_handle(DisplayServer.WINDOW_HANDLE))
 	_pad_game = _reads_pad()
-	var port := OS.get_environment("PARALLAX_TEST_PORT")
+	var port := OS.get_environment("PORTXR_TEST_PORT")
 	if port != "":
 		_udp = PacketPeerUDP.new()
 		_udp.bind(int(port), "127.0.0.1")
@@ -186,7 +189,7 @@ func _after_draw() -> void:
 		core.submit_view(left, _views[1].get_texture().get_rid(), root.get_texture().get_rid(), _ui_aspect(root))
 
 
-# The game's own log and Parallax's, where script errors land too.
+# The game's own log and PortXR's, where script errors land too.
 func _say(text: String) -> void:
 	print(LOG, text)
 	if _log_file != null:
@@ -473,7 +476,7 @@ func _button(button: int, pressed: bool) -> void:
 	Input.parse_input_event(e)
 
 
-# Tests: PARALLAX_TEST_PORT opens a UDP channel, as the Unity plugin's: stats, set, controllers, turn.
+# Tests: PORTXR_TEST_PORT opens a UDP channel, as the Unity plugin's: stats, set, controllers, turn.
 func _serve_tests() -> void:
 	if _udp == null:
 		return

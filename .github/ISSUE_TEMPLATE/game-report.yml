@@ -39,4 +39,4 @@ body:
       description: What you did and what you saw
   - type: markdown
     attributes:
-      value: Attach the zip from **Export logs** in Parallax.exe (select the game, press Export logs).
+      value: Attach the zip from **Export logs** in PortXR.exe (select the game, press Export logs).

@@ -1,4 +1,7 @@
-﻿# Builds native core, plugins and app, then assembles dist\: Parallax.exe plus the payloads it copies into games
+﻿# Copyright (C) 2026 EncidXVII
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Builds native core, plugins and app, then assembles dist\: PortXR.exe plus the payloads it copies into games
 # (payload\ = BepInEx 5 for Mono games, payload-il2cpp\ = BepInEx 6 for IL2CPP games).
 param([string]$Config = "Release")
 $root = $PSScriptRoot
@@ -28,22 +31,22 @@ cmake -S "$root\native" -B "$build\native" -A x64 -Wno-author -Wno-deprecated | 
 if ($LASTEXITCODE) { throw "native configure failed" }
 cmake --build "$build\native" --config $Config
 if ($LASTEXITCODE) { throw "native build failed" }
-dotnet build "$root\managed\Parallax.Core" -c $Config -o "$build\managed"
+dotnet build "$root\managed\PortXR.Core" -c $Config -o "$build\managed"
 if ($LASTEXITCODE) { throw "plugin build failed" }
 # The IL2CPP plugin compiles against interop assemblies BepInEx generates from fixture F3 (see README).
 $il2cpp = Test-Path "$build\deps\interop-f3\UnityEngine.CoreModule.dll"
 if ($il2cpp) {
-    dotnet build "$root\managed\Parallax.Core.Il2Cpp" -c $Config -o "$build\managed-il2cpp"
+    dotnet build "$root\managed\PortXR.Core.Il2Cpp" -c $Config -o "$build\managed-il2cpp"
     if ($LASTEXITCODE) { throw "IL2CPP plugin build failed" }
 } else { Write-Warning "build\deps\interop-f3 missing: skipping the IL2CPP payload" }
 cargo build --release --manifest-path "$root\app\Cargo.toml" --target-dir "$build\app"
 if ($LASTEXITCODE) { throw "app build failed" }
 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
-$native = "$build\native\$Config\parallax_xr.dll", "$build\native\$Config\openxr_loader.dll"
+$native = "$build\native\$Config\portxr_xr.dll", "$build\native\$Config\openxr_loader.dll"
 function Payload($name, $loader, $pluginDll) {
     $payload = Join-Path $dist $name
-    $plugin = Join-Path $payload "BepInEx\plugins\Parallax"
+    $plugin = Join-Path $payload "BepInEx\plugins\PortXR"
     New-Item -ItemType Directory -Force $payload | Out-Null
     Copy-Item "$build\deps\$loader\*" $payload -Recurse
     New-Item -ItemType Directory -Force $plugin | Out-Null
@@ -52,25 +55,25 @@ function Payload($name, $loader, $pluginDll) {
     Copy-Item (@($pluginDll, (Join-Path (Split-Path $pluginDll) "MoonSharp.Interpreter.dll")) + $native) $plugin
     return $payload
 }
-$mono = Payload "payload" "bepinex5" "$build\managed\Parallax.Core.dll"
+$mono = Payload "payload" "bepinex5" "$build\managed\PortXR.Core.dll"
 # The loader's own GameObject stays hidden so games that scan the scene do not trip over it.
 New-Item -ItemType Directory -Force "$mono\BepInEx\config" | Out-Null
 Set-Content "$mono\BepInEx\config\BepInEx.cfg" "[Chainloader]`r`nHideManagerGameObject = true`r`n" -Encoding ascii
 if ($il2cpp) {
-    $il = Payload "payload-il2cpp" "bepinex6" "$build\managed-il2cpp\Parallax.Core.dll"
+    $il = Payload "payload-il2cpp" "bepinex6" "$build\managed-il2cpp\PortXR.Core.dll"
     # BepInEx 6 opens a console window by default; it can take focus from the game, which then gets no keys or clicks.
     New-Item -ItemType Directory -Force "$il\BepInEx\config" | Out-Null
     Set-Content "$il\BepInEx\config\BepInEx.cfg" "[Logging.Console]`r`nEnabled = false`r`n" -Encoding ascii
 }
-Copy-Item "$build\app\release\Parallax.exe" $dist
-# Theater for games Parallax cannot go inside: the window-capture host and the VR core it drives.
+Copy-Item "$build\app\release\PortXR.exe" $dist
+# Theater for games PortXR cannot go inside: the window-capture host and the VR core it drives.
 New-Item -ItemType Directory -Force "$dist\theater" | Out-Null
-Copy-Item (@("$build\native\$Config\ParallaxTheater.exe") + $native) "$dist\theater"
-# Godot 4.3+ games: the VR core as a GDExtension, its OpenXR loader and the adapter script (copied into a ParallaxVR folder).
+Copy-Item (@("$build\native\$Config\PortXRTheater.exe") + $native) "$dist\theater"
+# Godot 4.3+ games: the VR core as a GDExtension, its OpenXR loader and the adapter script (copied into a PortXR folder).
 New-Item -ItemType Directory -Force "$dist\godot" | Out-Null
-Copy-Item @("$build\native\$Config\parallax_godot.dll", "$build\native\$Config\openxr_loader.dll", "$root\godot\core\parallax.gd", "$root\godot\core\parallax.gdextension") "$dist\godot"
+Copy-Item @("$build\native\$Config\portxr_godot.dll", "$build\native\$Config\openxr_loader.dll", "$root\godot\core\portxr.gd", "$root\godot\core\portxr.gdextension") "$dist\godot"
 # Unreal games: the VR core as dwmapi.dll and its OpenXR loader, copied beside the game's Shipping exe.
 New-Item -ItemType Directory -Force "$dist\unreal" | Out-Null
 Copy-Item @("$build\native\$Config\dwmapi.dll", "$build\native\$Config\openxr_loader.dll") "$dist\unreal"
-Copy-Item "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
+Copy-Item "$root\LICENSE", "$root\NOTICE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
 Write-Host "dist ready: $dist"

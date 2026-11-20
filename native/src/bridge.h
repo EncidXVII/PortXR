@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // The VR core as plain functions for engine adapters that should not see Windows, Direct3D or OpenXR headers (the
 // Godot extension). Poses are OpenXR tracking space: metres, Y up, -Z forward; quaternions x y z w.
@@ -25,7 +28,7 @@ void submit_eyes(void* left, void* right, const Pose eyes[2], const Fov fovs[2],
 std::string poll_log();
 
 // --- The shared behaviour (view.h, settings.h) -------------------------------------------------------------------
-// This game's settings file; the all-games defaults come from %APPDATA%\Parallax\defaults.cfg.
+// This game's settings file; the all-games defaults come from %APPDATA%\PortXR\defaults.cfg.
 void settings_open(const std::wstring& gameFile);
 std::string setting(const char* section, const char* key, const char* fallback);
 void set_setting(const char* section, const char* key, const std::string& value);
@@ -40,7 +43,7 @@ struct Game {
     bool cursorFree = false, padGame = false, carried = false, menuOpen = false;
     float uiAspect = 16.f / 9.f;  // the game's UI, width / height
     float fovY = 1.f, nearClip = 0.05f;  // the game camera's vertical field of view (radians) and near plane
-    float focus = 0;                     // Parallax: distance to what sits at the middle of the view (0: unknown)
+    float focus = 0;                     // PortXR: distance to what sits at the middle of the view (0: unknown)
     float up[3] = {0, 1, 0};             // the player's up (a body under the game's own gravity), world space
     float sceneScale = 1;                // 2D scenes: the player scaled so the play plane sits 2.5 m off
     float eyeOffset[3] = {};             // a game script's nudge to the eyes, metres in tracking space

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,17 +11,17 @@ using UnityEngine;
 using Il2CppInterop.Runtime;
 #endif
 
-namespace Parallax
+namespace PortXR
 {
     // Per-game Lua scripts, for what the automatic handling gets wrong in one game: pick a camera, hide or move an
-    // object, flip a game setting, nudge the eyes. They live in %APPDATA%\Parallax\scripts\<game exe name>\*.lua (the
+    // object, flip a game setting, nudge the eyes. They live in %APPDATA%\PortXR\scripts\<game exe name>\*.lua (the
     // app imports them there), so they survive an uninstall, and reload when a file changes. Sandboxed: no files, no
-    // OS, only the `parallax` table (see SCRIPTING.md). A script may define on_frame(dt), on_scene(name) and
+    // OS, only the `portxr` table (see SCRIPTING.md). A script may define on_frame(dt), on_scene(name) and
     // on_camera(name); one that fails is switched off with one log line.
     internal sealed class Scripts
     {
         public static string Folder => Path.Combine(Path.Combine(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Parallax"), "scripts"),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PortXR"), "scripts"),
             System.Diagnostics.Process.GetCurrentProcess().ProcessName);
 
         readonly Rig rig;
@@ -86,7 +89,7 @@ namespace Parallax
             foreach (var file in files)
             {
                 var s = new Loaded { Name = Path.GetFileName(file), Lua = new Script(CoreModules.Preset_SoftSandbox) };
-                s.Lua.Globals["parallax"] = Api(s.Lua);
+                s.Lua.Globals["portxr"] = Api(s.Lua);
                 try
                 {
                     s.Lua.DoString(File.ReadAllText(file), null, s.Name);
@@ -183,7 +186,7 @@ namespace Parallax
         static BepInEx.Configuration.ConfigEntryBase Setting(string key)
         {
             var def = Settings.File.Keys.FirstOrDefault(d => d.Key == key);
-            if (def == null) throw new ScriptRuntimeException("no Parallax setting named " + key);
+            if (def == null) throw new ScriptRuntimeException("no PortXR setting named " + key);
             return Settings.File[def];
         }
 

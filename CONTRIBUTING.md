@@ -2,7 +2,7 @@
 
 Thanks for helping. The most useful contributions, roughly in order:
 
-1. **Game reports.** Tried a game? Open a [game report](https://github.com/EncidXVII/Parallax/issues/new?template=game-report.yml)
+1. **Game reports.** Tried a game? Open a [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml)
    with the zip from **Export logs**, whether it worked or not. Working games go into [COMPAT.md](COMPAT.md).
 2. **Per-game scripts.** A short Lua script often fixes one game (camera choice, hidden objects, eye offset). See
    [SCRIPTING.md](SCRIPTING.md); share it in the game's report or as a pull request.
@@ -11,7 +11,7 @@ Thanks for helping. The most useful contributions, roughly in order:
 
 ## Ground rules
 
-- **Offline single-player games only.** Parallax refuses anti-cheat games on purpose. Changes that weaken those
+- **Offline single-player games only.** PortXR refuses anti-cheat games on purpose. Changes that weaken those
   checks, or reports and scripts for multiplayer or anti-cheat games, are not accepted.
 - **Uninstall stays byte-identical.** Anything the installer adds to a game folder must be recorded in the receipt
   and removed by **Remove VR**. The harness checks this.
@@ -21,10 +21,10 @@ Thanks for helping. The most useful contributions, roughly in order:
 
 | Folder | What | Language |
 | --- | --- | --- |
-| `native/` | `parallax_xr.dll`: OpenXR session, D3D11/D3D12 swapchain copies, Present hook, input emulation | C++20 |
-| `managed/Parallax.Core/` | BepInEx plugin: eye cameras, UI panel, VR menu, theater and Parallax screen | C# |
-| `managed/Parallax.Core.Il2Cpp/` | The same sources built for BepInEx 6 / IL2CPP games | C# |
-| `app/` | `Parallax.exe`: library, settings, install and uninstall | Rust (egui) |
+| `native/` | `portxr_xr.dll`: OpenXR session, D3D11/D3D12 swapchain copies, Present hook, input emulation | C++20 |
+| `managed/PortXR.Core/` | BepInEx plugin: eye cameras, UI panel, VR menu, theater and Parallax screen | C# |
+| `managed/PortXR.Core.Il2Cpp/` | The same sources built for BepInEx 6 / IL2CPP games | C# |
+| `app/` | `PortXR.exe`: library, settings, install and uninstall | Rust (egui) |
 | `harness/` | Automated tests against SteamVR's null driver | Python |
 | `fixtures/` | Unity test games, generated from `fixtures/shared` | Unity / C# |
 
@@ -38,7 +38,7 @@ Needs Visual Studio 2022 or later Build Tools (C++ and .NET), CMake 3.24+, .NET 
 .\build.ps1
 ```
 
-`dist\` holds `Parallax.exe` and both payloads. Without the IL2CPP interop assemblies (see below) the build skips the
+`dist\` holds `PortXR.exe` and both payloads. Without the IL2CPP interop assemblies (see below) the build skips the
 IL2CPP payload with a warning; that is fine for work on the app or on Mono games. For the app alone:
 `cargo run --manifest-path app\Cargo.toml`.
 
@@ -72,3 +72,17 @@ Before a pull request:
   When an extra feature needs a call that may be missing, guard it so it switches off with a log line instead of
   breaking the game.
 - User-facing text is plain and short, in the words the app already uses (**Add VR**, **Remove VR**, **Play in VR**).
+
+## Rights in what you contribute
+
+PortXR is the work of [EncidXVII](https://github.com/EncidXVII), published under GPL-3.0-only with the terms in [NOTICE](NOTICE). So that it stays one
+work with one owner who can answer for all of it:
+
+- You keep the copyright in what you write.
+- By opening a pull request you license your contribution to the project under GPL-3.0-only, and you give EncidXVII a
+  perpetual, worldwide, royalty-free right to use, change and relicense it as part of PortXR (for example to move to a
+  later license version or to publish in a store that needs other terms).
+- You confirm that you wrote it or have the right to submit it, as in the
+  [Developer Certificate of Origin 1.1](https://developercertificate.org/): add `Signed-off-by: Your Name <email>`
+  to your commits (`git commit -s`).
+- Contributors are named in the changelog and the release notes.

@@ -23,7 +23,7 @@ jobs:
         run: ./release.ps1 -MonoOnly
       - uses: actions/upload-artifact@v4
         with:
-          name: parallax
+          name: portxr
           path: release/*
 
   # The Linux app installs the same Windows payload: games run it under Proton.
@@ -35,8 +35,8 @@ jobs:
         run: cargo build --release --manifest-path app/Cargo.toml
       - uses: actions/upload-artifact@v4
         with:
-          name: parallax-linux-app
-          path: app/target/release/Parallax
+          name: portxr-linux-app
+          path: app/target/release/PortXR
 
   linux-pack:
     needs: [build, linux]
@@ -45,11 +45,11 @@ jobs:
       - uses: actions/download-artifact@v4
       - name: Swap the Windows app for the Linux one
         run: |
-          zip=$(ls parallax/*.zip | head -1)
-          mkdir pkg && unzip -q "$zip" -d pkg && rm pkg/Parallax.exe
-          install -m 755 parallax-linux-app/Parallax pkg/Parallax
+          zip=$(ls portxr/*.zip | head -1)
+          mkdir pkg && unzip -q "$zip" -d pkg && rm pkg/PortXR.exe
+          install -m 755 portxr-linux-app/PortXR pkg/PortXR
           tar -czf "$(basename "$zip" .zip)-linux.tar.gz" -C pkg .
       - uses: actions/upload-artifact@v4
         with:
-          name: parallax-linux
+          name: portxr-linux
           path: "*-linux.tar.gz"

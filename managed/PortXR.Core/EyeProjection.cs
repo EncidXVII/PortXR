@@ -1,7 +1,10 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #if !IL2CPP
 using UnityEngine;
 
-namespace Parallax
+namespace PortXR
 {
     // Post-processing v2 resets its camera's projection before culling (Lorn's Lure, Superliminal, Risk of Rain 2),
     // which would give both eyes a centred frustum at the game's FOV. Unity sends OnPreCull in component order, so this

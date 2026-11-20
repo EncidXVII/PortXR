@@ -1,15 +1,18 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // Per-game Lua scripts in the core, for the engines without their own script host (Godot, Unreal; Unity's plugin has
-// one in C#, with the same files, callbacks and `parallax` table: SCRIPTING.md). Scripts live in
-// %APPDATA%\Parallax\scripts\<game exe name>\*.lua, reload within two seconds of a change, and are sandboxed: plain Lua
-// (string, math, table, utf8) and the `parallax` table, no files, programs or network. One that fails is switched off,
+// one in C#, with the same files, callbacks and `portxr` table: SCRIPTING.md). Scripts live in
+// %APPDATA%\PortXR\scripts\<game exe name>\*.lua, reload within two seconds of a change, and are sandboxed: plain Lua
+// (string, math, table, utf8) and the `portxr` table, no files, programs or network. One that fails is switched off,
 // with one log line, until its file changes.
 #include <string>
 
 struct lua_State;
 
 namespace script {
-// The engine's own calls, added to the `parallax` table at the top of the stack (Godot: its nodes). Turns the host on;
+// The engine's own calls, added to the `portxr` table at the top of the stack (Godot: its nodes). Turns the host on;
 // without it tick() does nothing (Unity runs its own).
 void enable(void (*engineCalls)(lua_State* L));
 // Once a game frame: reloads changed files, then on_scene and on_camera when the names change, then on_frame(dt).

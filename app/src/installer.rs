@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,8 +11,8 @@ use sha2::{Digest, Sha256};
 use crate::games;
 
 const BACKUP_DIR: &str = ".vrbackup";
-const PLUGIN_DIR: &str = r"BepInEx\plugins\Parallax";
-pub const CONFIG: &str = r"BepInEx\config\parallax.core.cfg";
+const PLUGIN_DIR: &str = r"BepInEx\plugins\PortXR";
+pub const CONFIG: &str = r"BepInEx\config\portxr.core.cfg";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -74,10 +77,10 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
         return install_unreal(&game);
     }
     if force && game.caution().is_none() {
-        return Err("Parallax can't run in this game, so it can't be added anyway.".into());
+        return Err("PortXR can't run in this game, so it can't be added anyway.".into());
     }
     if game.native_vr && !force {
-        return Err("Already runs in VR on its own: start it in VR from Steam or its launcher. Parallax stays out of anything that already supports VR.".into());
+        return Err("Already runs in VR on its own: start it in VR from Steam or its launcher. PortXR stays out of anything that already supports VR.".into());
     }
     if game.stripped && !force {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
@@ -94,7 +97,7 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
 
     let payload = payload(game.il2cpp)?;
     if !payload.is_dir() {
-        return Err(format!("{} is missing next to Parallax.exe.", payload.display()).into());
+        return Err(format!("{} is missing next to PortXR.exe.", payload.display()).into());
     }
     let loader_preexisting = game_dir.join("BepInEx").is_dir();
     let mut sources = Vec::new();
@@ -124,19 +127,19 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The script Godot 4.0 to 4.2 games load for VR (godot/parallax_vr.gd), built into the app.
-const GODOT_SCRIPT: &str = include_str!("../../godot/parallax_vr.gd");
+/// The script Godot 4.0 to 4.2 games load for VR (godot/portxr_vr.gd), built into the app.
+const GODOT_SCRIPT: &str = include_str!("../../godot/portxr_vr.gd");
 
 /// The Godot adapter on the shared VR core (dist\godot: the GDExtension, the OpenXR loader, the adapter script and
-/// its .gdextension), copied into a ParallaxVR folder beside the game's exe.
-const GODOT_CORE: [&str; 4] = ["parallax_godot.dll", "openxr_loader.dll", "parallax.gd", "parallax.gdextension"];
-const GODOT_DIR: &str = "ParallaxVR";
+/// its .gdextension), copied into a PortXR folder beside the game's exe.
+const GODOT_CORE: [&str; 4] = ["portxr_godot.dll", "openxr_loader.dll", "portxr.gd", "portxr.gdextension"];
+const GODOT_DIR: &str = "PortXR";
 
 fn godot_payload() -> Result<PathBuf, Box<dyn Error>> {
     Ok(std::env::current_exe()?.with_file_name("godot"))
 }
 
-/// Godot 4: Parallax's VR core for 4.3 and later, else the engine's own OpenXR. Either way override.cfg beside the exe
+/// Godot 4: PortXR's VR core for 4.3 and later, else the engine's own OpenXR. Either way override.cfg beside the exe
 /// (which Godot reads over the game's project settings) loads our script as an autoload. An override.cfg the game
 /// already has is kept: backed up, and ours appended after it so its settings stay unless VR needs them changed.
 fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
@@ -160,27 +163,27 @@ fn install_godot(game: &games::Game) -> Result<(), Box<dyn Error>> {
     }
     let exe_dir = game.exe.parent().ok_or("no game folder")?;
     let rel = |name: &str| beside_exe(game_dir, exe_dir, name);
-    let script = exe_dir.join("parallax_vr.gd");
+    let script = exe_dir.join("portxr_vr.gd");
     let existing = fs::read_to_string(exe_dir.join("override.cfg")).unwrap_or_default();
     // Vulkan, Godot's main renderer: with OpenXR on, Godot otherwise switched one game from Vulkan to Direct3D 12.
     let ours = format!(
         "\n[xr]\n\nopenxr/enabled=true\nshaders/enabled=true\n\n[rendering]\n\nrendering_device/driver.windows=\"vulkan\"\n\n\
-         [autoload]\n\nParallaxVR=\"*{}\"\n",
+         [autoload]\n\nPortXR=\"*{}\"\n",
         script.to_string_lossy().replace('\\', "/")
     );
     let files: Vec<(String, Vec<u8>)> =
-        vec![(rel("override.cfg"), format!("{existing}{ours}").into_bytes()), (rel("parallax_vr.gd"), GODOT_SCRIPT.as_bytes().to_vec())];
+        vec![(rel("override.cfg"), format!("{existing}{ours}").into_bytes()), (rel("portxr_vr.gd"), GODOT_SCRIPT.as_bytes().to_vec())];
     install_files(game_dir, &files, Vec::new())
 }
 
 /// Godot 4.3+: the VR core runs inside the game on Direct3D 12 (Godot's own OpenXR stays off), loaded by the adapter
-/// script as a GDExtension from the ParallaxVR folder; the folder goes whole on Remove VR, with the settings in it.
+/// script as a GDExtension from the PortXR folder; the folder goes whole on Remove VR, with the settings in it.
 fn install_godot_core(game: &games::Game) -> Result<(), Box<dyn Error>> {
     let game_dir = game.dir.as_path();
     // The VR core needs Godot's Direct3D 12 renderer; a custom engine build may have left it out.
     let needle = b"D3D12CreateDevice";
     if !fs::read(&game.exe)?.windows(needle.len()).any(|w| w == needle) {
-        return Err("This game's Godot build has no Direct3D 12, which Parallax needs inside Godot games. Play it on the Theater screen instead.".into());
+        return Err("This game's Godot build has no Direct3D 12, which PortXR needs inside Godot games. Play it on the Theater screen instead.".into());
     }
     let exe_dir = game.exe.parent().ok_or("no game folder")?;
     let rel = |name: &str| beside_exe(game_dir, exe_dir, name);
@@ -189,11 +192,11 @@ fn install_godot_core(game: &games::Game) -> Result<(), Box<dyn Error>> {
     let payload = godot_payload()?;
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     for name in GODOT_CORE {
-        files.push((format!("{folder}\\{name}"), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside Parallax.exe: {e}"))?));
+        files.push((format!("{folder}\\{name}"), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside PortXR.exe: {e}"))?));
     }
-    let script = exe_dir.join(GODOT_DIR).join("parallax.gd").to_string_lossy().replace('\\', "/");
+    let script = exe_dir.join(GODOT_DIR).join("portxr.gd").to_string_lossy().replace('\\', "/");
     let existing = fs::read_to_string(exe_dir.join("override.cfg")).unwrap_or_default();
-    let ours = format!("\n[rendering]\n\nrendering_device/driver.windows=\"d3d12\"\n\n[autoload]\n\nParallaxVR=\"*{script}\"\n");
+    let ours = format!("\n[rendering]\n\nrendering_device/driver.windows=\"d3d12\"\n\n[autoload]\n\nPortXR=\"*{script}\"\n");
     files.push((rel("override.cfg"), format!("{existing}{ours}").into_bytes()));
     install_files(game_dir, &files, created)
 }
@@ -206,7 +209,7 @@ fn unreal_dir(game: &games::Game) -> Result<&Path, Box<dyn Error>> {
 }
 
 /// Unreal: the VR core goes beside the Shipping exe as dwmapi.dll, which the game loads from there before System32 (all
-/// of dwmapi's own functions forward to the real one). Its settings and log live in a ParallaxVR folder beside it, which
+/// of dwmapi's own functions forward to the real one). Its settings and log live in a PortXR folder beside it, which
 /// goes whole on Remove VR; the settings stay through an update (a reinstall).
 fn install_unreal(game: &games::Game) -> Result<(), Box<dyn Error>> {
     let game_dir = game.dir.as_path();
@@ -222,7 +225,7 @@ fn install_unreal(game: &games::Game) -> Result<(), Box<dyn Error>> {
     let payload = std::env::current_exe()?.with_file_name("unreal");
     let mut files = Vec::new();
     for name in UNREAL_CORE {
-        files.push((rel(name), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside Parallax.exe: {e}"))?));
+        files.push((rel(name), fs::read(payload.join(name)).map_err(|e| format!("{name} missing beside PortXR.exe: {e}"))?));
     }
     let created = if exe_dir.join(GODOT_DIR).exists() { Vec::new() } else { vec![rel(GODOT_DIR)] };
     install_files(game_dir, &files, created)?;
@@ -324,7 +327,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
         let current = if game.godot_core() {
             same_files(&game.exe.with_file_name(GODOT_DIR), &godot_payload()?, &GODOT_CORE)
         } else {
-            fs::read(game.exe.with_file_name("parallax_vr.gd")).unwrap_or_default() == GODOT_SCRIPT.as_bytes()
+            fs::read(game.exe.with_file_name("portxr_vr.gd")).unwrap_or_default() == GODOT_SCRIPT.as_bytes()
         };
         if current {
             return Ok(false);
@@ -361,18 +364,18 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     Ok(changed)
 }
 
-/// The game, unless it has anti-cheat or is online-only: then Parallax is taken out of it (a game update may have
+/// The game, unless it has anti-cheat or is online-only: then PortXR is taken out of it (a game update may have
 /// added anti-cheat since the install) and it is refused. Install, every update and every Play pass through here.
 // Anti-cheat is refused whatever the player chose; a multiplayer-only game only when it was not added anyway.
 fn checked(game_dir: &Path, force: bool) -> Result<games::Game, Box<dyn Error>> {
-    let game = games::inspect(game_dir).ok_or("No game Parallax can add VR to was found in this folder.")?;
+    let game = games::inspect(game_dir).ok_or("No game PortXR can add VR to was found in this folder.")?;
     let Some(b) = game.blocker else { return Ok(game) };
     if force && game.caution().is_some() {
         return Ok(game);
     }
     let removed = receipt_path(game_dir).exists() && uninstall(game_dir).is_ok();
     let why = if b == "Multiplayer only" { "No single-player mode: online play risks a ban".to_string() } else { format!("{b} found: injecting risks a ban") };
-    Err(format!("{why}, so this game is refused{}.", if removed { " and Parallax was removed from it" } else { "" }).into())
+    Err(format!("{why}, so this game is refused{}.", if removed { " and PortXR was removed from it" } else { "" }).into())
 }
 
 pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
@@ -425,7 +428,7 @@ mod tests {
     use super::*;
 
     fn game_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("parallax-installer-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("portxr-installer-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("bin")).unwrap();
         dir
@@ -437,13 +440,13 @@ mod tests {
         fs::write(dir.join("bin").join("override.cfg"), "theirs").unwrap();
         let files = vec![
             (r"bin\override.cfg".to_string(), b"theirs+ours".to_vec()),
-            (r"bin\ParallaxVR\core.dll".to_string(), b"core".to_vec()),
+            (r"bin\PortXR\core.dll".to_string(), b"core".to_vec()),
         ];
-        install_files(&dir, &files, vec![r"bin\ParallaxVR".to_string()]).unwrap();
+        install_files(&dir, &files, vec![r"bin\PortXR".to_string()]).unwrap();
         assert_eq!(fs::read(dir.join("bin").join("override.cfg")).unwrap(), b"theirs+ours");
-        assert!(dir.join("bin").join("ParallaxVR").join("core.dll").exists());
+        assert!(dir.join("bin").join("PortXR").join("core.dll").exists());
         // The game writes its own files into our folder while it runs; they go with it.
-        fs::write(dir.join("bin").join("ParallaxVR").join("log.txt"), "log").unwrap();
+        fs::write(dir.join("bin").join("PortXR").join("log.txt"), "log").unwrap();
         uninstall(&dir).unwrap();
         let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(left, ["bin"], "nothing of ours stays");
@@ -475,6 +478,6 @@ mod tests {
             assert!(victim.join("keep.txt").exists(), "{bad}");
             let _ = fs::remove_dir_all(root);
         }
-        assert!(inside(r"BepInEx\plugins\Parallax\Parallax.Core.dll") && inside("winhttp.dll"));
+        assert!(inside(r"BepInEx\plugins\PortXR\PortXR.Core.dll") && inside("winhttp.dll"));
     }
 }

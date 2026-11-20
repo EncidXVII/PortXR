@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 // dwmapi.dll's exports forwarded to the system copy: the game loads this DLL as dwmapi.dll (beside its exe).
 // Generated from Windows' dwmapi.dll; exports a newer Windows adds simply stay unforwarded.
 #pragma comment(linker, "/export:DllCanUnloadNow=C:\\Windows\\System32\\dwmapi.DllCanUnloadNow,PRIVATE")

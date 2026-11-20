@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Globalization;
 using System.Linq;
@@ -7,9 +10,9 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Parallax
+namespace PortXR
 {
-    // Harness-only control surface; exists only when PARALLAX_TEST_PORT is set.
+    // Harness-only control surface; exists only when PORTXR_TEST_PORT is set.
     internal class TestChannel
     {
         readonly UdpClient udp;
@@ -42,7 +45,7 @@ namespace Parallax
 
         public static TestChannel FromEnvironment()
         {
-            string text = Environment.GetEnvironmentVariable("PARALLAX_TEST_PORT");
+            string text = Environment.GetEnvironmentVariable("PORTXR_TEST_PORT");
             if (string.IsNullOrEmpty(text) && TestFile().Length > 0) text = TestFile()[0].Trim();
             if (!int.TryParse(text, out int port)) return null;
             try

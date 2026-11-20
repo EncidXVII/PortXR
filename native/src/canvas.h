@@ -1,3 +1,6 @@
+// Copyright (C) 2026 EncidXVII
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 // A small CPU canvas for the VR menu: rounded fills, rings and masks, text in the app's faces (Barlow, Barlow SemiBold,
 // Anton; Consolas where Windows has it) and images, into premultiplied, sRGB-encoded RGBA8. Engine- and
