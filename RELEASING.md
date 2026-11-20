@@ -71,3 +71,13 @@ back to one commit.
   a one-line pitch, the tested games, and the single-player-only rule up front.
 - Answer early comments quickly and turn game reports into COMPAT.md rows: a list of games that work is what people
   search for ("<game> VR mod").
+
+## Pictures
+
+The README's and the banner's pictures come from the real UI:
+
+- `docs/images/vr-menu.png`: `python harness/menu_shots.py OUT_DIR`, then copy `vr-menu-0.png` (the Quick tab).
+- `docs/images/library.png`: run `PortXR.exe` with `PORTXR_SHOT=docs\images\library.png` and
+  `PORTXR_SHOT_SIZE=1120x1040` set. It shows your own library, saves the picture once the covers have loaded and
+  closes; in this mode it changes nothing in any game folder.
+- `docs/images/social-preview.png`: `app\assets\brand\render-og.ps1` from the repository root.

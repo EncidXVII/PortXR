@@ -91,6 +91,11 @@ const SMALL: f32 = 14.0;
 const LABEL: f32 = 13.0;
 const REPO: &str = "EncidXVII/PortXR";
 
+/// Where PORTXR_SHOT asks for the window's picture.
+fn shot_path() -> Option<PathBuf> {
+    std::env::var_os("PORTXR_SHOT").filter(|p| !p.is_empty()).map(PathBuf::from)
+}
+
 /// The app icon for the window and taskbar (the same one the exe carries, see build.rs).
 fn window_icon() -> Option<egui::IconData> {
     let img = image::load_from_memory(include_bytes!("../assets/brand/portxr-256.png")).ok()?.to_rgba8();
@@ -98,8 +103,13 @@ fn window_icon() -> Option<egui::IconData> {
 }
 
 pub fn run(open: Option<PathBuf>) -> eframe::Result {
-    let mut viewport =
-        egui::ViewportBuilder::default().with_title("PortXR").with_inner_size([1120.0, 720.0]).with_min_inner_size([960.0, 560.0]);
+    // PORTXR_SHOT_SIZE=1120x1040: another window size for the picture PORTXR_SHOT takes.
+    let size = std::env::var("PORTXR_SHOT_SIZE").ok().filter(|_| shot_path().is_some());
+    let size = size.as_deref().and_then(|v| v.split_once('x')).and_then(|(w, h)| Some([w.parse().ok()?, h.parse().ok()?]));
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("PortXR")
+        .with_inner_size(size.unwrap_or([1120.0, 720.0]))
+        .with_min_inner_size([960.0, 560.0]);
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
     }
@@ -182,6 +192,10 @@ struct App {
     // A scan running in the background (start, window focus, F5) hands its result over here.
     scanned: Arc<Mutex<Option<Vec<Game>>>>,
     scanning: bool,
+    // PORTXR_SHOT: since when the window has been up, and whether its picture was asked for.
+    shot_since: Option<std::time::Instant>,
+    shot_asked: bool,
+    shot_saved: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn display(size: f32) -> FontId {
@@ -258,6 +272,9 @@ impl App {
             steam_owned,
             scanned: Arc::new(Mutex::new(None)),
             scanning: false,
+            shot_since: None,
+            shot_asked: false,
+            shot_saved: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         // The folder is remembered first, so the scan started next finds it too.
         if let Some(dir) = open {
@@ -272,6 +289,32 @@ impl App {
         self.page = Page::Library;
     }
 
+    // PORTXR_SHOT=<file.png>: the window's own picture, taken once the library and its covers have had a moment to
+    // load; then the app closes. The README and banner pictures come from it (RELEASING.md).
+    fn shot(&mut self, ctx: &egui::Context) {
+        let Some(path) = shot_path() else { return };
+        ctx.request_repaint();
+        if self.shot_saved.load(std::sync::atomic::Ordering::Relaxed) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        // Counted from the end of the scan: the covers load once the games are listed.
+        if self.scanning {
+            self.shot_since = None;
+            return;
+        }
+        let waited = self.shot_since.get_or_insert_with(std::time::Instant::now).elapsed();
+        if !self.shot_asked && waited > std::time::Duration::from_secs(4) {
+            self.shot_asked = true;
+            let saved = self.shot_saved.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
+                let rgba: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+                let _ = image::save_buffer(&path, &rgba, img.size[0] as u32, img.size[1] as u32, image::ColorType::Rgba8);
+                saved.store(true, std::sync::atomic::Ordering::Relaxed);
+            })));
+        }
+    }
+
     // Scanning every store and drive takes seconds on a big library: the library shows a loader meanwhile. A new
     // build also updates the plugin in every installed game, so starting one from Steam runs it too (a running game
     // locks its files; Play retries).
@@ -281,13 +324,17 @@ impl App {
         }
         self.scanning = true;
         let (slot, ctx) = (self.scanned.clone(), ctx.clone());
+        // Taking a picture of the window (PORTXR_SHOT) only looks: no game folder is touched.
+        let look_only = shot_path().is_some();
         std::thread::spawn(move || {
             let found = games::scan();
-            for g in found.iter().filter(|g| g.installed()) {
+            for g in found.iter().filter(|g| g.installed() && !look_only) {
                 // Taken out of games that gained anti-cheat, brought up to this build in the rest.
                 let _ = installer::update_checked(g);
             }
-            games::write_vr_list(&found);
+            if !look_only {
+                games::write_vr_list(&found);
+            }
             *slot.lock().unwrap() = Some(found);
             ctx.request_repaint();
         });
@@ -1068,6 +1115,7 @@ fn warning(g: &Game) -> (String, Tone) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        self.shot(ui.ctx());
         // The name in line with the page's left edge (32); the right edge over the content's, which stops short of
         // the scroll bar.
         let bar = egui::Frame::new().fill(SURFACE).inner_margin(Margin { left: 32, right: 40, top: 16, bottom: 16 });

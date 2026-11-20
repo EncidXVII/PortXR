@@ -15,6 +15,8 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 <img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Full VR, 3D screen, VR screen), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
 
+<img src="docs/images/library.png" width="720" alt="The PortXR library: your Unity, Unreal Engine and Godot games as covers, each marked Full VR, VR screen, Not installed or Unsupported, with search and filters">
+
 ## At a glance
 
 | | |
