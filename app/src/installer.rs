@@ -408,6 +408,44 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// `PortXR.exe --uninstall` (Uninstall PortXR.cmd): VR out of every game it was added to, then PortXR's own settings
+/// folder. While one game still has VR in it nothing else is deleted, so a second run can finish the job.
+pub fn uninstall_all() -> Result<String, Box<dyn Error>> {
+    let with_vr: Vec<_> = games::scan().into_iter().filter(|g| g.installed()).collect();
+    let failed: Vec<String> = with_vr.iter().filter_map(|g| uninstall(&g.dir).err().map(|e| format!("{}: {e}", g.name))).collect();
+    if !failed.is_empty() {
+        return Err(format!("VR is still in these games, so PortXR's settings were kept. Close the games and run this again.\n{}", failed.join("\n")).into());
+    }
+    let home = dirs::config_dir().ok_or("no settings folder on this system")?.join("PortXR");
+    let scripts = clear_settings(&home)?;
+    let kept = if scripts { format!(" Your game scripts stay in {}.", home.join("scripts").display()) } else { String::new() };
+    Ok(format!("VR removed from {} game(s) and PortXR's settings deleted.{kept} Now delete the PortXR folder.", with_vr.len()))
+}
+
+/// Empties PortXR's settings folder. Game scripts are the player's own files: a `scripts` folder with anything in it
+/// stays (true), and only then does the folder itself.
+fn clear_settings(home: &Path) -> std::io::Result<bool> {
+    let entries = match fs::read_dir(home) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        r => r?,
+    };
+    let mut scripts = false;
+    for entry in entries {
+        let path = entry?.path();
+        if path.file_name().is_some_and(|n| n == "scripts") && fs::read_dir(&path).is_ok_and(|mut d| d.next().is_some()) {
+            scripts = true;
+        } else if path.is_dir() {
+            fs::remove_dir_all(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
+    if !scripts {
+        fs::remove_dir(home)?;
+    }
+    Ok(scripts)
+}
+
 fn remove_dir(dir: &Path) -> std::io::Result<()> {
     if dir.exists() { patient(|| fs::remove_dir_all(dir)) } else { Ok(()) }
 }
@@ -432,6 +470,23 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("bin")).unwrap();
         dir
+    }
+
+    #[test]
+    fn uninstalling_portxr_keeps_only_the_players_scripts() {
+        let home = game_dir("settings");
+        fs::write(home.join("defaults.cfg"), "x").unwrap();
+        fs::create_dir_all(home.join("settings")).unwrap();
+        fs::create_dir_all(home.join("scripts").join("Game")).unwrap();
+        assert!(clear_settings(&home).unwrap(), "scripts kept");
+        let left: Vec<_> = fs::read_dir(&home).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left, ["scripts"]);
+        // No scripts: the whole folder goes; a folder that is not there is fine.
+        fs::remove_dir_all(home.join("scripts")).unwrap();
+        fs::create_dir(home.join("scripts")).unwrap();
+        assert!(!clear_settings(&home).unwrap());
+        assert!(!home.exists());
+        assert!(!clear_settings(&home).unwrap());
     }
 
     #[test]

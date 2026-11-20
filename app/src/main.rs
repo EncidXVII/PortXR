@@ -12,7 +12,8 @@ use std::process::ExitCode;
 
 // CLI: PortXR.exe install|install-anyway|uninstall|detect|export <gameDir> (used by the harness), and
 // play <gameDir> [<pid>] (the VR menu's Library tab: starts that game once process <pid>, the game it ran in, has quit). PortXR.exe <gameDir> opens the
-// app on that game's page (shortcuts); no arguments opens the library.
+// app on that game's page (shortcuts); no arguments opens the library. PortXR.exe --uninstall (Uninstall PortXR.cmd)
+// takes VR out of every game and deletes PortXR's settings.
 fn attach_console() {
     #[cfg(windows)]
     unsafe {
@@ -67,6 +68,19 @@ fn main() -> ExitCode {
             println!("{}	{}	{}", o.app_id, o.last_played, o.name);
         }
         return ExitCode::SUCCESS;
+    }
+    if args.first().is_some_and(|a| a == "--uninstall") {
+        attach_console();
+        return match installer::uninstall_all() {
+            Ok(done) => {
+                println!("{done}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     if let [cmd, dir, pid] = args.as_slice()
         && cmd == "play" {

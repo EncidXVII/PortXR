@@ -75,5 +75,5 @@ Copy-Item @("$build\native\$Config\portxr_godot.dll", "$build\native\$Config\ope
 # Unreal games: the VR core as dwmapi.dll and its OpenXR loader, copied beside the game's Shipping exe.
 New-Item -ItemType Directory -Force "$dist\unreal" | Out-Null
 Copy-Item @("$build\native\$Config\dwmapi.dll", "$build\native\$Config\openxr_loader.dll") "$dist\unreal"
-Copy-Item "$root\LICENSE", "$root\NOTICE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md" $dist
+Copy-Item "$root\LICENSE", "$root\NOTICE", "$root\THIRD_PARTY_NOTICES.md", "$root\SCRIPTING.md", "$root\app\assets\Uninstall PortXR.cmd" $dist
 Write-Host "dist ready: $dist"

@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="app/assets/brand/portxr-mark.svg">
+  <img src="app/assets/brand/portxr-mark-ink.svg" width="72" alt="PortXR logo">
+</picture>
+
 # PortXR: play flat PC games in VR (Unity, Unreal Engine and Godot)
 
 [![Latest release](https://img.shields.io/github/v/release/EncidXVII/PortXR?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/PortXR/releases/latest)
@@ -62,6 +67,10 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `PortXR.exe`.
 2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. After **Play in VR** the page says when the game is in VR (or what to check if it starts flat), and later when you last played it in VR. **Add VR** sets a game up without starting it. PortXR installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
 3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, the game camera to follow, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+
+**Uninstall:** close your games, then run `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`; on Linux
+`./PortXR --uninstall`). It takes VR out of every game it was added to, each folder back byte for byte, and deletes
+PortXR's settings. Your game scripts stay. Then delete the folder.
 
 ## Linux
 

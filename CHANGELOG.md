@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Uninstall PortXR**: `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`) takes VR out of every game
+  it was added to and deletes PortXR's settings. Game scripts stay. Until now each game had to be done by hand.
+
 ### One core for every engine
 - Unity and Godot games now run the same player rig, VR menu and screen handles from PortXR's native core: aim,
   snap turning, the vignette, the laser pointer, the wrist watch, the Theater and Parallax screen. A fix or feature

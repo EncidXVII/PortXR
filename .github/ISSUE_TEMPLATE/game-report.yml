@@ -1,5 +1,5 @@
 name: Game report
-description: A game that does not work, or works with a problem
+description: How a game went in VR, working or not, with a script if you wrote one
 labels: [compat]
 body:
   - type: markdown
@@ -23,6 +23,8 @@ body:
         - UI or menus missing or unreadable
         - Controls do not work
         - Plays fine apart from a smaller issue
+        - Plays fine
+        - Plays fine with a script (paste it below)
     validations:
       required: true
   - type: input
@@ -37,6 +39,12 @@ body:
     attributes:
       label: Details
       description: What you did and what you saw
+  - type: textarea
+    id: script
+    attributes:
+      label: Script
+      description: A Lua script that fixed this game, to share with other players (SCRIPTING.md, Sharing a script)
+      render: lua
   - type: markdown
     attributes:
       value: Attach the zip from **Export logs** in PortXR.exe (select the game, press Export logs).
