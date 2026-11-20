@@ -13,6 +13,11 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 **[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
+> **Status: early access (0.2).** The engines are covered (Unity, Unreal Engine, Godot), but every game has its own
+> cameras, UI and effects, and the list of games people have played and reported is still short. Game reports and
+> per-game scripts are what grow the library; Linux and Unreal games on real headsets need testers:
+> see [Status and help wanted](#status-and-help-wanted).
+
 <img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Full VR, 3D screen, VR screen), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
 
 <img src="docs/images/library.png" width="720" alt="The PortXR library: your Unity, Unreal Engine and Godot games as covers, each marked Full VR, VR screen, Not installed or Unsupported, with search and filters">
@@ -28,6 +33,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 | **Headsets** | Any PC VR headset with an OpenXR runtime: Meta Quest 2 / 3 / Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed Reality |
 | **Safe to try** | One click to add VR, one click to remove it: the game folder goes back byte for byte. Single-player only; anti-cheat games are refused |
 | **Price** | Free. No account, no telemetry |
+| **Status** | Early access (0.2): the engines are covered, the list of tested games is short and grows with game reports and per-game scripts; Linux needs testers |
 | **License** | Open source, `GPL-3.0-only`, © 2026 EncidXVII |
 
 ## Highlights
@@ -132,6 +138,21 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
   the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
 - Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them. Multiplayer-only games without anti-cheat, games with their own VR mode and trimmed games have **Add VR anyway**, after a caution.
 - See [COMPAT.md](COMPAT.md).
+
+## Status and help wanted
+
+PortXR is in early access (0.2). Where each part stands, and what moves it forward:
+
+| Area | Where it stands | What helps |
+|---|---|---|
+| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. Most testing so far is automatic, on test games and SteamVR's simulated headset; [COMPAT.md](COMPAT.md) lists only a few real games | A [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml): play a game for 10 to 15 minutes, press **Export logs** and say how it went, also when it just worked. Every report adds a game to the list |
+| **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script. Few have been written yet | Write one for a game you own and share it: [SCRIPTING.md](SCRIPTING.md) |
+| **Unreal Engine games** | Full VR runs on the simulated headset and was tried on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; not yet on a real headset | Reports from a real headset with any UE 4.22 to 5.6 game |
+| **Linux (Proton)** | The Linux build compiles and is packaged; it has not been run on a Linux machine with a headset | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
+| **Not built yet** | Vulkan and OpenGL games. 32-bit games cannot work: no OpenXR runtime supports them | A report naming the Vulkan or OpenGL games you miss most |
+| **Code signing** | Builds are not signed yet: Windows warns on first run, and some antivirus tools flag the mod loader's `winhttp.dll` in game folders | Nothing: every release has a SHA-256 checksum |
+
+How to send any of these: [CONTRIBUTING.md](CONTRIBUTING.md) and the tester's guide, [TESTING.md](TESTING.md).
 
 ## FAQ
 

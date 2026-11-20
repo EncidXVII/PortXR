@@ -1,6 +1,6 @@
 # Testing PortXR
 
-Thanks for trying it. This build plays flat Unity games in VR. Expect rough edges: what breaks and where is exactly
+Thanks for trying it. This build plays flat Unity, Unreal Engine and Godot games in VR. Expect rough edges: what breaks and where is exactly
 what we need.
 
 ## Before you start
@@ -14,12 +14,12 @@ what we need.
 ## Set up
 
 1. Unzip anywhere and keep the folder together (`PortXR.exe` needs the `payload` folders next to it).
-2. Start your headset runtime, then run `PortXR.exe`. It lists the Unity games it finds (Steam, Epic, GOG, itch and
-   the usual game folders). Missing one? **Add game +** and pick its folder. **Not installed** lists the Unity games
+2. Start your headset runtime, then run `PortXR.exe`. It lists the games it finds (Steam, Epic, GOG, itch and
+   the usual game folders). Missing one? **Add game +** and pick its folder. **Not installed** lists the games
    in your Steam library that are not on this PC: click one and Steam installs it.
    A game with a problem only it has may be fixable with a script: see `SCRIPTING.md`, and send us any script that helped.
 3. Pick a game and press **Play in VR**. If Steam asks which version to start (DX11 or DX12), either works.
-4. In VR, **double-tap the left menu button** (or press F11) for the VR menu: display (Stereo, Parallax, Theater), recenter, world scale,
+4. In VR, **double-tap the left menu button** (or press F11) for the VR menu: display (Full VR, 3D screen, VR screen), recenter, world scale,
    controls, head aim.
 
 **Remove VR** on a game's page puts its folder back exactly as it was.
@@ -35,11 +35,11 @@ Play each game for 10 to 15 minutes: the main menu, the first level, a cutscene 
   the camera?
 - Anything that flickers, shows in one eye only, or looks wrong compared to the flat game.
 
-Also try **Display → Parallax** in the VR menu: the game in 3D inside a big screen, played with its own camera
+Also try **Display → 3D screen** in the VR menu: the game in 3D inside a big screen, played with its own camera
 controls. Does it feel deep without straining your eyes? Is the **3D depth** default right?
 
-If the 3D view is broken, **Theater** in the VR menu shows the flat game on a big screen. Say whether that worked.
-In Theater or Parallax, open the VR menu, set **Screen** to **Unlocked** in Quick and use the screen's handles: drag the bar under it to move it, a corner to resize it, and the
+If the 3D view is broken, **VR screen** in the VR menu shows the flat game on a big screen. Say whether that worked.
+In VR screen or 3D screen, open the VR menu, set **Screen** to **Unlocked** in Quick and use the screen's handles: drag the bar under it to move it, a corner to resize it, and the
 right stick. Was it easy to put where you wanted?
 
 ## Reporting

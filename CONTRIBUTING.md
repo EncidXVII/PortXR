@@ -6,7 +6,10 @@ Thanks for helping. The most useful contributions, roughly in order:
    with the zip from **Export logs**, whether it worked or not. Working games go into [COMPAT.md](COMPAT.md).
 2. **Per-game scripts.** A short Lua script often fixes one game (camera choice, hidden objects, eye offset). See
    [SCRIPTING.md](SCRIPTING.md); share it in the game's report or as a pull request.
-3. **Bug fixes and features.** Open an issue first for anything bigger than a small fix, so we can agree on the
+3. **Linux and Unreal testers.** The Linux build (Proton) has not been run on a Linux machine with a headset, and
+   Unreal Engine games have only run on SteamVR's simulated headset. A report from either, with the logs zip, is new
+   ground.
+4. **Bug fixes and features.** Open an issue first for anything bigger than a small fix, so we can agree on the
    approach before you spend the time.
 
 ## Ground rules
