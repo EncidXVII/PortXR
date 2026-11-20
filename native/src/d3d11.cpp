@@ -1,9 +1,9 @@
 #include "gpu.h"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
-#include <atomic>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -207,15 +207,27 @@ public:
 
     void* backbuffer_copy() override { return backbufferCopy_.Get(); }
 
+    // Held, not just pointed at: the game may free its eye texture (a new size, VR switched off) before the next
+    // Present, which would then read a freed object.
     void set_mirror(void* texture, const float* crop, bool flipY) override {
+        std::lock_guard lock(mirrorMutex_);
         mirrorCrop_[2] = 0;  // the whole image unless cropped
         if (crop) memcpy(mirrorCrop_, crop, sizeof(mirrorCrop_));
         mirrorFlip_ = flipY;
-        mirror_ = texture;
+        mirror_ = (ID3D11Texture2D*)texture;
     }
 
     void present(IDXGISwapChain* swapchain) override {
-        auto* eye = (ID3D11Texture2D*)mirror_.load();
+        ComPtr<ID3D11Texture2D> held;
+        float crop[4];
+        bool flip;
+        {
+            std::lock_guard lock(mirrorMutex_);
+            held = mirror_;
+            memcpy(crop, mirrorCrop_, sizeof(crop));
+            flip = mirrorFlip_;
+        }
+        auto* eye = held.Get();
         if (!eye && !gpu_grab_present) return;
         ComPtr<ID3D11Device> owner;
         ComPtr<ID3D11Texture2D> back;
@@ -234,8 +246,8 @@ public:
         ComPtr<ID3D11RenderTargetView> rtv;
         if (FAILED(device_->CreateRenderTargetView(back.Get(), &rd, &rtv))) return;
         BlitParams p{};
-        if (!params_for(eye, mirrorFlip_, gpu_format_linear(bd.Format), p)) return;
-        gpu_mirror_crop(p, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height, mirrorCrop_);
+        if (!params_for(eye, flip, gpu_format_linear(bd.Format), p)) return;
+        gpu_mirror_crop(p, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height, crop);
         blit(eye, rtv.Get(), (int)bd.Width, (int)bd.Height, p);
     }
 
@@ -321,7 +333,9 @@ private:
     ComPtr<ID3D11Texture2D> backbufferCopy_, probe_;
     float probeResult_ = -1;
     std::map<XrSwapchain, std::vector<Image>> images_;
-    std::atomic<void*> mirror_{nullptr};
+    // Present can run on another thread than the render-thread events that set these.
+    std::mutex mirrorMutex_;
+    ComPtr<ID3D11Texture2D> mirror_;
     float mirrorCrop_[4]{};
     bool mirrorFlip_ = true;
     bool warnedMsaa_ = false;

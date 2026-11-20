@@ -2,7 +2,6 @@
 #include <MinHook.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
-#include <atomic>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -45,6 +44,7 @@ public:
     ~D3D12() override {
         std::lock_guard lock(mutex_);
         wait_idle();
+        mirror_.Reset();
         if (event_) CloseHandle(event_);
     }
 
@@ -241,11 +241,18 @@ public:
 
     void* backbuffer_copy() override { return uiCopy_.Get(); }
 
+    // Held, not just pointed at: the game may free its eye texture (a new size, VR switched off) before the next
+    // Present, which would then read a freed object. Another texture takes its place only once the GPU has run the
+    // lists of ours that drew from the old one.
     void set_mirror(void* texture, const float* crop, bool flipY) override {
+        std::lock_guard lock(mutex_);
         mirrorCrop_[2] = 0;  // the whole image unless cropped
         if (crop) memcpy(mirrorCrop_, crop, sizeof(mirrorCrop_));
         mirrorFlip_ = flipY;
-        mirror_ = texture;
+        if (mirror_.Get() != texture) {
+            if (mirror_) wait_idle();
+            mirror_ = (ID3D12Resource*)texture;
+        }
     }
 
     // Present is where the backbuffer's state is known (PRESENT), so the UI grab and the desktop mirror happen here.
@@ -277,7 +284,7 @@ public:
             transition(back.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT),
             transition(uiCopy_.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)};
         list->ResourceBarrier(2, post);
-        if (auto* eye = (ID3D12Resource*)mirror_.load()) {
+        if (auto* eye = mirror_.Get()) {
             auto ed = eye->GetDesc();
             BlitParams crop{};
             gpu_mirror_crop(crop, (float)ed.Width / ed.Height, (float)bd.Width / bd.Height, mirrorCrop_);
@@ -493,7 +500,7 @@ private:
     };
     std::map<ID3D12Resource*, Own> own_;
     std::map<XrSwapchain, std::vector<Image>> images_;
-    std::atomic<void*> mirror_{nullptr};
+    ComPtr<ID3D12Resource> mirror_;
     float mirrorCrop_[4]{};
     bool mirrorFlip_ = true;
     // Present can run on a different thread from the render-thread events.

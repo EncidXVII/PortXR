@@ -264,6 +264,9 @@ bool find_process_event(Obj* object) {
         Field *a = prop(add, "A"), *b = prop(add, "B"), *r = prop(add, "ReturnValue");
         std::vector<uint8_t> params(params_size(add) + 16);
         if (!a || !b || !r) return false;
+        // Offsets read from the game's memory: inside the block, or the layout is not what it was taken for.
+        for (const Field* f : {a, b, r})
+            if (prop_offset(f) < 0 || (size_t)prop_offset(f) + 4 > params.size()) return false;
         *(int32_t*)&params[prop_offset(a)] = 2, *(int32_t*)&params[prop_offset(b)] = 3;
         bool ran = guarded_call((void*)fn, mathDefault, add, params.data());
         unreal_note("Unreal objects: ProcessEvent candidate slot %d: %s, 2 + 3 = %d", i, ran ? "ran" : "faulted",

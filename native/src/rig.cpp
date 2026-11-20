@@ -408,9 +408,11 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surf
 
 // The wrist watch, as the plugin's WristGlance (and DesktopVR's clock): the back of the left hand turned toward the
 // eyes, close to the face, with the eyes on it. Shows wide, stays wider, held at least 0.3 s so it never blinks at the
-// edge. Lit when turned toward the eyes or under the laser; then the right trigger opens the VR menu (returns true).
+// edge. The angles are DesktopVR's: it shows with the face within about 66 degrees of the eyes and the watch within 52
+// degrees of where the head looks, and stays until those pass 81 and 70. Lit when turned toward the eyes or under the
+// laser; then the right trigger opens the VR menu (returns true).
 bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2]) {
-    constexpr float ShowFacing = 0.4f, ShowLooking = 0.7f, KeepFacing = 0.15f, KeepLooking = 0.45f, HoldS = 0.3f;
+    constexpr float ShowFacing = 0.4f, ShowLooking = 0.62f, KeepFacing = 0.15f, KeepLooking = 0.34f, HoldS = 0.3f;
     constexpr float ShowS = 0.08f, HideS = 0.18f, GlowS = 0.1f;
     const PrxControllers& c = g_controllers;
     bool shown = settings::getb("Controls", "WristMenu", true) && c.aimValid[0] && !g.menuOpen;
@@ -424,7 +426,9 @@ bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2
         if (dist <= 0.7f && dist > 1e-4f) {
             V3 toEye = toHead * (1 / dist);
             float facing = (hand * V3{-1, 0, 0}).dot(toEye);
-            float looking = g_testWrist ? 1.f : (q_of(views[0]) * V3{0, 0, -1}).dot(toEye * -1.f);
+            // Where the head looks: between the eyes, which point apart on headsets with angled displays.
+            V3 ahead = q_of(views[0]) * V3{0, 0, -1} + q_of(views[1]) * V3{0, 0, -1};
+            float looking = g_testWrist ? 1.f : ahead.dot(toEye * -1.f) / std::max(ahead.length(), 1e-4f);
             looked = g_watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
             glance = looked && facing > 0.6f;
             if (!glance && looked && c.aimValid[1]) {
