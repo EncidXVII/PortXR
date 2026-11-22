@@ -56,6 +56,8 @@ float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
         float inner = lerp(1.25, 0.45, vignette);
         c.rgb *= 1 - smoothstep(inner, inner + 0.45, length((uv - 0.5) * 2));
     }
+    // Below zero: the whole eye dimmed by that much (the world behind the open VR menu); the beam and watch stay bright.
+    if (vignette < 0) c.rgb *= 1 + vignette;
     // Laser beam: distance to the segment in height units; lime core with a soft edge, fading in from the hand.
     if (beamWidth > 0) {
         float2 k = float2(aspect, 1), a = beam.xy * k, b = beam.zw * k, q = at * k;
@@ -241,7 +243,7 @@ void gpu_write_bmp(const wchar_t* path, const uint8_t* data, UINT w, UINT h, UIN
 }
 
 void (*gpu_present_observer)(IDXGISwapChain*);
-std::atomic<bool> gpu_grab_present, gpu_no_vsync;
+std::atomic<bool> gpu_grab_present, gpu_no_vsync, gpu_clear_presented;
 
 namespace {
 using PresentFn =HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
@@ -260,16 +262,26 @@ void on_present(IDXGISwapChain* sc, UINT flags) {
     if (gpu_present_observer) gpu_present_observer(sc);
 }
 
+void after_present(IDXGISwapChain* sc, UINT flags, HRESULT presented) {
+    if (FAILED(presented) || (flags & DXGI_PRESENT_TEST) || !gpu_clear_presented) return;
+    std::lock_guard lock(g_targetMutex);
+    if (g_target) g_target->presented(sc);
+}
+
 HRESULT STDMETHODCALLTYPE hook_present(IDXGISwapChain* sc, UINT sync, UINT flags) {
     on_present(sc, flags);
     if (gpu_no_vsync) sync = 0;
-    return g_present(sc, sync, flags);
+    HRESULT hr = g_present(sc, sync, flags);
+    after_present(sc, flags, hr);
+    return hr;
 }
 
 HRESULT STDMETHODCALLTYPE hook_present1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
     on_present(sc, flags);
     if (gpu_no_vsync) sync = 0;
-    return g_present1(sc, sync, flags, p);
+    HRESULT hr = g_present1(sc, sync, flags, p);
+    after_present(sc, flags, hr);
+    return hr;
 }
 }  // namespace
 

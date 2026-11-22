@@ -254,6 +254,25 @@ public:
         blit(eye, rtv.Get(), (int)bd.Width, (int)bd.Height, p);
     }
 
+    // Buffer 0 is the image the game draws into next, on the old swap effects and the flip ones alike. The view is
+    // made per call: one kept would hold the buffer through the game's ResizeBuffers, which then fails.
+    void presented(IDXGISwapChain* swapchain) override {
+        ComPtr<ID3D11Device> owner;
+        ComPtr<ID3D11Texture2D> back;
+        if (FAILED(swapchain->GetDevice(IID_PPV_ARGS(&owner))) || owner.Get() != device_.Get() ||
+            FAILED(swapchain->GetBuffer(0, IID_PPV_ARGS(&back))))
+            return;
+        D3D11_TEXTURE2D_DESC bd;
+        back->GetDesc(&bd);
+        bool linear;
+        D3D11_RENDER_TARGET_VIEW_DESC rd{};
+        rd.Format = gpu_view_format(bd.Format, linear);
+        rd.ViewDimension = bd.SampleDesc.Count > 1 ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
+        ComPtr<ID3D11RenderTargetView> rtv;
+        const float black[4] = {0, 0, 0, 1};
+        if (SUCCEEDED(device_->CreateRenderTargetView(back.Get(), &rd, &rtv))) ctx_->ClearRenderTargetView(rtv.Get(), black);
+    }
+
 private:
     struct Image {
         ID3D11Texture2D* texture;

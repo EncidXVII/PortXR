@@ -1,6 +1,6 @@
 # Testing PortXR
 
-Thanks for trying it. This build plays flat Unity, Unreal Engine and Godot games in VR. Expect rough edges: what breaks and where is exactly
+Thanks for trying it. This build plays flat Unity, Unreal Engine and Godot games in VR. It is early access, so some games will break: what breaks and where is exactly
 what we need.
 
 ## Before you start

@@ -7,9 +7,8 @@ Thanks for helping. The most useful contributions, roughly in order:
 2. **Per-game scripts.** A short Lua script often fixes one game (camera choice, hidden objects, eye offset). See
    [SCRIPTING.md](SCRIPTING.md); [Sharing a script](SCRIPTING.md#sharing-a-script) says what to put in it and where
    to send it.
-3. **Linux and Unreal testers.** The Linux build (Proton) has not been run on a Linux machine with a headset, and
-   Unreal Engine games have only run on SteamVR's simulated headset. A report from either, with the logs zip, is new
-   ground.
+3. **Linux and Unreal testers.** Linux (Proton) and Unreal Engine support are experimental and
+   require more testing. A report from either, with the logs zip, helps most.
 4. **Bug fixes and features.** Open an issue first for anything bigger than a small fix, so we can agree on the
    approach before you spend the time.
 

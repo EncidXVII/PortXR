@@ -297,6 +297,31 @@ public:
         submit();
     }
 
+    // The swapchain's current buffer is now the one the game draws its next frame into; it rests in PRESENT.
+    void presented(IDXGISwapChain* swapchain) override {
+        std::lock_guard lock(mutex_);
+        ComPtr<ID3D12Device> owner;
+        ComPtr<IDXGISwapChain3> sc3;
+        ComPtr<ID3D12Resource> back;
+        if (!queue_ || FAILED(swapchain->GetDevice(IID_PPV_ARGS(&owner))) || owner.Get() != device_.Get() ||
+            FAILED(swapchain->QueryInterface(IID_PPV_ARGS(&sc3))) ||
+            FAILED(sc3->GetBuffer(sc3->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&back))))
+            return;
+        auto* list = begin();
+        auto rtv = rtvHeap_->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += (SIZE_T)next_ * kBlitsPerList * rtvStep_;
+        bool linear;
+        D3D12_RENDER_TARGET_VIEW_DESC rd{};
+        rd.Format = gpu_view_format(back->GetDesc().Format, linear);
+        rd.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        device_->CreateRenderTargetView(back.Get(), &rd, rtv);
+        const float black[4] = {0, 0, 0, 1};
+        barrier(list, back.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        list->ClearRenderTargetView(rtv, black, 0, nullptr);
+        barrier(list, back.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        submit();
+    }
+
 private:
     struct Image {
         ID3D12Resource* texture;

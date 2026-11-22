@@ -66,6 +66,11 @@ namespace PortXR
         Rigidbody playerBody;
         bool noWorldGravity, carried;
         Camera playerBodyOf;
+        // A head camera that is no child of the body but is moved onto it every frame: the body found under it, where
+        // the camera was when it was first found, and whether it has stayed under the camera since (FollowedBody).
+        int followedId;
+        Vector3 followedAt;
+        bool follows;
         string sceneName = "";
         internal bool StepSmoothing => Out.smoothing != 0;
         internal float VignetteNow => Out.vignette;
@@ -96,7 +101,7 @@ namespace PortXR
         readonly Optional managedCapture = new Optional("Screen capture into a texture"), mirror = new Optional("Desktop mirror"),
             recreate = new Optional("Eye target recreation"), resolve = new Optional("MSAA resolve"),
             pointerDot = new Optional("Pointer dot"), resetView = new Optional("Eye view matrix reset"),
-            bodyLookup = new Optional("Player body lookup");
+            bodyLookup = new Optional("Player body lookup"), followLookup = new Optional("Body under the camera");
         bool viewMatrixReset;
 
         static Action<RenderTexture> FindCapture()
@@ -794,7 +799,8 @@ namespace PortXR
                 bool overlay = clear == CameraClearFlags.Depth || clear == CameraClearFlags.Nothing;
                 int layers = BitCount(mask);
                 // A camera under another candidate camera is its helper (Hollow Knight's blur and darkness cameras).
-                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (cam.targetTexture != null && cam.targetTexture != sink ? 10 : 0) - (overlay ? 50 : 0)
+                var ownTarget = cam.targetTexture != null && cam.targetTexture == sink ? gameTarget : cam.targetTexture;  // as the game set it
+                int score = layers + (cam.tag == "MainCamera" && layers > 2 ? 100 : 0) - (ownTarget != null ? 10 : 0) - (overlay ? 50 : 0)
                             - (UnderCamera(cam) ? 60 : 0);
                 if (score > bestScore || (score == bestScore && cam == GameCam))  // ties keep the current head
                 {
@@ -878,32 +884,59 @@ namespace PortXR
         // black only half removes. From then on the head camera draws into a screen-sized texture of its own, off
         // screen, and the screen is cleared to transparent for the UI. Not for a URP camera stack: its overlay
         // cameras (often the HUD) would land in that texture too.
-        RenderTexture sink;
-        bool sinkWanted, screenCleared;
+        // A head camera that draws into a texture of the game's, which the game then shows on screen (a low-resolution
+        // or filtered picture on its UI or a quad: Lethal Company), always draws into the sink instead, of that
+        // texture's size, and the game's texture is cleared: the headset shows the world itself, and what a hidden
+        // camera still paints (HDRP fog and post-processing, image effects) lay over the panel as a dark sheet. The
+        // camera gets its texture back when the eyes stop. Not for a URP camera stack here either.
+        RenderTexture sink, gameTarget;
+        bool sinkWanted, screenCleared, stacked;
+        int stackOf;
         readonly Optional clearScreen = new Optional("Screen clear");
 
         void Sink()
         {
-            if (!sinkWanted)
+            if (!sinkWanted && Time.frameCount % 30 == 0 && Native.prx_ui_keyed() != 0 && !CameraPost.HasStack(GameCam))
             {
-                if (Time.frameCount % 30 != 0 || Native.prx_ui_keyed() == 0 || CameraPost.HasStack(GameCam)) return;
                 sinkWanted = true;
                 Plugin.Log.LogInfo($"{GameCam.name}'s effects drew over the UI; it now renders off screen");
             }
-            if (sink == null || sink.width != Screen.width || sink.height != Screen.height)
+            // Its target as the game has it: the screen (null), or a texture of the game's (the game may set it again).
+            var target = GameCam.targetTexture;
+            if (target == null || target != sink)
             {
-                if (GameCam.targetTexture == sink) GameCam.targetTexture = null;
-                if (sink != null) Destroy(sink);
-                sink = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32) { name = "PortXR Sink" };
+                if (target != null && stackOf != GameCam.GetInstanceID())
+                {
+                    stackOf = GameCam.GetInstanceID();
+                    stacked = CameraPost.HasStack(GameCam);
+                    Plugin.Log.LogInfo($"{GameCam.name} draws into the game's {target.name} ({target.width}x{target.height}): " +
+                        (stacked ? "left there, its camera stack draws into it too" : "it renders off screen and that texture is cleared"));
+                }
+                gameTarget = target;
             }
-            if (GameCam.targetTexture == null) GameCam.targetTexture = sink;
             screenCleared = false;
-            if (GameCam.targetTexture != sink) return;
+            if (gameTarget != null ? stacked : !sinkWanted) return;
+            int w = gameTarget != null ? gameTarget.width : Screen.width, h = gameTarget != null ? gameTarget.height : Screen.height;
+            if (sink == null || sink.width != w || sink.height != h)
+            {
+                if (sink != null)
+                {
+                    if (GameCam.targetTexture == sink) GameCam.targetTexture = gameTarget;
+                    Destroy(sink);
+                }
+                sink = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { name = "PortXR Sink" };
+            }
+            if (GameCam.targetTexture != sink) GameCam.targetTexture = sink;
             screenCleared = clearScreen.Run(() =>
             {
                 var was = RenderTexture.active;
                 RenderTexture.active = null;
                 GL.Clear(true, true, Color.clear);
+                if (gameTarget != null)
+                {
+                    RenderTexture.active = gameTarget;
+                    GL.Clear(true, true, Color.clear);
+                }
                 RenderTexture.active = was;
             });
         }
@@ -976,7 +1009,7 @@ namespace PortXR
                 GameCam.cullingMask = savedMask;
                 GameCam.clearFlags = savedClear;
                 GameCam.backgroundColor = savedBackground;
-                if (sink != null && GameCam.targetTexture == sink) GameCam.targetTexture = null;
+                if (sink != null && GameCam.targetTexture == sink) GameCam.targetTexture = gameTarget;
             }
             headPost?.Invoke();
             headPost = null;
@@ -1031,10 +1064,43 @@ namespace PortXR
                     var off = GameCam.transform.position - carrier.position;
                     carried = (off - Vector3.Project(off, carrier.up)).magnitude < 0.6f;
                 }
+                else carried = FollowedBody();
             }
             // Only where the game turned world gravity off and pulls the body itself: an FPS body that merely skips
             // Unity's gravity may still pitch or roll with the view (Neon White drifted sideways).
             return playerBody != null && !playerBody.useGravity && noWorldGravity ? playerBody.transform.up : Vector3.up;
+        }
+
+        // Many first-person games keep the camera apart from the player and move it onto the body's head every frame.
+        // With no parent to tell, head aim on Auto stayed off there until the player had turned on the spot for a
+        // while. The body is the character controller or moving rigidbody straight under the camera (within 0.6 m
+        // sideways, as a parent must be); the camera rides on it once the same one is still there after more than a
+        // metre of travel, which something merely standing beside a third-person camera is not.
+        bool FollowedBody()
+        {
+            int found = 0;
+            Vector3 p = GameCam.transform.position;
+            bool ran = followLookup.Run(() =>
+            {
+                foreach (var c in Physics.OverlapSphere(p + Vector3.down * 0.9f, 1.1f))
+                {
+                    if (c == null || c.isTrigger) continue;
+                    var body = c.attachedRigidbody;
+                    if (c.GetComponent<CharacterController>() == null && (body == null || body.isKinematic)) continue;
+                    var off = p - c.bounds.center;
+                    if (off.x * off.x + off.z * off.z > 0.36f) continue;
+                    found = body != null ? body.GetInstanceID() : c.GetInstanceID();
+                    break;
+                }
+            });
+            if (!ran || found == 0 || found != followedId)
+            {
+                followedId = found;
+                followedAt = p;
+                follows = false;
+            }
+            else if ((p - followedAt).sqrMagnitude > 1f) follows = true;
+            return follows;
         }
 
         internal float OrbitRadius => Out.orbitRadius;

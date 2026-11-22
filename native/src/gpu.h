@@ -53,6 +53,9 @@ public:
     // leaves the window alone.
     virtual void set_mirror(void* texture, const float* crop, bool flipY) = 0;
     virtual void present(IDXGISwapChain* swapchain) = 0;
+    // Right after the game's Present, on its thread: the image the game draws its next frame into, cleared to opaque
+    // black (gpu_clear_presented).
+    virtual void presented(IDXGISwapChain* swapchain) = 0;
     // Share of opaque pixels in the latest probed image that finished reading back, else -1; each result once.
     virtual float opaque_fraction() = 0;
     // A texture of the core's own (the VR menu) filled from CPU pixels: RGBA8, sRGB-encoded, premultiplied, rows of
@@ -73,6 +76,10 @@ extern void (*gpu_present_observer)(IDXGISwapChain*);
 // D3D11: grab the swapchain's image at every Present into backbuffer_copy() (D3D12 always does). No vsync: the headset
 // paces frames, and a 60 Hz desktop would halve them.
 extern std::atomic<bool> gpu_grab_present, gpu_no_vsync;
+// The window cleared after every Present. Unreal's UI is drawn into the window without a clear (the scene always
+// covered it); with the eyes drawn elsewhere, every menu and loading screen the game ever showed would stay under
+// the UI the panel takes from it.
+extern std::atomic<bool> gpu_clear_presented;
 // Hooks ID3D12CommandQueue::ExecuteCommandLists so Present can learn which queue the game renders on.
 bool gpu_hook_queue(ID3D12CommandQueue* probe);
 

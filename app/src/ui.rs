@@ -779,18 +779,7 @@ impl App {
         {
             self.report(Err(e.into()));
         }
-        // Who made this and where to go when something is wrong.
-        section_break(ui);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 24.0;
-            ui.label(RichText::new(format!("PORTXR {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK3).extra_letter_spacing(TRACK));
-            if tertiary(ui, "Guide ↗").clicked() {
-                let _ = games::open(format!("https://github.com/{REPO}#readme"));
-            }
-            if tertiary(ui, "Report a problem ↗").on_hover_text("Export logs from the game's page first and attach the zip").clicked() {
-                let _ = games::open(format!("https://github.com/{REPO}/issues/new/choose"));
-            }
-        });
+        about(ui);
     }
 
     fn advanced_section(&mut self, ui: &mut Ui, game: bool) {
@@ -1100,6 +1089,10 @@ fn warning(g: &Game) -> (String, Tone) {
     if let Some(caution) = g.caution().filter(|_| g.installed()) {
         return (format!("VR was added anyway. {caution}"), Tone::Bad);
     }
+    // Every scan and every Play bring a game's plugin up to this build; where neither could, the page says so.
+    if installer::outdated_now(g) {
+        return ("This game still holds an older PortXR plugin: it was running, or its files were in use, when PortXR last looked. Close the game; Play in VR puts in this version's.".into(), Tone::Info);
+    }
     match (g.compat(), g.other_loader) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("Multiplayer only: mods online can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so PortXR stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
@@ -1262,6 +1255,34 @@ fn section_break(ui: &mut Ui) {
     ui.add_space(32.0);
     hairline(ui);
     ui.add_space(24.0);
+}
+
+// Settings' last section: what this is, where to report a problem, who made it. Links open in the browser.
+fn about(ui: &mut Ui) {
+    let links = |ui: &mut Ui, links: &[(&str, String)]| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 24.0;
+            for (text, url) in links {
+                if tertiary(ui, &format!("{text} ↗")).clicked() {
+                    let _ = games::open(url);
+                }
+            }
+        });
+    };
+    section_break(ui);
+    eyebrow(ui, "05", "About");
+    ui.add_space(16.0);
+    ui.label(RichText::new(format!("PORTXR {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK).extra_letter_spacing(TRACK));
+    ui.label(RichText::new("Plays flat Unity, Unreal Engine and Godot games in VR.").color(INK2));
+    ui.add_space(12.0);
+    links(ui, &[("Report a problem", format!("https://github.com/{REPO}/issues/new/choose")), ("Guide", "https://everyvr.net/portxr".into())]);
+    ui.label(RichText::new("Export logs from the game's page and attach the zip to your report.").color(INK3));
+    ui.add_space(16.0);
+    ui.label(RichText::new("Made by EncidXVII").color(INK2));
+    links(ui, &[("GitHub", "https://github.com/EncidXVII".into()), ("Threads", "https://www.threads.com/@encidxvii".into()), ("X", "https://x.com/MykolaOP".into())]);
+    ui.add_space(16.0);
+    ui.label(RichText::new("Free and open source under GPL-3.0.").color(INK2));
+    links(ui, &[("Licence", format!("https://github.com/{REPO}/blob/main/LICENSE"))]);
 }
 
 // One line of feedback under the thing it is about: ink2 info, lime success, danger error.

@@ -1,7 +1,7 @@
 ﻿# Compatibility
 
 Tiers: **A** stereo + UI + controls, no blocker. **B** playable with a quirk or profile. **C** theater only. **Fail** does not run.
-Harness tiers are guesses from automated runs under the SteamVR null driver; B always needs a human.
+Fixture rows come from the automatic checks that run on every build. Game rows come from game reports and app checks.
 Every fixture row also passes gate 12: SteamVR is killed mid-game, the game goes flat and VR comes back on its own.
 
 | Game | Unity | Backend | Tier | Source | Notes |
@@ -18,7 +18,6 @@ Every fixture row also passes gate 12: SteamVR is killed mid-game, the game goes
 | Fixture F9 | 2022.3 | Mono with code trimming | Fail | app detection | Mod loader cannot start (trimmed engine and class libraries); refused with a clear message |
 | Fixture F10 | 2022.3 | Mono, D3D11, HDRP + Bloom | A | harness gates | HDRP camera settings reach the eyes |
 | Fixture F11 | 2022.3 | Mono, D3D11, built-in + Post Processing v2 | A | harness gates | PPv2 layer copied to the eyes |
-| Lorn's Lure | 2019.4 | Mono | A (guess) | harness smoke | stereo frames, main camera picked |
-| Phoenix Wright: Ace Attorney Trilogy | 2017.4 | Mono (.NET 3.5), 32-bit | Fail | harness smoke | 32-bit: no OpenXR runtime supports it; the app now refuses it |
+| Phoenix Wright: Ace Attorney Trilogy | 2017.4 | Mono (.NET 3.5), 32-bit | Fail | app check | 32-bit: no OpenXR runtime supports it; the app now refuses it |
 
-Only offline single-player games are run by the harness. Multiplayer, anti-cheat and leaderboard games are not tested.
+PortXR is for offline single-player games. It refuses games with anti-cheat.

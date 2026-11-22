@@ -17,7 +17,7 @@
   Shipping exe (Remove VR puts the folder back): the engine renders both eyes itself, the game's UI sits on a panel in
   front, and the controllers act as a gamepad. Full VR, 3D screen and VR screen (the 3D screen's view, flat), head and hand
   aim, the crosshair, laser pointer, watch and VR menu. Play starts the VR runtime first; started without a headset, the
-  game runs untouched. Runs on SteamVR's test headset in Direct3D 12; not yet tried on a real one. UE 5.5 and newer,
+  game runs untouched. UE 5.5 and newer,
   which dropped the engine's switch for keeping the UI out of the eyes, draw it into a texture of its own the size of
   the window, so it shows whole on the panel as in older versions.
 - **Unreal games' own objects** (UE 4.25 and newer): PortXR now reads the engine's object list, names, classes,
@@ -91,6 +91,52 @@
   only once the window keeps a new size for half a second (dragging an edge made dozens, about 14 MB each at 1440p),
   and a size the window returns to (a fullscreen toggle) uses its texture again. Known: resizing the window during VR
   can still crash the game, about once in 70 size changes in a stress test.
+- Unreal before 5.5 (VHOLUME, BPM: Bullets Per Minute): menus and loading screens no longer stay on the UI panel over
+  the levels after them. The engine draws its UI into the game window without clearing it; the window is now cleared
+  after every frame while VR runs. Compiled, not yet played.
+- Unity games that draw the world into a texture and show it across their own UI (Lethal Company): that picture no
+  longer lies over the panel as a dark sheet. The hidden camera draws elsewhere and the game's texture is cleared while
+  the eyes render. Compiled, not yet played.
+- Games that had VR added while PortXR was still called Parallax kept the old plugin beside the new one after an
+  update. The old one loaded first and took the headset, so those games went on running the old build (the log said
+  "xrCreateInstance failed" and "VR stays off" for PortXR). An update now takes out plugin files an earlier build
+  installed and this one no longer ships, and the old plugin's settings, the ones in use, become PortXR's. The app
+  does it for every game the next time it lists them. Tested on files; not yet played.
+- A game's page says when the game still holds an older PortXR plugin. Every library scan and every Play in VR
+  already bring each game's plugin up to the build that is running (file by file, against what it ships); a game
+  that was running at the time kept its old files without a word.
+- Head aim on Auto starts by itself in first-person Unity games that keep the camera apart from the player and move it
+  onto the body every frame (Peripeteia). It did so only where the camera is a child of the body; elsewhere aim stayed
+  off until the player had turned on the spot for a while. The body is the character controller or moving rigidbody
+  that stays under the camera as it travels. Compiled, not yet played.
+- Head and hand aim no longer switch off and on in the middle of a run (VHOLUME). The check that tells a first-person
+  camera from one that orbits the player counted turns made while the player still slid or fell after the stick was
+  let go, and read a first-person camera as orbiting 1 m off. It now counts only turns where the camera moved along
+  the turn, and goes by the median of the last 41. Compiled, not yet played.
+- The view no longer shifts when the hand or the aim turns the game camera. A first-person camera that turns about a
+  point behind itself (VHOLUME: 11 cm) moves as it turns, and the eyes hung on it: every sway of the aiming hand moved
+  the whole world a little. The eyes hang on that pivot instead, set off along the body's forward. Compiled, not yet
+  played.
+- 3D screen in Unreal first-person games (BPM: Bullets Per Minute): the hands and weapon no longer show double. The
+  screen's plane stayed 3 m off, so arms 40 cm from the eyes stood out of it by six eye-widths and more. The plane
+  now comes to three times the distance of what the game camera carries: the world goes behind the screen and the
+  arms come out by two eye-widths at most. Needs the game's objects (not yet in VHOLUME). Compiled, not yet played.
+- VR menu in Full VR: the world dims while the menu is open. The menu is drawn over the game whatever stands nearer
+  than it, and a wall or weapon at arm's length behind a menu 1.2 m off made it hard to look at and to point at.
+  The pointer also no longer crawls for a finger resting on the trigger (its steadying for a click started at 15% of
+  the pull, now 35%). Compiled, not yet played.
+- Wrist watch: the right trigger opens the VR menu only while the right hand's beam is on the watch. The watch turned
+  toward the eyes was enough before, so a left hand held up while the right one fired opened the menu mid-game. The
+  beam shows whenever the watch does. Compiled, not yet played.
+- Godot games that run their physics on a thread of their own no longer crash once aiming starts (Explosiovania:
+  Jolt with `run_on_separate_thread`; it went down in the first fight). The crosshair's ray, and the 3D screen's
+  focus rays, asked for the physics space from the render frame. There the engine answers null ("Space state is
+  inaccessible right now"), and an exported game runs scripts without null checks: the next call was a read of
+  address 0. The rays are now cast in the physics step, where the space is handed out, and a null one is left
+  alone. Reproduced and checked in the Godot 4.5 editor without a headset; not yet played.
+- Unreal: the search for the engine's function caller (ProcessEvent) reads further into each candidate and knows one
+  more way the engine tests a function's flags; when it still finds none (VHOLUME), the log says where it looked.
+  Compiled, not yet played.
 - Unreal games get the VR screen: the game flat on a big screen, as in Unity and Godot games (the engine always draws
   both eyes, so it is the 3D screen's view with no depth). UE 5.5 and newer, Direct3D 11: the desktop window shows the
   left eye during VR instead of the last frame from before. While a loading screen

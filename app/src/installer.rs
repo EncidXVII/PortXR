@@ -13,6 +13,9 @@ use crate::games;
 const BACKUP_DIR: &str = ".vrbackup";
 const PLUGIN_DIR: &str = r"BepInEx\plugins\PortXR";
 pub const CONFIG: &str = r"BepInEx\config\portxr.core.cfg";
+/// The plugin's settings file and folder under the name it had before (Parallax).
+const OLD_CONFIG: &str = r"BepInEx\config\parallax.core.cfg";
+const OLD_PLUGIN_DIR: &str = r"BepInEx\plugins\Parallax";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -341,7 +344,7 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
     let payload = payload(game.il2cpp)?;
     let mut sources = Vec::new();
     walk(&payload, &payload, &mut sources)?;
-    let mut changed = false;
+    let mut changed = drop_stale(game_dir, &mut receipt, &sources);
     for rel in sources.into_iter().filter(|rel| rel.to_lowercase().starts_with(&PLUGIN_DIR.to_lowercase())) {
         let data = fs::read(games::native(&payload, &rel))?;
         let target = games::native(game_dir, &rel);
@@ -362,6 +365,109 @@ pub fn update_checked(game: &games::Game) -> Result<bool, Box<dyn Error>> {
         write_durable(&path, &serde_json::to_vec(&receipt)?)?;
     }
     Ok(changed)
+}
+
+/// Plugin files an earlier build installed that this one no longer ships (the plugin's folder under the name it had
+/// before): taken out of the game and the receipt. Left in, the old plugin loads beside the new one and takes the
+/// headset first, so the game keeps running the old build. Its settings were the ones in use: they become the new
+/// plugin's. A file a running game still holds stays for the next update. Returns whether anything was removed.
+fn drop_stale(game_dir: &Path, receipt: &mut Receipt, shipped: &[String]) -> bool {
+    let shipped: Vec<String> = shipped.iter().map(|s| s.to_lowercase()).collect();
+    let mut removed = false;
+    receipt.files.retain(|f| {
+        if !stale(f, &shipped) {
+            return true;
+        }
+        let target = games::native(game_dir, &f.path);
+        if target.exists() && fs::remove_file(&target).is_err() {
+            return true;
+        }
+        if let Some(dir) = target.parent() {
+            let _ = fs::remove_dir(dir); // once it is empty
+        }
+        removed = true;
+        false
+    });
+    let old = games::native(game_dir, OLD_CONFIG);
+    if removed && old.exists() {
+        let _ = fs::rename(&old, games::native(game_dir, CONFIG));
+    }
+    clear_old_dir(game_dir);
+    removed
+}
+
+/// The old plugin's folder once none of its DLLs is left: what the plugin itself wrote there while it ran (its
+/// played list) moves to the new plugin's folder unless that has its own, and the folder goes. With a DLL still in
+/// it (a running game holds it, or it is not ours) it stays as it is.
+fn clear_old_dir(game_dir: &Path) {
+    let (old, new) = (games::native(game_dir, OLD_PLUGIN_DIR), games::native(game_dir, PLUGIN_DIR));
+    let Ok(entries) = fs::read_dir(&old) else { return };
+    let files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    if files.iter().any(|f| f.is_dir() || f.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"))) {
+        return;
+    }
+    for file in files {
+        let target = new.join(file.file_name().unwrap_or_default());
+        if target.exists() || fs::rename(&file, &target).is_err() {
+            let _ = fs::remove_file(&file);
+        }
+    }
+    let _ = fs::remove_dir(&old);
+}
+
+/// A plugin file of ours (never one that was there before us) that this build no longer ships; `shipped` in lowercase.
+fn stale(f: &ReceiptFile, shipped: &[String]) -> bool {
+    let rel = f.path.to_lowercase();
+    !f.backed_up && rel.starts_with(r"bepinex\plugins\") && !shipped.contains(&rel) && inside(&f.path)
+}
+
+/// Whether a game with VR added holds other plugin files than this build ships: an older build's, or the plugin under
+/// its old name. Every library scan and every Play in VR bring a game up to this build (update_checked), so this is
+/// true only where they could not: the game was running, or something else held its files.
+pub fn outdated(game: &games::Game) -> bool {
+    if !game.installed() {
+        return false;
+    }
+    if game.unreal_vr() {
+        let payload = std::env::current_exe().map(|exe| exe.with_file_name("unreal"));
+        return unreal_dir(game).ok().zip(payload.ok()).is_some_and(|(dir, payload)| !same_files(dir, &payload, &UNREAL_CORE));
+    }
+    if game.godot_vr() {
+        return if game.godot_core() {
+            godot_payload().is_ok_and(|payload| !same_files(&game.exe.with_file_name(GODOT_DIR), &payload, &GODOT_CORE))
+        } else {
+            fs::read(game.exe.with_file_name("portxr_vr.gd")).unwrap_or_default() != GODOT_SCRIPT.as_bytes()
+        };
+    }
+    let (Ok(payload), mut sources) = (payload(game.il2cpp), Vec::new()) else { return false };
+    if walk(&payload, &payload, &mut sources).is_err() {
+        return false;
+    }
+    let plugin = PLUGIN_DIR.to_lowercase();
+    let differs = sources.iter().filter(|rel| rel.to_lowercase().starts_with(&plugin)).any(|rel| {
+        fs::read(games::native(&payload, rel)).is_ok_and(|ours| !fs::read(games::native(&game.dir, rel)).is_ok_and(|theirs| theirs == ours))
+    });
+    let shipped: Vec<String> = sources.iter().map(|s| s.to_lowercase()).collect();
+    let receipt = fs::read(receipt_path(&game.dir)).ok().and_then(|b| serde_json::from_slice::<Receipt>(&b).ok());
+    differs || receipt.is_some_and(|r| r.files.iter().any(|f| stale(f, &shipped) && games::native(&game.dir, &f.path).exists()))
+}
+
+/// `outdated`, read from the disk at most every two seconds per game: a game's page asks on every frame it draws.
+pub fn outdated_now(game: &games::Game) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static ASKED: Mutex<Option<HashMap<PathBuf, (Instant, bool)>>> = Mutex::new(None);
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    let map = asked.get_or_insert_with(HashMap::new);
+    if let Some((at, answer)) = map.get(&game.dir)
+        && at.elapsed() < Duration::from_secs(2)
+    {
+        return *answer;
+    }
+    let answer = outdated(game);
+    map.insert(game.dir.clone(), (Instant::now(), answer));
+    answer
 }
 
 /// The game, unless it has anti-cheat or is online-only: then PortXR is taken out of it (a game update may have
@@ -393,6 +499,7 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     if receipt.loader_preexisting {
         remove_dir(&games::native(game_dir, PLUGIN_DIR))?;
         let _ = fs::remove_file(games::native(game_dir, CONFIG));
+        let _ = fs::remove_file(games::native(game_dir, OLD_CONFIG));
     }
     for entry in &receipt.files {
         let target = games::native(game_dir, &entry.path);
@@ -509,6 +616,39 @@ mod tests {
         assert_eq!(left, ["override.cfg"]);
         assert_eq!(fs::read(dir.join("bin").join("override.cfg")).unwrap(), b"theirs");
         assert!(uninstall(&dir).is_err(), "nothing left to remove");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_update_takes_out_the_plugin_under_its_old_name() {
+        let dir = game_dir("stale");
+        let file = |rel: &str, backed_up| ReceiptFile { path: rel.into(), sha256: String::new(), backed_up };
+        let (old, new, other) = (r"BepInEx\plugins\Parallax\Parallax.Core.dll", r"BepInEx\plugins\PortXR\PortXR.Core.dll", r"BepInEx\plugins\Theirs\mod.dll");
+        let played = r"BepInEx\plugins\Parallax\played.txt"; // written by the old plugin as it ran: in no receipt
+        for rel in [old, new, other, OLD_CONFIG, CONFIG, played] {
+            let path = games::native(&dir, rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, rel).unwrap();
+        }
+        // `other` was there before us (backed up): never ours to remove. winhttp.dll is no plugin file.
+        let mut receipt = Receipt {
+            version: "0".into(),
+            loader_preexisting: false,
+            created_dirs: vec![],
+            files: vec![file(old, false), file(new, false), file(other, true), file("winhttp.dll", false)],
+            forced: false,
+        };
+        let shipped = vec![new.to_uppercase(), "winhttp.dll".to_string()];
+        assert!(drop_stale(&dir, &mut receipt, &shipped));
+        let left: Vec<&str> = receipt.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(left, [new, other, "winhttp.dll"]);
+        assert!(!games::native(&dir, old).parent().unwrap().exists(), "the old plugin folder goes");
+        assert_eq!(fs::read_to_string(games::native(&dir, r"BepInEx\plugins\PortXR\played.txt")).unwrap(), played, "what the old plugin wrote moves over");
+        assert!(games::native(&dir, new).exists() && games::native(&dir, other).exists());
+        // The old plugin's settings were the ones in use: they are the new plugin's now.
+        assert!(!games::native(&dir, OLD_CONFIG).exists());
+        assert_eq!(fs::read_to_string(games::native(&dir, CONFIG)).unwrap(), OLD_CONFIG);
+        assert!(!drop_stale(&dir, &mut receipt, &shipped), "nothing left to take out");
         let _ = fs::remove_dir_all(dir);
     }
 

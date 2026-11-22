@@ -244,7 +244,29 @@ Obj* default_object(const Obj* cls) {
 }
 
 // ProcessEvent tests FUNC_Native (0x400) in the function's flags early on: test dword [reg+flags], 400h, or
-// test byte [reg+flags+1], 4. Candidates in the base object's vtable are tried on Add_IntInt until one adds.
+// test byte [reg+flags+1], 4, or the flags loaded first (mov r32, [reg+flags]) and tested within the next few
+// instructions (bt r32, 10; test r32, 400h; test r8h, 4).
+bool tests_native(const uint8_t* code, size_t size, int32_t flags) {
+    uint8_t dword[8], byte[5];
+    int32_t high = flags + 1;
+    memcpy(dword, &flags, 4), memcpy(dword + 4, "\x00\x04\x00\x00", 4);
+    memcpy(byte, &high, 4), byte[4] = 4;
+    for (size_t k = 0; k + 8 <= size; ++k) {
+        if (!memcmp(code + k, dword, 8) || !memcmp(code + k, byte, 5)) return true;
+        if (k < 2 || code[k - 2] != 0x8B || (code[k - 1] & 0xC0) != 0x80 || memcmp(code + k, dword, 4)) continue;
+        for (size_t j = k + 4; j + 6 <= size && j < k + 28; ++j) {
+            const uint8_t* c = code + j;
+            if ((c[0] == 0x0F && c[1] == 0xBA && (c[2] & 0xF8) == 0xE0 && c[3] == 0x0A) ||
+                (c[0] == 0xA9 && !memcmp(c + 1, dword + 4, 4)) ||
+                (c[0] == 0xF7 && (c[1] & 0xF8) == 0xC0 && !memcmp(c + 2, dword + 4, 4)) ||
+                (c[0] == 0xF6 && (c[1] & 0xFC) == 0xC4 && c[2] == 0x04))
+                return true;
+        }
+    }
+    return false;
+}
+
+// Candidates in the base object's vtable are tried on Add_IntInt until one adds.
 bool find_process_event(Obj* object) {
     Obj* base = default_object(object);
     Obj* math = find_class("KismetMathLibrary");
@@ -252,18 +274,18 @@ bool find_process_event(Obj* object) {
     Obj* mathDefault = math ? default_object(math) : nullptr;
     if (!base || !add || !mathDefault) return unreal_note("Unreal objects: no Object default or Add_IntInt to test with"), false;
     void** vt = rd<void**>(base);
-    uint8_t dword[8], byte[5];
-    memcpy(dword, &g.funcFlags, 4), memcpy(dword + 4, "\x00\x04\x00\x00", 4);
-    int flagsHigh = g.funcFlags + 1;
-    memcpy(byte, &flagsHigh, 4), byte[4] = 4;
+    int read = 0, tried = 0;
     for (int i = 0; i < 0x100; ++i) {
         const uint8_t* fn = follow(rd<const uint8_t*>(vt, i * 8));
-        uint8_t code[0x200];
-        if (!fn || !peek(fn, code, sizeof(code))) continue;
-        bool tests = false;
-        for (size_t k = 0; k + 8 <= sizeof(code) && !tests; ++k)
-            tests = !memcmp(code + k, dword, 8) || !memcmp(code + k, byte, 5);
-        if (!tests) continue;
+        // 0x400 bytes: newer engines reach the test only after a long preamble. A function near the end of its
+        // memory is read as far as it goes.
+        uint8_t code[0x400];
+        size_t size = sizeof(code);
+        while (size >= 0x100 && (!fn || !peek(fn, code, size))) size /= 2;
+        if (size < 0x100) continue;
+        ++read;
+        if (!tests_native(code, size, g.funcFlags)) continue;
+        ++tried;
         Field *a = prop(add, "A"), *b = prop(add, "B"), *r = prop(add, "ReturnValue");
         std::vector<uint8_t> params(params_size(add) + 16);
         if (!a || !b || !r) return false;
@@ -276,6 +298,8 @@ bool find_process_event(Obj* object) {
                     *(int32_t*)&params[prop_offset(r)]);
         if (ran && *(int32_t*)&params[prop_offset(r)] == 5) return g.processEvent = i, true;
     }
+    // What a report needs to tell why: the flags' place as it was taken, and how much of the vtable could be read.
+    unreal_note("Unreal objects: function flags taken at %#x; %d of 256 vtable slots read, %d tested the flag", g.funcFlags, read, tried);
     return false;
 }
 

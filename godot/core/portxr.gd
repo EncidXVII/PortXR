@@ -34,6 +34,8 @@ var _udp: PacketPeerUDP
 var _menu_open := false
 var _mode := 0  # the core's display: 0 Stereo, 1 Parallax, 2 Theater
 var _focus := 0.0
+var _focus_asked := -1000  # the frame the 3D screen's window was last drawn (its focus rays are cast while it is)
+var _aim_hit := 0.0  # the crosshair's ray, from the last physics step
 var _handles := false
 var _picked_camera := ""
 var _camera_names: Array[String] = []
@@ -303,9 +305,37 @@ func _window_eyes(window: Array, root: Window) -> void:
 		c.cull_mask = _game.cull_mask
 		c.environment = _game.environment
 		c.attributes = _game.attributes
-	var space := _game.get_world_3d().direct_space_state
-	var vp := _game.get_viewport()
-	var vs := vp.get_visible_rect().size
+	_focus_asked = _frames  # the rays themselves: _physics_process
+
+
+# While aiming: how far the game camera's middle ray goes before it hits something (0: nothing), for the crosshair.
+# The ray itself: _physics_process.
+func _aim_distance() -> float:
+	return _aim_hit if _aiming and _game != null else 0.0
+
+
+# The rays the crosshair and the 3D screen's plane need, cast in the physics step and kept for the frames after it
+# (one step old at most). The engine hands out a world's space only there when the game runs its physics on a thread
+# of its own (Explosiovania: Jolt with run_on_separate_thread) or is in the middle of a step: asked from _process it
+# answers null with "Space state is inaccessible right now", and a call on that null is a crash in an exported game,
+# which runs scripts without null checks. So the space is asked for here, and a null one is left alone.
+func _physics_process(_delta: float) -> void:
+	_aim_hit = 0.0
+	if core == null or _game == null or not is_instance_valid(_game) or not _game.is_inside_tree():
+		return
+	var world := _game.get_world_3d()
+	var space: PhysicsDirectSpaceState3D = world.direct_space_state if world != null else null
+	if space == null:
+		return
+	if _aiming:
+		var from := _game.global_position
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from - _game.global_basis.z * 40.0))
+		if not hit.is_empty():
+			_aim_hit = from.distance_to(hit["position"])
+	# The 3D screen's focus, while its window is drawn: the median of five rays around the middle of the view.
+	if _frames - _focus_asked > 2:
+		return
+	var vs := _game.get_viewport().get_visible_rect().size
 	var hits: Array[float] = []
 	for at in [Vector2(0.5, 0.5), Vector2(0.4, 0.5), Vector2(0.6, 0.5), Vector2(0.5, 0.4), Vector2(0.5, 0.6)]:
 		var p: Vector2 = at * vs
@@ -317,15 +347,6 @@ func _window_eyes(window: Array, root: Window) -> void:
 	if not hits.is_empty():
 		hits.sort()
 		_focus = hits[hits.size() / 2]
-
-
-# While aiming: how far the game camera's middle ray goes before it hits something (0: nothing), for the crosshair.
-func _aim_distance() -> float:
-	if not _aiming or _game == null:
-		return 0.0
-	var from := _game.global_position
-	var hit := _game.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, from - _game.global_basis.z * 40.0))
-	return 0.0 if hit.is_empty() else from.distance_to(hit["position"])
 
 
 # The scene as game scripts know it (on_scene): its file's name ("level_2" for res://levels/level_2.tscn), else its root's.

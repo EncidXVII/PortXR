@@ -18,10 +18,9 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 **[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early access (0.2).** The engines are covered (Unity, Unreal Engine, Godot), but every game has its own
-> cameras, UI and effects, and the list of games people have played and reported is still short. Game reports and
-> per-game scripts are what grow the library; Linux and Unreal games on real headsets need testers:
-> see [Status and help wanted](#status-and-help-wanted).
+> **Status: early access (0.2).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
+> UI and effects, so game reports and per-game scripts are what grow the library. Linux and Unreal Engine support
+> are experimental: see [Status and help wanted](#status-and-help-wanted).
 
 <img src="docs/images/vr-menu.png" width="560" alt="The VR menu's Quick tab: Display (Full VR, 3D screen, VR screen), Recenter, World scale, Turning, Comfort vignette, Controls, Aim and Aim with">
 
@@ -34,11 +33,11 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 | **What it is** | A VR mod for flat PC games: it goes inside a Unity, Unreal Engine or Godot game and renders it in stereo for your headset, with motion controls |
 | **Use it for** | Playing non-VR games you already own in VR: full VR at real scale, the game in 3D on a big screen, or flat on a VR cinema screen |
 | **Engines** | Unity (Mono and IL2CPP), Unreal Engine 4.22 and newer, Godot 4; Direct3D 11 and 12 |
-| **Platforms** | Windows 10 and 11, 64-bit; Linux through Steam's Proton |
+| **Platforms** | Windows 10 and 11, 64-bit; Linux through Steam's Proton (experimental) |
 | **Headsets** | Any PC VR headset with an OpenXR runtime: Meta Quest 2 / 3 / Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed Reality |
 | **Safe to try** | One click to add VR, one click to remove it: the game folder goes back byte for byte. Single-player only; anti-cheat games are refused |
 | **Price** | Free. No account, no telemetry |
-| **Status** | Early access (0.2): the engines are covered, the list of tested games is short and grows with game reports and per-game scripts; Linux needs testers |
+| **Status** | Early access (0.2): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
 | **License** | Open source, `GPL-3.0-only`, © 2026 EncidXVII |
 
 ## Highlights
@@ -66,7 +65,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 1. Start your headset runtime (SteamVR, Virtual Desktop, Quest Link, anything with OpenXR), then run `PortXR.exe`.
 2. Pick a game marked **Installed** and press **Play in VR**. **Settings** (top bar) holds the settings for every game; a game's page can change any of them for that game only, with a link back to the all-games value. After **Play in VR** the page says when the game is in VR (or what to check if it starts flat), and later when you last played it in VR. **Add VR** sets a game up without starting it. PortXR installs itself into the game folder; **Remove VR** puts the folder back byte for byte.
-3. In game: **double-tap the left menu button**, look at the back of your left hand and pull the right trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, the game camera to follow, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
+3. In game: **double-tap the left menu button**, look at the back of your left hand, point the right controller at the watch there and pull the trigger, or press F11 for the VR menu: display (Full VR, 3D screen, VR screen), 3D depth, recenter, world scale, comfort (smooth or snap turning by 15/30/45°, a vignette that darkens the edges of your view while you move), height, resolution, button bindings, the game camera to follow, and a frame-time graph. The first time VR starts in a game, a short welcome card walks through recenter, world scale and the controls.
 
 **Uninstall:** close your games, then run `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`; on Linux
 `./PortXR --uninstall`). It takes VR out of every game it was added to, each folder back byte for byte, and deletes
@@ -117,7 +116,7 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
 - Crosshair: the game's own crosshair sits in the middle of its UI panel, which stays put while the camera follows your head or hand. While aiming, PortXR moves the middle of the game's UI (the crosshair with its grab and use icons, prompts and hit markers) to what the camera aims at, at its depth. **Crosshair** (VR menu Game tab): Game's, Lime for a plain lime crosshair there instead, or Off.
 - The game's UI floats on a see-through panel. When a game paints that panel solid (a full-screen effect on its UI camera), PortXR notices and makes the black see-through, dim tints translucent (View, UI black: Auto, See-through or Keep).
 - Intro and cutscene videos that a game draws straight onto its camera play on the theater screen, then the view returns to stereo.
-- A round watch face sits on the back of your left wrist; it lights up when you glance at it, and a right trigger pull then opens the VR menu.
+- A round watch face sits on the back of your left wrist; glance at it and the right hand's beam shows; point the beam at the watch (it lights up) and pull the trigger to open the VR menu.
 - A laser beam shows where the right controller points while the pointer is on (VR menu, or whenever the game shows its cursor). The pointer clicks the game's menus through the game itself, so it works with the game window minimized or behind other windows; the VR menu always takes the pointer first while it is open.
 - Something in the way of your view, like a helmet or the player's own body? VR menu, Game tab, Hide objects: point at it and pull the trigger. PortXR remembers it for that game; Show hidden brings it back.
 - 2D games drawn by a perspective camera (Hollow Knight) are scaled so their play plane sits 2.5 m away: the game's own foreground and background layers show their depth. Orthographic 2D games play on the theater screen.
@@ -154,10 +153,10 @@ PortXR is in early access (0.2). Where each part stands, and what moves it forwa
 
 | Area | Where it stands | What helps |
 |---|---|---|
-| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. Most testing so far is automatic, on test games and SteamVR's simulated headset; [COMPAT.md](COMPAT.md) lists only a few real games | A [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml): play a game for 10 to 15 minutes, press **Export logs** and say how it went, also when it just worked. Every report adds a game to the list |
-| **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script. Few have been written yet | Write one for a game you own and share it: [SCRIPTING.md](SCRIPTING.md) |
-| **Unreal Engine games** | Full VR runs on the simulated headset and was tried on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; not yet on a real headset | Reports from a real headset with any UE 4.22 to 5.6 game |
-| **Linux (Proton)** | The Linux build compiles and is packaged; it has not been run on a Linux machine with a headset | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
+| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. [COMPAT.md](COMPAT.md) lists the checked games | A [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml): play a game for 10 to 15 minutes, press **Export logs** and say how it went, also when it just worked. Every report adds a game to the list |
+| **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script | Write one for a game you own and share it: [SCRIPTING.md](SCRIPTING.md) |
+| **Unreal Engine games** | Full VR on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; experimental, requires more testing | Reports from your headset with any UE 4.22 to 5.6 game |
+| **Linux (Proton)** | Experimental, requires more testing | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
 | **Not built yet** | Vulkan and OpenGL games. 32-bit games cannot work: no OpenXR runtime supports them | A report naming the Vulkan or OpenGL games you miss most |
 | **Code signing** | Builds are not signed yet: Windows warns on first run, and some antivirus tools flag the mod loader's `winhttp.dll` in game folders | Nothing: every release has a SHA-256 checksum |
 

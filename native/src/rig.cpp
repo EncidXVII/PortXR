@@ -39,14 +39,19 @@ float g_padSignX = 1, g_padSignY = 1;
 int g_padWrongY, g_aimWrongX, g_aimWrongY;
 float g_probeIgnored, g_aimSuspendedUntil;
 int g_ignoredTimes;
-// Orbit check: how far in front of the camera its turning pivot sits (first person turns about itself).
+// Orbit check: how far in front of the camera its turning pivot sits (first person turns about itself): the median of
+// what the last turns each say, so the few made while the player still slid, fell or was carried cannot flip it.
+constexpr int kOrbitKept = 41;
 V3 g_orbitLastPos, g_orbitLastFwd;
-float g_orbitNum, g_orbitDen;
+float g_orbitRadii[kOrbitKept], g_orbitMedian;
 int g_orbitSamples;
 std::string g_orbitKey;
 std::map<std::string, bool> g_firstPerson;
+// A first-person camera's pivot, as the eyes use it (anchor): eased to the orbit check's answer, kept per camera.
+float g_lever;
+std::map<std::string, float> g_levers;
 // Comfort vignette.
-float g_vignette, g_vignetteLastYaw;
+float g_vignette, g_vignetteLastYaw, g_menuDim;
 V3 g_vignetteLastPos;
 // Step smoothing: a camera moved at the physics rate judders at the headset's; follow a line one step behind.
 V3 g_stepFrom, g_stepTo;
@@ -154,12 +159,37 @@ void sample_orbit(const rig::Pose& cam) {
     // moves a first-person camera exactly like an orbit.
     bool walking = g_controllers.lx * g_controllers.lx + g_controllers.ly * g_controllers.ly > 0.04f;
     if (!primed || walking || df.dot(df) < 2.7e-5f || dc.dot(dc) > 0.25f) return;
-    g_orbitNum = g_orbitNum * 0.99f - dc.dot(df);
-    g_orbitDen = g_orbitDen * 0.99f + df.dot(df);
-    ++g_orbitSamples;
+    // A pivot moves the camera along its turn and nowhere else. Momentum after the stick is let go, a fall or a lift
+    // moves it across the turn: such a frame says nothing about the pivot (it read a first-person camera as orbiting
+    // 1 m off, and aim went off and on mid-run).
+    float turn = std::sqrt(df.dot(df)), along = dc.dot(df) / turn, across = dc.dot(dc) - along * along;
+    float allowed = 0.25f * std::fabs(along) + 0.002f;
+    if (across > allowed * allowed) return;
+    g_orbitRadii[g_orbitSamples++ % kOrbitKept] = std::clamp(-along / turn, -8.f, 8.f);
+    int n = std::min(g_orbitSamples, kOrbitKept);
+    float sorted[kOrbitKept];
+    std::copy(g_orbitRadii, g_orbitRadii + n, sorted);
+    std::nth_element(sorted, sorted + n / 2, sorted + n);
+    g_orbitMedian = sorted[n / 2];
 }
 
-float orbit_radius() { return g_orbitDen > 0 ? g_orbitNum / g_orbitDen : 0; }
+float orbit_radius() { return g_orbitSamples > 0 ? g_orbitMedian : 0; }
+
+// Where the eyes hang in the game. A first-person camera that turns about a point behind or ahead of itself (a neck)
+// moves as it turns, and it turns with every move of the hand and every correction of the aim: hung on the camera, the
+// whole view would shift with them. They hang on the pivot instead, set off along the body's forward, which is where
+// the camera sits when it looks straight ahead.
+V3 anchor(const rig::GameFrame& g, bool stereo) {
+    if (!stereo || !g.hasCamera) return g_camPos;
+    auto known = g_firstPerson.find(g.cameraKey);
+    auto kept = g_levers.find(g.cameraKey);
+    bool first = known != g_firstPerson.end() && known->second, measured = g_orbitSamples >= 40;
+    // A camera met again starts from what it had, until it has turned enough to be measured anew.
+    float want = !first ? 0 : measured ? std::clamp(g_orbitMedian, -0.45f, 0.45f) : kept != g_levers.end() ? kept->second : 0;
+    g_lever += (want - g_lever) * (1 - std::exp(-g_dt * 1.5f));
+    if (first && measured) g_levers[g.cameraKey] = g_lever;
+    return g_camPos + (forward(g.camera.q) - body() * V3{0, 0, -1}) * g_lever;
+}
 
 // Head aim on Auto: first person, judged per scene and camera from how the camera turns (below 0.45 m from itself;
 // flipped only by strong evidence, above 1 m or below 0.2 m); without a verdict, a carried camera that has not ignored
@@ -386,7 +416,9 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surf
     bool on = c.aimValid[1] && hit(target, from, dir, u, v, at);
     if (on && g_pointerOn && wanted) {
         float d = std::sqrt((u - g_pointerU) * (u - g_pointerU) + (v - g_pointerV) * (v - g_pointerV));
-        float follow = std::clamp(d * 60.f, c.rTrigger > 0.15f ? 0.04f : 0.15f, 1.f);
+        // "Being pulled" starts well past a finger resting on the trigger (0.1 to 0.3 on light triggers): from 0.15
+        // the pointer crawled for anyone who rests it there, and small buttons were hard to reach.
+        float follow = std::clamp(d * 60.f, c.rTrigger > 0.35f ? 0.04f : 0.15f, 1.f);
         g_pointerU += (u - g_pointerU) * follow;
         g_pointerV += (v - g_pointerV) * follow;
     } else if (on) {
@@ -412,8 +444,9 @@ void update_pointer(const rig::GameFrame& g, rig::Result& r, const Surface& surf
 // The wrist watch, as the plugin's WristGlance (and WristXR's clock): the back of the left hand turned toward the
 // eyes, close to the face, with the eyes on it. Shows wide, stays wider, held at least 0.3 s so it never blinks at the
 // edge. The angles are WristXR's: it shows with the face within about 66 degrees of the eyes and the watch within 52
-// degrees of where the head looks, and stays until those pass 81 and 70. Lit when turned toward the eyes or under the
-// laser; then the right trigger opens the VR menu (returns true).
+// degrees of where the head looks, and stays until those pass 81 and 70. While it shows, the right hand's beam shows
+// too; lit under the beam, and only then does the right trigger open the VR menu (returns true). Turned toward the
+// eyes alone was enough before: a left hand held up while the right one fired opened the menu mid-game.
 bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2]) {
     constexpr float ShowFacing = 0.4f, ShowLooking = 0.62f, KeepFacing = 0.15f, KeepLooking = 0.34f, HoldS = 0.3f;
     constexpr float ShowS = 0.08f, HideS = 0.18f, GlowS = 0.1f;
@@ -433,11 +466,16 @@ bool update_watch(const rig::GameFrame& g, rig::Result& r, const PrxPose views[2
             V3 ahead = q_of(views[0]) * V3{0, 0, -1} + q_of(views[1]) * V3{0, 0, -1};
             float looking = g_testWrist ? 1.f : ahead.dot(toEye * -1.f) / std::max(ahead.length(), 1e-4f);
             looked = g_watchLooked ? facing > KeepFacing && looking > KeepLooking : facing > ShowFacing && looking > ShowLooking;
-            glance = looked && facing > 0.6f;
-            if (!glance && looked && c.aimValid[1]) {
+            if (looked && c.aimValid[1]) {
                 V3 from = aim_from(c.aim[1]), dir = aim_dir(c.aim[1]), to = at - from;
                 float along = to.dot(dir);
-                glance = along > 0 && along < 0.6f && (to - dir * along).length() < 0.06f;
+                // Easier to keep than to catch, so it never flickers at the rim.
+                glance = along > 0 && along < 0.6f && (to - dir * along).length() < (g_glancing ? 0.08f : 0.06f);
+                if (g_watchLooked && !r.beam) {
+                    r.beam = true;
+                    r.beamFrom = from;
+                    r.beamTo = glance ? at : from + dir * std::clamp(along, 0.15f, 0.6f);
+                }
             }
         }
     }
@@ -675,7 +713,7 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
         // Another camera: its turns are judged afresh.
         g_orbitKey = game.cameraKey;
         g_orbitSamples = 0;
-        g_orbitNum = g_orbitDen = 0;
+        g_orbitMedian = 0;
         g_orbitLastFwd = {};
         g_probeIgnored = 0;
         g_ignoredTimes = 0;
@@ -753,7 +791,11 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     r.aiming = g_aiming;
     if (game.hasCamera) g_camPos = smoothed(game.camera.p);
     update_vignette(game.hasCamera && view == rig::Stereo);
-    r.vignette = view == rig::Stereo ? g_vignette : 0;
+    // With the VR menu open in Full VR the world dims (a negative vignette: an even dim, see the blit shader). The menu
+    // is a layer drawn over the eyes whatever stands nearer than it; a wall or a weapon at arm's length behind a menu
+    // 1.2 m off pulls the eyes two ways, and the menu was hard to read and to point at. Dimmed, the menu wins.
+    g_menuDim += ((game.menuOpen && view == rig::Stereo ? 1.f : 0.f) - g_menuDim) * std::min(1.f, g_dt / 0.12f);
+    r.vignette = view != rig::Stereo ? 0 : g_menuDim > 0.01f ? -0.65f * g_menuDim : g_vignette;
     r.mode = view;
     float aspect = game.uiAspect > 0 ? game.uiAspect : 16.f / 9.f;
     Surface surface;
@@ -781,14 +823,15 @@ Result frame(const GameFrame& game, const PrxPose views[2]) {
     Q b = body(), unYaw = g_originYaw.inverse();
     float s = scale() * g_sceneScale;
     V3 lift{0, settings::getf("View", "Height", 0.f, -1.f, 1.f), 0};
+    V3 hang = anchor(game, view == rig::Stereo);
     for (int e = 0; e < 2; ++e) {
         V3 rel = unYaw * (v_of(views[e]) - g_originPos);
-        r.eyes[e].p = g_camPos + b * ((rel + game.eyeOffset) * s) + lift;
+        r.eyes[e].p = hang + b * ((rel + game.eyeOffset) * s) + lift;
         r.eyes[e].q = b * unYaw * q_of(views[e]);
     }
     r.origin = {g_originPos, g_originYaw};
     r.body = b;
-    r.base = g_camPos + lift;
+    r.base = hang + lift;
     r.scale = s;
     r.handAiming = g_handAiming;
     r.handAim = g_handAim;

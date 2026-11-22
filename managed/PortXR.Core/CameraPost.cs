@@ -34,9 +34,7 @@ namespace PortXR
             Action undo = null;
             try
             {
-                types = types ?? TypeNames.Select(n => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(n, false))
-                    .FirstOrDefault(t => t != null)).Where(t => t != null).ToArray();
-                foreach (var type in types)
+                foreach (var type in Types())
                 {
                     bool layer = type.Name == "PostProcessLayer";
 #if IL2CPP
@@ -67,12 +65,15 @@ namespace PortXR
             return undo;
         }
 
+        static Type[] Types() => types = types ?? TypeNames.Select(n => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(n, false))
+            .FirstOrDefault(t => t != null)).Where(t => t != null).ToArray();
+
         // A URP camera that draws overlay cameras in its stack (their output lands in its target, not on the screen).
         public static bool HasStack(Camera cam)
         {
             try
             {
-                var type = types?.FirstOrDefault(t => t.Name == "UniversalAdditionalCameraData");
+                var type = Types().FirstOrDefault(t => t.Name == "UniversalAdditionalCameraData");
                 if (type == null) return false;
 #if IL2CPP
                 var c = cam.GetComponent(Il2CppType.From(type));

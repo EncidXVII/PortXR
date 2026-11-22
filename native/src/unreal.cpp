@@ -377,7 +377,8 @@ struct Tools {
     std::unordered_map<ue::Obj*, Box> bounds;
     size_t cursor = 0;
     std::vector<std::pair<ue::Obj*, std::vector<double>>> held;  // moved to the hand: their relative locations
-    ULONGLONG listedAt = 0, rehiddenAt = 0;
+    ULONGLONG listedAt = 0, rehiddenAt = 0, focusAt = 0;
+    float focus = 0;                       // 3D screen: the plane's distance for what the camera carries (0: nothing)
 } g_tools;
 bridge::MenuHost g_host;
 
@@ -613,6 +614,36 @@ void hold(const bridge::Frame& f) {
     }
 }
 
+// 3D screen: how far off the screen's plane sits when the view's camera carries something (a first-person game's arms
+// and weapon, a few decimetres from the eyes). With the plane left at the rig's 3 m they stood out of the screen by
+// six eye-widths and more, which eyes cannot fuse: the hands showed double. The plane comes to three times their
+// distance: the world goes behind the screen, the arms come out of it by two eye-widths at most. Measured twice a
+// second from the bounds of what is attached to the camera (hold() moves the same things); nothing carried: 0.
+float carried_focus(const double loc[3], const double rot[3]) {
+    Tools& t = g_tools;
+    if (t.frames < 120 || !ue::init() || bridge::setting("View", "Display", "Stereo") == "Stereo") return 0;
+    ULONGLONG now = GetTickCount64();
+    if (now - t.focusAt < 500) return t.focus;
+    t.focusAt = now;
+    t.focus = 0;
+    ue::Obj *cam = t.camera.empty() ? nullptr : ue::find(t.camera), *lib = ue::statics("KismetSystemLibrary");
+    V3 fwd = rotator_to_q(rot) * V3{0, 0, -1};
+    double ahead[3] = {-fwd.z, fwd.x, fwd.y}, nearest = 1e30;
+    for (ue::Obj* c : ue::get_objects(cam, "AttachChildren")) {
+        if (!ue::alive(c) || !drawn(c)) continue;
+        ue::Invoke bounds(lib, "GetComponentBounds");
+        double o[3], e[3];
+        if (!bounds.set("Component", c).run() || bounds.get("Origin", o, 3) != 3 || bounds.get("BoxExtent", e, 3) != 3) continue;
+        double depth = (o[0] - loc[0]) * ahead[0] + (o[1] - loc[1]) * ahead[1] + (o[2] - loc[2]) * ahead[2];
+        double size = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+        // Not something held before the eyes: nothing drawn (a helper component), a volume around the player, or behind.
+        if (size < 0.01 * g_scale || size > 2 * g_scale || depth < 0.05 * g_scale) continue;
+        nearest = std::min(nearest, depth);
+    }
+    if (nearest < 1e29) t.focus = (float)(std::clamp(nearest / g_scale, 0.2, 1.0) * 3);
+    return t.focus;
+}
+
 // After the rig: the menu's requests and the tools.
 void tools_frame(const bridge::Frame& f) {
     Tools& t = g_tools;
@@ -671,6 +702,7 @@ void offset_hook(void* self, int32_t index, void* rotation, float worldToMeters,
             V3 p = to_xr(loc, scale);
             Q q = rotator_to_q(rot);
             g.camera = {{p.x, p.y, p.z}, {q.x, q.y, q.z, q.w}};
+            g.focus = carried_focus(loc, rot);
             g_located = bridge::frame(g, f);
             tools_frame(f);
         }
@@ -1117,6 +1149,10 @@ void on_present(IDXGISwapChain* sc) {
             if (g_located) apply(f);
         }
         g_vr = g_located;
+        // The engine draws its UI into the window without clearing it, and the eyes' copy that covered the window each
+        // frame is skipped while VR runs (render_texture_hook): the window is cleared for the next frame's UI, or a
+        // menu or loading screen once drawn stayed on the panel over every level after it.
+        gpu_clear_presented = g_located && !g_uiNative;
         if (g_located) {
             PrxFrame f{};
             bridge::layers(&f, rc.bottom > 0 ? (float)rc.right / rc.bottom : 16.f / 9.f);
