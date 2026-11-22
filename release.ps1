@@ -29,5 +29,6 @@ $items = @(Get-ChildItem $dist | ForEach-Object FullName)
 if ($Test) { $items += Join-Path $root "TESTING.md" }
 Compress-Archive $items $zip
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-Set-Content (Join-Path $out "SHA256SUMS.txt") "$hash  $name.zip" -Encoding ascii
+# LF, not CRLF: `sha256sum -c` on Linux reads a CR as part of the file name.
+[IO.File]::WriteAllText((Join-Path $out "SHA256SUMS.txt"), "$hash  $name.zip`n")
 Write-Host "$zip`n$hash"
