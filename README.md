@@ -16,7 +16,7 @@ game's UI on a panel you can point at. Games that don't suit 3D play on a big sc
 OpenXR headset: Meta Quest 2, 3 and Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed
 Reality and others through SteamVR, on Windows and on Linux through Proton.
 
-**[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
+**[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Guides and help on everyvr.net](https://everyvr.net/portxr) · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
 > **Status: early access (0.2).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
 > UI and effects, so game reports and per-game scripts are what grow the library. Linux and Unreal Engine support
@@ -264,7 +264,7 @@ Bug reports, game reports and per-game scripts are welcome: see [CONTRIBUTING.md
 
 ## More PC VR tools from the same author
 
-Four free, open-source tools for PC VR by [EncidXVII](https://github.com/EncidXVII), with one look and one way of working:
+Four free, open-source tools for PC VR by [EncidXVII](https://github.com/EncidXVII), with one look and one way of working. Guides, downloads and news for all four: [everyvr.net](https://everyvr.net).
 
 | | |
 |---|---|
