@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-11-23 (first public release)
 
 - **Uninstall PortXR**: `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`) takes VR out of every game
   it was added to and deletes PortXR's settings. Game scripts stay. Until now each game had to be done by hand.
@@ -217,7 +217,7 @@
 - Test sessions turn off SteamVR's startup overlay apps and leftover desktop windows (no "already running" dialogs,
   no Settings window over the test headset); the player's settings come back after.
 
-## 0.2.0 (first public release)
+## 0.2.0 test builds
 
 ### Games
 - Unity 2018.4 to Unity 6, Mono (.NET 3.5 and 4.x) and IL2CPP, Direct3D 11 and 12.

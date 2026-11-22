@@ -6,6 +6,7 @@ abstract: "Free, open-source tool that adds VR to flat PC games made with Unity,
 authors:
   - alias: EncidXVII
 version: 0.2.0
+date-released: 2026-11-23
 license: GPL-3.0-only
 repository-code: "https://github.com/EncidXVII/PortXR"
 url: "https://everyvr.net/portxr"
