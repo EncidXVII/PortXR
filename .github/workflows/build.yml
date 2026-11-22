@@ -21,7 +21,7 @@ jobs:
       - name: Build and pack
         shell: pwsh
         run: ./release.ps1 -MonoOnly
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr
           path: release/*
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the app
         run: cargo build --release --manifest-path app/Cargo.toml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr-linux-app
           path: app/target/release/PortXR
@@ -49,7 +49,7 @@ jobs:
           mkdir pkg && unzip -q "$zip" -d pkg && rm pkg/PortXR.exe
           install -m 755 portxr-linux-app/PortXR pkg/PortXR
           tar -czf "$(basename "$zip" .zip)-linux.tar.gz" -C pkg .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr-linux
           path: "*-linux.tar.gz"
