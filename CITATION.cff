@@ -5,7 +5,7 @@ title: "PortXR: play flat PC games in VR (Unity, Unreal Engine and Godot)"
 abstract: "Free, open-source tool that adds VR to flat PC games made with Unity, Unreal Engine and Godot: 6DOF stereo rendering through OpenXR, motion controllers as gamepad or keyboard and mouse, head or hand aim, the game's UI on a panel, and a big-screen mode for every other game."
 authors:
   - alias: EncidXVII
-version: 0.2.0
+version: 0.5.0
 date-released: 2026-11-23
 license: GPL-3.0-only
 repository-code: "https://github.com/EncidXVII/PortXR"

@@ -18,7 +18,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 **[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Guides and help on everyvr.net](https://everyvr.net/portxr) · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early access (0.2).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
+> **Status: early access (0.5).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
 > UI and effects, so game reports and per-game scripts are what grow the library. Linux and Unreal Engine support
 > are experimental: see [Status and help wanted](#status-and-help-wanted).
 
@@ -37,7 +37,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 | **Headsets** | Any PC VR headset with an OpenXR runtime: Meta Quest 2 / 3 / Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed Reality |
 | **Safe to try** | One click to add VR, one click to remove it: the game folder goes back byte for byte. Single-player only; anti-cheat games are refused |
 | **Price** | Free. No account, no telemetry |
-| **Status** | Early access (0.2): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
+| **Status** | Early access (0.5): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
 | **License** | Open source, `GPL-3.0-only`, © 2026 EncidXVII |
 
 ## Highlights
@@ -149,7 +149,7 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
 
 ## Status and help wanted
 
-PortXR is in early access (0.2). Where each part stands, and what moves it forward:
+PortXR is in early access (0.5). Where each part stands, and what moves it forward:
 
 | Area | Where it stands | What helps |
 |---|---|---|

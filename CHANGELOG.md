@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 - 2026-11-23 (first public release)
+## 0.5.0 - 2026-11-23 (first public release)
 
 - **Uninstall PortXR**: `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`) takes VR out of every game
   it was added to and deletes PortXR's settings. Game scripts stay. Until now each game had to be done by hand.

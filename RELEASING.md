@@ -29,8 +29,8 @@ back to one commit.
    version's `CHANGELOG.md` section. The app's update check reads GitHub releases. Publishing is outward-facing: only
    on an explicit go-ahead.
    ```
-   git tag v0.2.0; git push origin main v0.2.0
-   gh release create v0.2.0 release\PortXR-0.2.0.zip release\SHA256SUMS.txt --title "PortXR 0.2.0" --notes-file notes.md
+   git tag v0.5.0; git push origin main v0.5.0
+   gh release create v0.5.0 release\PortXR-0.5.0.zip release\SHA256SUMS.txt --title "PortXR 0.5.0" --notes-file notes.md
    ```
 
 ## First publish (once)
