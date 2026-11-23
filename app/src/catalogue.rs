@@ -42,19 +42,10 @@ pub struct Entry {
     pub url: String,
     /// Display mode ("Full VR", "3D screen", "VR screen") to rating ("perfect", "good", "playable", "broken").
     pub ratings: BTreeMap<String, String>,
-    pub needs: String,
-    #[serde(default)]
-    pub issues: Vec<Issue>,
     #[serde(default)]
     pub reports: u32,
     #[serde(default)]
     pub files: Vec<File>,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct Issue {
-    #[serde(default)]
-    pub fixed: Option<bool>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

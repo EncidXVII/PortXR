@@ -649,20 +649,24 @@ impl App {
         ui.add_space(16.0);
         // One page column, the same as the Settings page: the header sits on top, sections run its full width.
         ui.set_max_width(ui.available_width().min(PAGE_W));
-        let aside = g.blocker.is_none() && ui.available_width() >= 880.0;
+        let entry = self.catalogue.find(&g).filter(|_| g.blocker.is_none()).cloned();
         ui.horizontal_top(|ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(160.0, 240.0), Sense::hover());
             cover(ui, &g, rect);
             ui.add_space(32.0);
-            let main_w = if aside { ui.available_width() - ASIDE_W - 32.0 } else { ui.available_width() };
-            ui.allocate_ui_with_layout(vec2(main_w, 0.0), Layout::top_down(Align::Min), |ui| {
-                ui.set_max_width(main_w);
+            ui.vertical(|ui| {
                 ui.add(egui::Label::new(RichText::new(g.name.to_uppercase()).font(display(TITLE)).color(INK)).wrap());
                 // Anton reserves a tall line; pull the metadata up so it groups with the title.
                 ui.add_space(-10.0);
-                ui.horizontal_wrapped(|ui| chip(ui, g.badge(), chip_kind(&g)));
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    chip(ui, g.badge(), chip_kind(&g));
+                    if let Some(e) = &entry {
+                        rating_link(ui, e);
+                    }
+                });
                 ui.add_space(24.0);
-                ui.horizontal_wrapped(|ui| self.actions(ui, &g));
+                ui.horizontal_wrapped(|ui| self.actions(ui, &g, entry.as_ref()));
                 self.follow_launch(ui.ctx(), &g);
                 let (text, tone) = if self.status.0.is_empty() { warning(&g) } else { self.status.clone() };
                 if !text.is_empty() {
@@ -677,22 +681,7 @@ impl App {
                     }
                 }
             });
-            if aside {
-                ui.add_space(32.0);
-                ui.allocate_ui_with_layout(vec2(ASIDE_W, 0.0), Layout::top_down(Align::Min), |ui| {
-                    egui::Frame::new().fill(SURFACE).corner_radius(RADIUS).inner_margin(Margin::same(20)).show(ui, |ui| {
-                        ui.set_width(ASIDE_W - 40.0);
-                        eyebrow(ui, "", "Game catalogue");
-                        self.catalogue_panel(ui, &g, true);
-                    });
-                });
-            }
         });
-        if !aside && g.blocker.is_none() {
-            section_break(ui);
-            eyebrow(ui, "", "Game catalogue");
-            self.catalogue_panel(ui, &g, false);
-        }
         // VR screen games use the all-games screen settings; the per-game ones below are the VR core's (Unity, Godot 4.3+, Unreal).
         if !g.usable() || !g.core_vr() {
             self.troubleshooting(ui, &g);
@@ -735,99 +724,30 @@ impl App {
         self.troubleshooting(ui, &g);
     }
 
-    // What the game catalogue knows about this game: a rating per display mode, what it needs and what goes wrong,
-    // Get script, and a way to say how it ran. A game with no entry yet gets only that last one. `stacked`: one item
-    // per line, for the card beside the header; otherwise in rows, for the section under it.
-    fn catalogue_panel(&mut self, ui: &mut Ui, g: &Game, stacked: bool) {
-        let Some(e) = self.catalogue.find(g).cloned() else {
-            ui.add(egui::Label::new(RichText::new("No reports yet. Played it? Yours can be the first.").color(INK2)).wrap());
-            ui.add_space(8.0);
-            if tertiary(ui, "How did it run? ↗").on_hover_text("A short form on GitHub, no files").clicked() {
-                let _ = games::open(catalogue::report_url(g));
-            }
+    // Get script beside Play, while the catalogue has files this game does not have yet (or newer ones).
+    fn get_files(&mut self, ui: &mut Ui, g: &Game, e: &catalogue::Entry) {
+        if e.files.is_empty() {
             return;
-        };
-        let chips = |ui: &mut Ui| {
-            for mode in catalogue::MODES {
-                if let Some(r) = e.ratings.get(mode) {
-                    rating_chip(ui, r, mode);
-                }
-            }
-        };
-        if stacked {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            chips(ui);
-        } else {
-            ui.horizontal_wrapped(chips);
         }
-        let need = match e.needs.as_str() {
-            "script" => "Needs a script",
-            "settings" => "Needs settings",
-            _ => "Plays as it is",
-        };
-        let fixed = e.issues.iter().filter(|i| i.fixed == Some(true)).count();
-        let issues = match (e.issues.len(), fixed) {
-            (0, _) => "No known issues".to_string(),
-            (n, 0) => format!("{n} known {}", if n == 1 { "issue" } else { "issues" }),
-            (n, f) => format!("{n} known {}, {f} fixed", if n == 1 { "issue" } else { "issues" }),
-        };
-        let reports = format!("{} {}", e.reports, if e.reports == 1 { "report" } else { "reports" });
-        ui.add_space(12.0);
-        if stacked {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            ui.label(RichText::new(need).color(INK));
-            ui.add(egui::Label::new(RichText::new(issues).color(INK2)).wrap());
-            ui.label(RichText::new(reports).color(INK2));
-        } else {
-            ui.label(RichText::new(format!("{need}  ·  {issues}  ·  {reports}")).color(INK2));
+        let have = catalogue::installed(g, e);
+        if have.as_deref().is_some_and(|v| !catalogue::outdated(v, e)) {
+            return;
         }
-        ui.add_space(16.0);
-        // Get script, then the two links; in the card the links take the line under the button.
-        let mut get = |ui: &mut Ui| {
-            if e.files.is_empty() {
-                return;
-            }
-            let have = catalogue::installed(g, &e);
-            let current = have.as_deref().is_some_and(|v| !catalogue::outdated(v, &e));
-            let label = if self.getting.is_some() {
-                "Downloading…".to_string()
-            } else if current {
-                format!("{} installed", if e.what() == "script" { "Script" } else { "Settings" })
-            } else if have.is_some() {
-                format!("Update {}", e.what())
-            } else {
-                format!("Get {}", e.what())
-            };
-            let get = ui.add_enabled_ui(self.getting.is_none() && !current, |ui| secondary(ui, &label)).inner;
-            if get.on_hover_text("Downloads the files from everyvr.net and checks each one's SHA-256").clicked() {
-                let (slot, ctx, dir, entry) = (self.got.clone(), ui.ctx().clone(), g.dir.clone(), e.clone());
-                self.getting = Some(g.dir.clone());
-                std::thread::spawn(move || {
-                    let result = catalogue::download(&entry);
-                    *slot.lock().unwrap() = Some((dir, result));
-                    ctx.request_repaint();
-                });
-            }
-        };
-        let links = |ui: &mut Ui| {
-            if tertiary(ui, "Details ↗").on_hover_text("This game's page in the catalogue, on everyvr.net").clicked() {
-                let _ = games::open(&e.url);
-            }
-            if tertiary(ui, "How did it run? ↗").on_hover_text("A short form on GitHub, no files").clicked() {
-                let _ = games::open(catalogue::report_url(g));
-            }
-        };
-        if stacked {
-            get(ui);
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 24.0;
-                links(ui);
-            });
+        let label = if self.getting.is_some() {
+            "Downloading…".to_string()
+        } else if have.is_some() {
+            format!("Update {}", e.what())
         } else {
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 24.0;
-                get(ui);
-                links(ui);
+            format!("Get {}", e.what())
+        };
+        let get = ui.add_enabled_ui(self.getting.is_none(), |ui| secondary(ui, &label)).inner;
+        if get.on_hover_text("From the game catalogue on everyvr.net. Each file's SHA-256 is checked before it is used.").clicked() {
+            let (slot, ctx, dir, entry) = (self.got.clone(), ui.ctx().clone(), g.dir.clone(), e.clone());
+            self.getting = Some(g.dir.clone());
+            std::thread::spawn(move || {
+                let result = catalogue::download(&entry);
+                *slot.lock().unwrap() = Some((dir, result));
+                ctx.request_repaint();
             });
         }
     }
@@ -887,6 +807,9 @@ impl App {
             }
             if g.log_file().exists() && tertiary(ui, "Open log").clicked() {
                 let _ = games::edit(&g.log_file());
+            }
+            if g.blocker.is_none() && tertiary(ui, "How did it run? ↗").on_hover_text("Tell other players in the game catalogue: a short form on GitHub").clicked() {
+                let _ = games::open(catalogue::report_url(g));
             }
             // Only hand-added folders can be forgotten (store games come back on every scan), and not while installed,
             // or the game would vanish from the app with PortXR still in it.
@@ -1019,7 +942,7 @@ impl App {
             .count()
     }
 
-    fn actions(&mut self, ui: &mut Ui, g: &Game) {
+    fn actions(&mut self, ui: &mut Ui, g: &Game, entry: Option<&catalogue::Entry>) {
         ui.spacing_mut().item_spacing.x = 8.0;
         let playable = g.usable();
         if playable && primary(ui, "Play in VR ↗").clicked() {
@@ -1027,6 +950,10 @@ impl App {
             self.launched = started.is_ok().then(|| (g.dir.clone(), std::time::SystemTime::now()));
             self.report(started);
             self.confirm_uninstall = false;
+        }
+        // The catalogue's script, while there is one to get: a button beside Play, before the links.
+        if let Some(e) = entry {
+            self.get_files(ui, g, e);
         }
         // Linux: Steam keeps its launch options to itself while running, so the player pastes them in.
         if playable && games::needs_launch_options(g) && tertiary(ui, "Copy launch options").clicked() {
@@ -1728,15 +1655,21 @@ fn paint_rating(p: &Painter, at: egui::Pos2, rating: &str, mode: Option<&str>) -
     rect.width()
 }
 
-fn rating_chip(ui: &mut Ui, rating: &str, mode: &str) {
+// The catalogue's best rating beside the game's state chip. Hover lists every mode tried; a click opens the game's
+// catalogue page.
+fn rating_link(ui: &mut Ui, e: &catalogue::Entry) {
+    let Some((mode, rating)) = e.best() else { return };
     let word = ui.painter().layout_no_wrap(format!("{rating} in {mode}").to_uppercase(), mono(LABEL), INK2).size().x;
-    let (rect, _) = ui.allocate_exact_size(vec2(word + 32.0, 26.0), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(vec2(word + 32.0, 26.0), Sense::click());
     paint_rating(ui.painter(), rect.min, rating, Some(mode));
+    let modes: Vec<String> = catalogue::MODES.iter().filter_map(|m| e.ratings.get(*m).map(|r| format!("{m}: {r}"))).collect();
+    let tip = format!("Game catalogue: {}. {} {}. Click for details.", modes.join(", "), e.reports, if e.reports == 1 { "report" } else { "reports" });
+    if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        let _ = games::open(&e.url);
+    }
 }
 
 const GAP: f32 = 16.0;
-// The game catalogue's card beside a game page's header.
-const ASIDE_W: f32 = 280.0;
 
 // Columns of at least 160 px that fill the row exactly, so the grid shares its edges with the toolbar's row.
 fn columns(avail: f32) -> (usize, f32) {
