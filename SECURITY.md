@@ -1,7 +1,7 @@
 # Security
 
 Please report security issues privately through GitHub: the repository's **Security** tab, **Report a
-vulnerability**. Do not open a public issue for them. Expect a first answer within a week.
+vulnerability**, or by email to [mykola@everyvr.net](mailto:mykola@everyvr.net). Do not open a public issue for them. Expect a first answer within a week.
 
 Relevant areas include:
 
