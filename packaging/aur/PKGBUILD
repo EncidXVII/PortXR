@@ -1,0 +1,42 @@
+# Maintainer: EncidXVII
+# The AUR package, built from the published release. The AUR workflow (.github/workflows/aur.yml) sets pkgver and
+# the checksums from each new release and pushes it to aur.archlinux.org; the values here are the last ones.
+pkgname=portxr-bin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Play flat PC games in VR (Unity, Unreal Engine and Godot games under Proton)"
+arch=('x86_64')
+url="https://everyvr.net/portxr"
+_repo="https://github.com/EncidXVII/PortXR"
+license=('GPL-3.0-only')
+depends=('gcc-libs' 'libglvnd' 'libxkbcommon' 'wayland' 'dbus' 'libx11' 'libxcursor' 'libxi' 'libxrender' 'hicolor-icon-theme')
+optdepends=('steam: Proton'
+            'wivrn: VR for standalone headsets'
+            'monado: VR for wired headsets')
+provides=('portxr')
+conflicts=('portxr')
+source=("PortXR-$pkgver-linux.tar.gz::$_repo/releases/download/v$pkgver/PortXR-$pkgver-linux.tar.gz"
+        "portxr.png::$_repo/raw/v$pkgver/app/assets/brand/portxr-256.png")
+noextract=("PortXR-$pkgver-linux.tar.gz")
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  # The app and the files it copies into game folders stay together in /opt/portxr, which it finds beside itself.
+  install -d "$pkgdir/opt/portxr" "$pkgdir/usr/bin"
+  bsdtar -xf "PortXR-$pkgver-linux.tar.gz" -C "$pkgdir/opt/portxr"
+  rm -f "$pkgdir/opt/portxr/Uninstall PortXR.cmd"
+  ln -s /opt/portxr/PortXR "$pkgdir/usr/bin/portxr"
+  install -Dm644 portxr.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/portxr.png"
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/portxr.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=PortXR
+Comment=Play flat PC games in VR
+Exec=portxr
+Icon=portxr
+Categories=Game;Utility;
+EOF
+  for f in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+    install -Dm644 "$pkgdir/opt/portxr/$f" "$pkgdir/usr/share/licenses/portxr/$f"
+  done
+}
