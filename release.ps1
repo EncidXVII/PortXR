@@ -6,6 +6,26 @@
 # (CI has no interop assemblies, see fixtures\interop.ps1). -Test packs a tester build: named after the commit, with
 # TESTING.md inside. Either way the working tree must be committed, so every zip maps to one commit (RELEASING.md).
 param([switch]$MonoOnly, [switch]$Test)
+# Compress-Archive in Windows PowerShell 5.1 names entries "dir\file", which Linux tools and some extractors read
+# as one file with a backslash in its name. This writes "dir/file", as the zip format specifies. Like
+# Compress-Archive, a folder goes in under its own name and a file at the top.
+function New-Zip([string]$Zip, [string[]]$Paths) {
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    if (Test-Path $Zip) { Remove-Item $Zip }
+    $archive = [IO.Compression.ZipFile]::Open($Zip, 'Create')
+    try {
+        foreach ($path in $Paths) {
+            $item = Get-Item $path
+            $base = Split-Path $item.FullName -Parent
+            $files = if ($item.PSIsContainer) { Get-ChildItem $item.FullName -Recurse -File } else { @($item) }
+            foreach ($file in $files) {
+                $name = $file.FullName.Substring($base.Length + 1).Replace('\', '/')
+                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, 'Optimal')
+            }
+        }
+    } finally { $archive.Dispose() }
+}
+
 $root = $PSScriptRoot
 if (git -C $root status --porcelain) { throw "uncommitted changes: commit first, so the zip matches a commit" }
 $commit = (git -C $root rev-parse --short HEAD).Trim()
@@ -27,7 +47,7 @@ New-Item -ItemType Directory $out | Out-Null
 $zip = Join-Path $out "$name.zip"
 $items = @(Get-ChildItem $dist | ForEach-Object FullName)
 if ($Test) { $items += Join-Path $root "TESTING.md" }
-Compress-Archive $items $zip
+New-Zip $zip $items
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 # LF, not CRLF: `sha256sum -c` on Linux reads a CR as part of the file name.
 [IO.File]::WriteAllText((Join-Path $out "SHA256SUMS.txt"), "$hash  $name.zip`n")
