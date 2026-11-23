@@ -75,6 +75,7 @@ PortXR's settings. Your game scripts stay. Then delete the folder.
 
 PortXR runs Windows Unity, Unreal and Godot 4.3+ games through Proton, Steam's Windows layer: unpack the Linux build
 and run `./PortXR`. Older Godot and Unreal games, which play on the VR screen on Windows, aren't listed there.
+On NixOS or with Nix: `nix run github:EncidXVII/PortXR`, or `nix profile install github:EncidXVII/PortXR` to keep it.
 
 - **Headset:** WiVRn (standalone headsets) or Monado (wired) work best; SteamVR for Linux works too.
 - **Launch options:** Proton only loads PortXR with these in the game's Steam launch options (Properties → General). The game page shows them with a **Copy launch options** button until Steam has saved them:

@@ -32,6 +32,8 @@ back to one commit.
    git tag v0.5.0; git push origin main v0.5.0
    gh release create v0.5.0 release\PortXR-0.5.0.zip release\SHA256SUMS.txt --title "PortXR 0.5.0" --notes-file notes.md
    ```
+4. In `flake.nix`, set `version` and the Linux tarball's `hash` (its SHA-256 in SRI form: `nix hash convert
+   --hash-algo sha256 <hex>`), then push: the Nix workflow builds it.
 
 ## First publish (once)
 
