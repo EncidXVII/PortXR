@@ -524,7 +524,10 @@ impl App {
                 for e in row {
                     match e {
                         Entry::Here(i) => {
-                            let rating = self.catalogue.find(&self.games[*i]).and_then(|e| e.best());
+                            // The rating for the mode this game plays in here (its chip), else the best one.
+                            let g = &self.games[*i];
+                            let mode = if g.compat() == Compat::Theater { "VR screen" } else { "Full VR" };
+                            let rating = self.catalogue.find(g).and_then(|e| e.ratings.get(mode).map(|r| (mode, r.as_str())).or_else(|| e.best()));
                             if card(ui, &self.games[*i], w, rating).clicked() {
                                 *open = Some(*i);
                             }
