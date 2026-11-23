@@ -10,8 +10,8 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
       # No Unity on the runner, so no IL2CPP interop assemblies: CI builds the Mono payload only. Full releases
@@ -21,7 +21,7 @@ jobs:
       - name: Build and pack
         shell: pwsh
         run: ./release.ps1 -MonoOnly
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr
           path: release/*
@@ -30,10 +30,10 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the app
         run: cargo build --release --manifest-path app/Cargo.toml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr-linux-app
           path: app/target/release/PortXR
@@ -42,14 +42,14 @@ jobs:
     needs: [build, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
       - name: Swap the Windows app for the Linux one
         run: |
           zip=$(ls portxr/*.zip | head -1)
           mkdir pkg && unzip -q "$zip" -d pkg && rm pkg/PortXR.exe
           install -m 755 portxr-linux-app/PortXR pkg/PortXR
           tar -czf "$(basename "$zip" .zip)-linux.tar.gz" -C pkg .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: portxr-linux
           path: "*-linux.tar.gz"
