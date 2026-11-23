@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 - 2026-11-23
+
+### The game catalogue in the app
+- Each game's page shows how well the game plays with PortXR, from the game catalogue on everyvr.net: its best
+  rating and display mode beside the game's state, with every mode tried and the number of reports on hover. A
+  click opens the game's catalogue page.
+- **Get script** beside Play installs the catalogue's script or settings for the game, after checking each file's
+  SHA-256 against the catalogue. When the entry is updated, the button offers the update.
+- **How did it run?** (with the troubleshooting links) opens the catalogue's report form with the game, engine and
+  PortXR version filled in. No files or code needed: "it just works" is the most useful report.
+- Library covers show the catalogue's rating for the mode the game plays in.
+- The catalogue is downloaded whole and kept for offline starts, so nothing about your library leaves the PC.
+
+### Also
+- About lists the maker's profiles as GitHub, X, Threads, with X at its new address (x.com/EncidXVII).
+- Packages for Linux: a Nix flake (`nix run github:EncidXVII/PortXR`) and an AUR package (`portxr-bin`), both
+  built from the release files.
+
 ## 0.5.0 - 2026-11-23 (first public release)
 
 - **Uninstall PortXR**: `Uninstall PortXR.cmd` in its folder (or `PortXR.exe --uninstall`) takes VR out of every game

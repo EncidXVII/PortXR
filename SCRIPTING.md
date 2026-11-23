@@ -112,7 +112,7 @@ A script that fixed a game for you will fix it for the next player. To share one
    ```lua
    -- Game: Hollow Knight (Steam 367520)
    -- Engine: Unity 2020.2, Mono
-   -- PortXR: 0.5.0
+   -- PortXR: 0.6.0
    -- Tested: Quest 3, Virtual Desktop
    -- Fixes: picks the gameplay camera, hides the menu vignette
    -- Author: your GitHub name

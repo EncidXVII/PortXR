@@ -114,7 +114,7 @@ namespace PortXR
         }
     }
 
-    [BepInPlugin("portxr.core", "PortXR", "0.5.0")]
+    [BepInPlugin("portxr.core", "PortXR", "0.6.0")]
 #if IL2CPP
     public class Plugin : BepInEx.Unity.IL2CPP.BasePlugin
     {
