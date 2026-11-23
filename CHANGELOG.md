@@ -72,7 +72,7 @@
 - **Not installed** shows only Steam library games that would get Full VR; games PortXR can't run (anti-cheat,
   multiplayer only, their own VR mode, 32-bit) are left off it. Any game you install plays on the VR screen anyway.
   It now lists Unreal Engine 4 and 5 games and Godot 4 games too, not only Unity ones.
-- Steam apps that aren't games (VTube Studio, XSOverlay) are no longer listed. Unreal games whose game exe sits deeper
+- Steam apps that aren't games (VTube Studio, desktop overlays) are no longer listed. Unreal games whose game exe sits deeper
   or beside a launcher of the same kind (Marvel Rivals, WARDOGS) are recognised, and the anti-cheat installer or a
   developer console is no longer taken for a game's exe.
 - Cover art for games newer Steam clients cache under new names (`library_capsule.jpg`, `library_header.jpg`): about
