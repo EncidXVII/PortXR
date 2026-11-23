@@ -1279,7 +1279,7 @@ fn about(ui: &mut Ui) {
     ui.label(RichText::new("Export logs from the game's page and attach the zip to your report.").color(INK3));
     ui.add_space(16.0);
     ui.label(RichText::new("Made by EncidXVII").color(INK2));
-    links(ui, &[("GitHub", "https://github.com/EncidXVII".into()), ("X", "https://x.com/MykolaOP".into()), ("Threads", "https://www.threads.com/@encidxvii".into())]);
+    links(ui, &[("GitHub", "https://github.com/EncidXVII".into()), ("X", "https://x.com/EncidXVII".into()), ("Threads", "https://www.threads.com/@encidxvii".into())]);
     ui.add_space(16.0);
     ui.label(RichText::new("Free and open source under GPL-3.0.").color(INK2));
     links(ui, &[("Licence", format!("https://github.com/{REPO}/blob/main/LICENSE"))]);
