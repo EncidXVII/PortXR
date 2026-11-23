@@ -49,7 +49,7 @@
           pkgs.libGL
           pkgs.libxkbcommon
           pkgs.wayland
-          pkgs.dbus
+          pkgs.dbus.lib
           (pkgs.libx11 or pkgs.xorg.libX11)
           (pkgs.libxcursor or pkgs.xorg.libXcursor)
           (pkgs.libxi or pkgs.xorg.libXi)
