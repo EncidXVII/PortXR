@@ -15,8 +15,8 @@
 
 ### Also
 - About lists the maker's profiles as GitHub, X, Threads, with X at its new address (x.com/EncidXVII).
-- Packages for Linux: a Nix flake (`nix run github:EncidXVII/PortXR`) and an AUR package (`portxr-bin`), both
-  built from the release files.
+- Linux packaging: a Nix flake (`nix run github:EncidXVII/PortXR`), and an Arch Linux PKGBUILD in `packaging/aur`,
+  both built from the release files.
 
 ## 0.5.0 - 2026-11-23 (first public release)
 
