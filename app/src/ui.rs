@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use eframe::egui::{self, Align, Align2, Color32, FontFamily, FontId, Layout, Margin, Painter, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
 use serde::Deserialize;
 
+use crate::catalogue::{self, Catalogue};
 use crate::games::{self, Compat, Game};
 use crate::installer;
 use crate::settings::{self, Def, Kind};
@@ -70,6 +71,9 @@ fn set_theme(ctx: &egui::Context, i: usize) -> std::io::Result<()> {
 }
 const ON_LIME: Color32 = Color32::from_rgb(11, 11, 12);
 const DANGER: Color32 = Color32::from_rgb(255, 90, 60);
+// The catalogue's ratings: fixed colours, never the theme's accent, so Perfect and Playable never look alike.
+const OK: Color32 = Color32::from_rgb(92, 242, 160);
+const WARN: Color32 = Color32::from_rgb(255, 182, 39);
 const DANGER_BG: Color32 = Color32::from_rgb(43, 23, 18);
 const DANGER_INK: Color32 = Color32::from_rgb(255, 138, 110);
 // Shape and rhythm shared by every control: soft corners, one control height, one uppercase tracking.
@@ -196,7 +200,16 @@ struct App {
     shot_since: Option<std::time::Instant>,
     shot_asked: bool,
     shot_saved: Arc<std::sync::atomic::AtomicBool>,
+    // The game catalogue: last time's copy at once, the fresh one handed over when it has downloaded.
+    catalogue: Catalogue,
+    catalogue_new: Arc<Mutex<Option<Catalogue>>>,
+    // Get script: the game folder whose files are downloading, and the result for the UI thread to install.
+    getting: Option<PathBuf>,
+    got: Arc<Mutex<Option<(PathBuf, Downloaded)>>>,
 }
+
+/// Get script's result: the entry's files, each checked against its SHA-256, or why not.
+type Downloaded = Result<Vec<(catalogue::File, Vec<u8>)>, String>;
 
 fn display(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("display".into()))
@@ -243,6 +256,14 @@ impl App {
             *slot.lock().unwrap() = Some(games::steam_library());
             ctx.request_repaint();
         });
+        let catalogue_new = Arc::new(Mutex::new(None));
+        let (slot, ctx) = (catalogue_new.clone(), cc.egui_ctx.clone());
+        std::thread::spawn(move || {
+            if let Some(c) = catalogue::fetch() {
+                *slot.lock().unwrap() = Some(c);
+                ctx.request_repaint();
+            }
+        });
         let defaults = fs::read_to_string(defaults_path()).unwrap_or_default();
         let mut app = App {
             // Last time's library, at once; the scan below refreshes it.
@@ -275,6 +296,10 @@ impl App {
             shot_since: None,
             shot_asked: false,
             shot_saved: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            catalogue: catalogue::cached(),
+            catalogue_new,
+            getting: None,
+            got: Arc::new(Mutex::new(None)),
         };
         // The folder is remembered first, so the scan started next finds it too.
         if let Some(dir) = open {
@@ -299,7 +324,7 @@ impl App {
             return;
         }
         // Counted from the end of the scan: the covers load once the games are listed.
-        if self.scanning {
+        if self.scanning && self.page == Page::Library {
             self.shot_since = None;
             return;
         }
@@ -499,7 +524,8 @@ impl App {
                 for e in row {
                     match e {
                         Entry::Here(i) => {
-                            if card(ui, &self.games[*i], w).clicked() {
+                            let rating = self.catalogue.find(&self.games[*i]).and_then(|e| e.best());
+                            if card(ui, &self.games[*i], w, rating).clicked() {
                                 *open = Some(*i);
                             }
                         }
@@ -623,11 +649,14 @@ impl App {
         ui.add_space(16.0);
         // One page column, the same as the Settings page: the header sits on top, sections run its full width.
         ui.set_max_width(ui.available_width().min(PAGE_W));
+        let aside = g.blocker.is_none() && ui.available_width() >= 880.0;
         ui.horizontal_top(|ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(160.0, 240.0), Sense::hover());
             cover(ui, &g, rect);
             ui.add_space(32.0);
-            ui.vertical(|ui| {
+            let main_w = if aside { ui.available_width() - ASIDE_W - 32.0 } else { ui.available_width() };
+            ui.allocate_ui_with_layout(vec2(main_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_max_width(main_w);
                 ui.add(egui::Label::new(RichText::new(g.name.to_uppercase()).font(display(TITLE)).color(INK)).wrap());
                 // Anton reserves a tall line; pull the metadata up so it groups with the title.
                 ui.add_space(-10.0);
@@ -648,7 +677,22 @@ impl App {
                     }
                 }
             });
+            if aside {
+                ui.add_space(32.0);
+                ui.allocate_ui_with_layout(vec2(ASIDE_W, 0.0), Layout::top_down(Align::Min), |ui| {
+                    egui::Frame::new().fill(SURFACE).corner_radius(RADIUS).inner_margin(Margin::same(20)).show(ui, |ui| {
+                        ui.set_width(ASIDE_W - 40.0);
+                        eyebrow(ui, "", "Game catalogue");
+                        self.catalogue_panel(ui, &g, true);
+                    });
+                });
+            }
         });
+        if !aside && g.blocker.is_none() {
+            section_break(ui);
+            eyebrow(ui, "", "Game catalogue");
+            self.catalogue_panel(ui, &g, false);
+        }
         // VR screen games use the all-games screen settings; the per-game ones below are the VR core's (Unity, Godot 4.3+, Unreal).
         if !g.usable() || !g.core_vr() {
             self.troubleshooting(ui, &g);
@@ -689,6 +733,135 @@ impl App {
             }
         }
         self.troubleshooting(ui, &g);
+    }
+
+    // What the game catalogue knows about this game: a rating per display mode, what it needs and what goes wrong,
+    // Get script, and a way to say how it ran. A game with no entry yet gets only that last one. `stacked`: one item
+    // per line, for the card beside the header; otherwise in rows, for the section under it.
+    fn catalogue_panel(&mut self, ui: &mut Ui, g: &Game, stacked: bool) {
+        let Some(e) = self.catalogue.find(g).cloned() else {
+            ui.add(egui::Label::new(RichText::new("No reports yet. Played it? Yours can be the first.").color(INK2)).wrap());
+            ui.add_space(8.0);
+            if tertiary(ui, "How did it run? ↗").on_hover_text("A short form on GitHub, no files").clicked() {
+                let _ = games::open(catalogue::report_url(g));
+            }
+            return;
+        };
+        let chips = |ui: &mut Ui| {
+            for mode in catalogue::MODES {
+                if let Some(r) = e.ratings.get(mode) {
+                    rating_chip(ui, r, mode);
+                }
+            }
+        };
+        if stacked {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            chips(ui);
+        } else {
+            ui.horizontal_wrapped(chips);
+        }
+        let need = match e.needs.as_str() {
+            "script" => "Needs a script",
+            "settings" => "Needs settings",
+            _ => "Plays as it is",
+        };
+        let fixed = e.issues.iter().filter(|i| i.fixed == Some(true)).count();
+        let issues = match (e.issues.len(), fixed) {
+            (0, _) => "No known issues".to_string(),
+            (n, 0) => format!("{n} known {}", if n == 1 { "issue" } else { "issues" }),
+            (n, f) => format!("{n} known {}, {f} fixed", if n == 1 { "issue" } else { "issues" }),
+        };
+        let reports = format!("{} {}", e.reports, if e.reports == 1 { "report" } else { "reports" });
+        ui.add_space(12.0);
+        if stacked {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.label(RichText::new(need).color(INK));
+            ui.add(egui::Label::new(RichText::new(issues).color(INK2)).wrap());
+            ui.label(RichText::new(reports).color(INK2));
+        } else {
+            ui.label(RichText::new(format!("{need}  ·  {issues}  ·  {reports}")).color(INK2));
+        }
+        ui.add_space(16.0);
+        // Get script, then the two links; in the card the links take the line under the button.
+        let mut get = |ui: &mut Ui| {
+            if e.files.is_empty() {
+                return;
+            }
+            let have = catalogue::installed(g, &e);
+            let current = have.as_deref().is_some_and(|v| !catalogue::outdated(v, &e));
+            let label = if self.getting.is_some() {
+                "Downloading…".to_string()
+            } else if current {
+                format!("{} installed", if e.what() == "script" { "Script" } else { "Settings" })
+            } else if have.is_some() {
+                format!("Update {}", e.what())
+            } else {
+                format!("Get {}", e.what())
+            };
+            let get = ui.add_enabled_ui(self.getting.is_none() && !current, |ui| secondary(ui, &label)).inner;
+            if get.on_hover_text("Downloads the files from everyvr.net and checks each one's SHA-256").clicked() {
+                let (slot, ctx, dir, entry) = (self.got.clone(), ui.ctx().clone(), g.dir.clone(), e.clone());
+                self.getting = Some(g.dir.clone());
+                std::thread::spawn(move || {
+                    let result = catalogue::download(&entry);
+                    *slot.lock().unwrap() = Some((dir, result));
+                    ctx.request_repaint();
+                });
+            }
+        };
+        let links = |ui: &mut Ui| {
+            if tertiary(ui, "Details ↗").on_hover_text("This game's page in the catalogue, on everyvr.net").clicked() {
+                let _ = games::open(&e.url);
+            }
+            if tertiary(ui, "How did it run? ↗").on_hover_text("A short form on GitHub, no files").clicked() {
+                let _ = games::open(catalogue::report_url(g));
+            }
+        };
+        if stacked {
+            get(ui);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                links(ui);
+            });
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0;
+                get(ui);
+                links(ui);
+            });
+        }
+    }
+
+    // Get script, once its files have downloaded and checked out: scripts go into the scripts folder, settings into
+    // the game's settings (the open page's copy, so the page shows them at once).
+    fn finish_get(&mut self, dir: &Path, result: Downloaded) {
+        let Some(i) = self.games.iter().position(|g| g.dir == dir) else { return };
+        let g = self.games[i].clone();
+        let Some(e) = self.catalogue.find(&g).cloned() else { return };
+        let files = match result {
+            Ok(files) => files,
+            Err(why) => {
+                self.status = (why, Tone::Bad);
+                return;
+            }
+        };
+        let on_page = self.page == Page::Game(i);
+        let cfg = if on_page { self.cfg.clone() } else { fs::read_to_string(g.config_file()).unwrap_or_default() };
+        match catalogue::install(&g, &e, &files, &cfg) {
+            Ok(new) => {
+                if new != cfg {
+                    if on_page {
+                        self.cfg = new;
+                        self.dirty = true;
+                    } else if let Err(why) = save_cfg(&g, &new) {
+                        self.status = (format!("Could not save the settings: {why}"), Tone::Bad);
+                        return;
+                    }
+                }
+                self.status = (format!("The catalogue's {} for {} is installed (entry {}).", e.what(), g.name, e.entry_version), Tone::Good);
+            }
+            Err(why) => self.status = (format!("Could not install it: {why}"), Tone::Bad),
+        }
     }
 
     // What only matters when something goes wrong, quiet and last: where the game is, what it is built with, its logs,
@@ -1176,6 +1349,14 @@ impl eframe::App for App {
                 self.scanning = false;
                 self.games = found;
             }
+        if let Some(c) = self.catalogue_new.lock().unwrap().take() {
+            self.catalogue = c;
+        }
+        let got = self.got.lock().unwrap().take();
+        if let Some((dir, result)) = got {
+            self.getting = None;
+            self.finish_get(&dir, result);
+        }
         self.focused = focused;
         let back = ui.input(|i| i.key_pressed(egui::Key::Escape) || i.pointer.button_pressed(egui::PointerButton::Extra1));
         if back && self.page != Page::Library && !self.dirty && ui.ctx().memory(|m| m.focused().is_none()) {
@@ -1530,7 +1711,32 @@ fn chip(ui: &mut Ui, text: &str, kind: ChipKind) {
     paint_chip(ui.painter(), rect.min, text, kind);
 }
 
+// A catalogue rating: a coloured dot and the words ("GOOD IN FULL VR"), never the colour alone.
+fn paint_rating(p: &Painter, at: egui::Pos2, rating: &str, mode: Option<&str>) -> f32 {
+    let (dot, word) = match rating {
+        "perfect" => (OK, "Perfect"),
+        "good" => (OK, "Good"),
+        "playable" => (WARN, "Playable"),
+        _ => (DANGER, "Broken"),
+    };
+    let text = mode.map_or(word.to_string(), |m| format!("{word} in {m}"));
+    let galley = p.layout_no_wrap(text.to_uppercase(), mono(LABEL), INK2);
+    let rect = Rect::from_min_size(at, vec2(galley.size().x + 32.0, 26.0));
+    p.rect_filled(rect, 8, RAISED);
+    p.circle_filled(pos2(rect.left() + 12.0, rect.center().y), 3.0, dot);
+    p.galley(pos2(rect.left() + 22.0, rect.center().y - galley.size().y / 2.0), galley, INK2);
+    rect.width()
+}
+
+fn rating_chip(ui: &mut Ui, rating: &str, mode: &str) {
+    let word = ui.painter().layout_no_wrap(format!("{rating} in {mode}").to_uppercase(), mono(LABEL), INK2).size().x;
+    let (rect, _) = ui.allocate_exact_size(vec2(word + 32.0, 26.0), Sense::hover());
+    paint_rating(ui.painter(), rect.min, rating, Some(mode));
+}
+
 const GAP: f32 = 16.0;
+// The game catalogue's card beside a game page's header.
+const ASIDE_W: f32 = 280.0;
 
 // Columns of at least 160 px that fill the row exactly, so the grid shares its edges with the toolbar's row.
 fn columns(avail: f32) -> (usize, f32) {
@@ -1568,7 +1774,7 @@ fn lerp(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * t).round() as u8
 }
 
-fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
+fn card(ui: &mut Ui, g: &Game, w: f32, rating: Option<(&str, &str)>) -> egui::Response {
     let h = w * 1.5;
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h + 68.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &g.name));
@@ -1581,6 +1787,10 @@ fn card(ui: &mut Ui, g: &Game, w: f32) -> egui::Response {
     ui.painter().galley(image.left_bottom() + vec2(0.0, 12.0), name, INK);
     // Every card names its state, in the same words as the tabs.
     paint_chip(&ui.painter_at(rect), image.left_bottom() + vec2(0.0, 38.0), g.badge(), chip_kind(g));
+    // The catalogue's best rating, on the cover's top corner: how well others found it plays.
+    if let Some((_, r)) = rating {
+        paint_rating(&ui.painter_at(image), image.min + vec2(10.0, 10.0), r, None);
+    }
     focus_ring(ui, &resp);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

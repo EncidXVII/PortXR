@@ -787,6 +787,11 @@ pub fn scripts(g: &Game) -> Vec<PathBuf> {
 }
 
 pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
+    save_script(g, &file.file_name().unwrap_or_default().to_string_lossy(), &fs::read(file)?)
+}
+
+/// Writes a script into the game's scripts folder under this name (imported, or from the catalogue).
+pub fn save_script(g: &Game, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     // Linux: the scripts live in the game's Proton prefix, which Proton makes on the first start; making its folders
     // first would leave Proton a half-made prefix.
     if let Some(pfx) = game_user_dir(g, true).filter(|_| !cfg!(windows)).and_then(|d| d.ancestors().nth(5).map(Path::to_path_buf))
@@ -795,8 +800,8 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
         }
     let dir = scripts_dir(g);
     fs::create_dir_all(&dir)?;
-    let to = dir.join(file.file_name().unwrap_or_default());
-    fs::copy(file, &to)?;
+    let to = dir.join(name);
+    fs::write(&to, bytes)?;
     Ok(to)
 }
 
