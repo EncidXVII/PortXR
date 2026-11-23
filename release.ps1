@@ -22,6 +22,12 @@ function New-Zip([string]$Zip, [string[]]$Paths) {
                 $name = $file.FullName.Substring($base.Length + 1).Replace('\', '/')
                 [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, 'Optimal')
             }
+            # Empty folders too (a mod loader may expect one to exist), as "dir/" entries.
+            if ($item.PSIsContainer) {
+                foreach ($dir in Get-ChildItem $item.FullName -Recurse -Directory | Where-Object { -not (Get-ChildItem $_.FullName -Force) }) {
+                    [void]$archive.CreateEntry($dir.FullName.Substring($base.Length + 1).Replace('\', '/') + '/')
+                }
+            }
         }
     } finally { $archive.Dispose() }
 }
