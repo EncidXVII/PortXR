@@ -1,5 +1,11 @@
 blank_issues_enabled: true
 contact_links:
+  - name: How a game ran
+    url: https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml
+    about: Rate a game in the PortXR game catalogue, working or not. PortXR's How did it run? opens this form.
+  - name: Share a script or settings for a game
+    url: https://github.com/EncidXVII/PortXR-catalogue/blob/main/CONTRIBUTING.md
+    about: Scripts and settings go into the game catalogue, so PortXR can install them.
   - name: Writing a script for a game
     url: https://github.com/EncidXVII/PortXR/blob/main/SCRIPTING.md
     about: How per-game Lua scripts work, with examples.

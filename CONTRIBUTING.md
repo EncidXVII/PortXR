@@ -2,11 +2,13 @@
 
 Thanks for helping. The most useful contributions, roughly in order:
 
-1. **Game reports.** Tried a game? Open a [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml)
-   with the zip from **Export logs**, whether it worked or not. Working games go into [COMPAT.md](COMPAT.md).
+1. **Game reports.** Tried a game? Say how it went in a [game report](https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml) in the
+   [game catalogue](https://github.com/EncidXVII/PortXR-catalogue), whether it worked or not. Each report counts toward the game's rating there. Something
+   broke? A [bug report](https://github.com/EncidXVII/PortXR/issues/new?template=bug.yml) with the zip from
+   **Export logs** helps fix it.
 2. **Per-game scripts.** A short Lua script often fixes one game (camera choice, hidden objects, eye offset). See
-   [SCRIPTING.md](SCRIPTING.md); [Sharing a script](SCRIPTING.md#sharing-a-script) says what to put in it and where
-   to send it.
+   [SCRIPTING.md](SCRIPTING.md); [Sharing a script](SCRIPTING.md#sharing-a-script) says what to put in it. Scripts
+   are shared through the [game catalogue](https://github.com/EncidXVII/PortXR-catalogue).
 3. **Linux and Unreal testers.** Linux (Proton) and Unreal Engine support are experimental and
    require more testing. A report from either, with the logs zip, helps most.
 4. **Bug fixes and features.** Open an issue first for anything bigger than a small fix, so we can agree on the

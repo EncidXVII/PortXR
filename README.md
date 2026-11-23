@@ -16,9 +16,9 @@ game's UI on a panel you can point at. Games that don't suit 3D play on a big sc
 OpenXR headset: Meta Quest 2, 3 and Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed
 Reality and others through SteamVR, on Windows and on Linux through Proton.
 
-**[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Guides and help on everyvr.net](https://everyvr.net/portxr) · [Discord](https://discord.gg/WkzGQwu2kz) · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
+**[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Guides and help on everyvr.net](https://everyvr.net/portxr) · [Discord](https://discord.gg/WkzGQwu2kz) · [Game catalogue](https://github.com/EncidXVII/PortXR-catalogue) · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early access (0.5).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
+> **Status: early access (0.6).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
 > UI and effects, so game reports and per-game scripts are what grow the library. Linux and Unreal Engine support
 > are experimental: see [Status and help wanted](#status-and-help-wanted).
 
@@ -37,7 +37,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 | **Headsets** | Any PC VR headset with an OpenXR runtime: Meta Quest 2 / 3 / Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed Reality |
 | **Safe to try** | One click to add VR, one click to remove it: the game folder goes back byte for byte. Single-player only; anti-cheat games are refused |
 | **Price** | Free. No account, no telemetry |
-| **Status** | Early access (0.5): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
+| **Status** | Early access (0.6): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
 | **License** | Open source, `GPL-3.0-only`, © 2026 EncidXVII |
 
 ## Highlights
@@ -52,7 +52,9 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
   monitor) and VR screen (the flat game on a big screen, curved on Virtual Desktop and Meta).
 - **Three engines, one VR.** Unity 2018.4 to Unity 6 (Mono and IL2CPP, built-in, URP and HDRP), Unreal Engine 4.22 to
   5.6 and Godot 4, on Direct3D 11 and 12, all with the same controls, menu and settings.
-- **Per-game fixes** in small Lua scripts that anyone can share.
+- **A game catalogue.** The [PortXR catalogue](https://github.com/EncidXVII/PortXR-catalogue) rates how each game plays in each display mode, from
+  players' reports, and holds the script or settings that fix a game. A game's page in the app shows its rating, and
+  **Get script** (or **Get settings**) installs the fix in one click.
 - **Safe by design.** Single-player only: anti-cheat games are refused. No account, no telemetry.
 
 ## Requirements
@@ -150,12 +152,12 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
 
 ## Status and help wanted
 
-PortXR is in early access (0.5). Where each part stands, and what moves it forward:
+PortXR is in early access (0.6). Where each part stands, and what moves it forward:
 
 | Area | Where it stands | What helps |
 |---|---|---|
-| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. [COMPAT.md](COMPAT.md) lists the checked games | A [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml): play a game for 10 to 15 minutes, press **Export logs** and say how it went, also when it just worked. Every report adds a game to the list |
-| **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script | Write one for a game you own and share it: [SCRIPTING.md](SCRIPTING.md) |
+| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. [COMPAT.md](COMPAT.md) lists the checked games | A [game report](https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml) in the catalogue: play a game for 10 to 15 minutes and say how it went, also when it just worked. Every report counts toward that game's rating. **How did it run?** on a game's page in the app opens the form with the game filled in |
+| **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script | Write one for a game you own ([SCRIPTING.md](SCRIPTING.md)) and send it to the [catalogue](https://github.com/EncidXVII/PortXR-catalogue/blob/main/CONTRIBUTING.md) |
 | **Unreal Engine games** | Full VR on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; experimental, requires more testing | Reports from your headset with any UE 4.22 to 5.6 game |
 | **Linux (Proton)** | Experimental, requires more testing | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
 | **Not built yet** | Vulkan and OpenGL games. 32-bit games cannot work: no OpenXR runtime supports them | A report naming the Vulkan or OpenGL games you miss most |
@@ -167,7 +169,7 @@ How to send any of these: [CONTRIBUTING.md](CONTRIBUTING.md) and the tester's gu
 
 **Can I play my game in VR with PortXR?** Most likely, if it is a 64-bit Windows Unity, Unreal or Godot game that
 uses Direct3D 11 or 12 and has no anti-cheat. The app tells you per game, before anything is installed. Tested titles and
-known issues are in [COMPAT.md](COMPAT.md); report how yours went with a game report.
+known issues are in [COMPAT.md](COMPAT.md) and the [game catalogue](https://github.com/EncidXVII/PortXR-catalogue); report how yours went with a [game report](https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml).
 
 **Does it work with Meta Quest 3, Quest 2 or Quest Pro?** Yes, through Quest Link, Air Link, Virtual Desktop or
 Steam Link, as a PC VR headset. PortXR runs on the PC; the Quest's standalone mode is not supported.
@@ -255,7 +257,7 @@ The IL2CPP plugin compiles against interop assemblies BepInEx 6 generates on a g
 
 - **Single-player only.** PortXR refuses games with EasyAntiCheat or BattlEye and flags multiplayer-only games. Modding an online game can break its terms of service and get an account banned; do not use PortXR for that.
 - **Reversible.** Adding VR copies BepInEx and the plugin into the game folder and records every file in `.vrinstall.json`; **Remove VR** puts the folder back byte for byte. Steam's "Verify integrity of game files" leaves the added files in place; Remove VR is the way out.
-- **Network.** The app asks GitHub for the latest release (it shows a link; it never downloads or runs an update by itself) Wikidata for its list of Unity, Unreal and Godot games, and the Are We Anti-Cheat Yet? list on GitHub for games with anti-cheat, to mark Full VR on the Not installed shelf (both lists are downloaded whole, so your library isn't sent anywhere). Nothing else leaves your PC: no account, no telemetry. Logs are only collected when you press **Export logs**, into a zip on your desktop.
+- **Network.** The app asks GitHub for the latest release (it shows a link; it never downloads or runs an update by itself), Wikidata for its list of Unity, Unreal and Godot games, and the Are We Anti-Cheat Yet? list on GitHub for games with anti-cheat, to mark Full VR on the Not installed shelf, and everyvr.net for the game catalogue: its list of games and ratings, and a game's script or settings when you press **Get script** or **Get settings** (the lists are downloaded whole, so your library isn't sent anywhere). Nothing else leaves your PC: no account, no telemetry. Logs are only collected when you press **Export logs**, into a zip on your desktop.
 
 PortXR is an independent project, not affiliated with or endorsed by Unity Technologies, Valve, Meta, or any game's developer or publisher. Game names are trademarks of their owners.
 

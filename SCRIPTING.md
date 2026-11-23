@@ -119,8 +119,9 @@ A script that fixed a game for you will fix it for the next player. To share one
    ```
 
    The game page in the app shows the engine and its version; Settings shows PortXR's.
-2. Open a [game report](https://github.com/EncidXVII/PortXR/issues/new?template=game-report.yml) for the game, choose
-   **Plays fine with a script**, and paste the script into the **Script** field. A pull request works too.
+2. Add it to the game's folder in the [PortXR game catalogue](https://github.com/EncidXVII/PortXR-catalogue) with a pull request: its
+   [CONTRIBUTING.md](https://github.com/EncidXVII/PortXR-catalogue/blob/main/CONTRIBUTING.md) says how. Once it is merged, PortXR offers it on that game's
+   page (**Get script**).
 
 What is accepted:
 
@@ -129,8 +130,8 @@ What is accepted:
   mod's files.
 - Scripts are shared under the project's licence (GPL-3.0), with your name on them, so others can use and improve them.
 
-A catalogue of scripts by game is planned at everyvr.net, with one page per game and install from the app. Scripts
-shared now move there with their author's name.
+The catalogue shows every game at [everyvr.net/portxr/catalogue](https://everyvr.net/portxr/catalogue), one page per
+game, with each script's author.
 
 ## Examples
 
