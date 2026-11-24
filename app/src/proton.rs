@@ -127,8 +127,25 @@ fn records_path() -> PathBuf {
     dirs::config_dir().unwrap_or_default().join("PortXR").join("wine-overrides.json")
 }
 
-fn load(path: &Path) -> Vec<Override> {
-    fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+/// The records; none when there is no file yet. A file that can't be read is an error, never an empty list: saving
+/// over it would forget every other prefix's setting.
+fn load(path: &Path) -> Result<Vec<Override>, Why> {
+    match fs::read(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(Why::Io(e.to_string())),
+        Ok(b) => serde_json::from_slice(&b).map_err(|e| Why::Io(format!("{}: {e}", path.display()))),
+    }
+}
+
+/// Writes the whole file or nothing: a new file beside it, then renamed over it, so a full disk or a crash never
+/// leaves half a registry or half the records.
+fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".portxr-tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, bytes).and_then(|()| fs::rename(&tmp, path)).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
 }
 
 fn save(path: &Path, records: &[Override]) -> Result<(), Why> {
@@ -140,7 +157,7 @@ fn save(path: &Path, records: &[Override]) -> Result<(), Why> {
         };
     }
     fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(io)?;
-    fs::write(path, serde_json::to_vec_pretty(records).unwrap_or_default()).map_err(io)
+    write_whole(path, &serde_json::to_vec_pretty(records).unwrap_or_default()).map_err(io)
 }
 
 /// Whether a Wine process of this prefix runs. Proton names it `<prefix>/` in WINEPREFIX, and a launcher's prefix
@@ -176,7 +193,7 @@ fn enable_in(records_path: &Path, pfx: &Path, dll: &str, game: &Path, now: u64) 
     let reg = pfx.join("user.reg");
     let original = fs::read(&reg).map_err(|_| Why::NoPrefix)?;
     let text = String::from_utf8_lossy(&original);
-    let mut records = load(records_path);
+    let mut records = load(records_path)?;
     let at = records.iter().position(|r| r.reg == reg && r.dll == dll);
     if is_set(&text, dll) {
         // Ours already (another game in this prefix), or set by the player: nothing to write.
@@ -191,8 +208,8 @@ fn enable_in(records_path: &Path, pfx: &Path, dll: &str, game: &Path, now: u64) 
     }
     let io = |e: std::io::Error| Why::Io(e.to_string());
     let (new, created_key, previous) = set_value(&text, dll, now);
-    fs::write(pfx.join(BACKUP), &original).map_err(io)?;
-    fs::write(&reg, new.as_bytes()).map_err(io)?;
+    write_whole(&pfx.join(BACKUP), &original).map_err(io)?;
+    write_whole(&reg, new.as_bytes()).map_err(io)?;
     // A record whose value is gone (the prefix was made again) is replaced; its games still need it.
     let mut games = at.map(|i| records.remove(i).games).unwrap_or_default();
     if !games.iter().any(|g| g == game) {
@@ -222,7 +239,7 @@ pub fn disable_all() -> Result<(), Why> {
 fn disable_in(records_path: &Path, game: Option<&Path>) -> Result<(), Why> {
     let mut result = Ok(());
     let mut kept = Vec::new();
-    for mut r in load(records_path) {
+    for mut r in load(records_path)? {
         let before = r.games.clone();
         r.games.retain(|g| game.is_some_and(|game| g != game));
         if (game.is_some() && r.games.len() == before.len()) || !r.games.is_empty() {
@@ -251,7 +268,7 @@ fn restore(r: &Override) -> Result<(), Why> {
         Ok(now) if hash(&now) == r.written && backup.exists() => fs::rename(&backup, &r.reg).map_err(io)?,
         Ok(now) => {
             let text = unset_value(&String::from_utf8_lossy(&now), &r.dll, r.created_key, r.previous.as_deref());
-            fs::write(&r.reg, text).map_err(io)?;
+            write_whole(&r.reg, text.as_bytes()).map_err(io)?;
             let _ = fs::remove_file(&backup);
         }
         // The prefix is gone: nothing left to undo.
@@ -316,7 +333,7 @@ mod tests {
         enable_in(&records, &pfx, "winhttp", &a, 1_732_000_000).unwrap();
         enable_in(&records, &pfx, "winhttp", &b, 1_732_000_001).unwrap();
         assert!(is_set(&fs::read_to_string(pfx.join("user.reg")).unwrap(), "winhttp"));
-        assert_eq!(load(&records)[0].games, vec![a.clone(), b.clone()]);
+        assert_eq!(load(&records).unwrap()[0].games, vec![a.clone(), b.clone()]);
         // Another game in the prefix still needs it.
         disable_in(&records, Some(&a)).unwrap();
         assert!(is_set(&fs::read_to_string(pfx.join("user.reg")).unwrap(), "winhttp"));

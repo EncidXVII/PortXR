@@ -894,6 +894,20 @@ fn wine_list(text: &str, drive_c: &Path) -> String {
 /// Linux: the in-game core reads the all-games defaults and the theme from %APPDATA%\PortXR inside the game's Proton
 /// prefix, and the VR menu changes them there. So each copy is kept in step with the app's, the newer one winning,
 /// for every game with VR whose prefix exists. The VR menu's game list goes there too, in Wine's paths.
+/// Linux: takes out the copies `share_with_prefixes` keeps in each game's Wine prefix (`--uninstall`).
+pub fn clear_prefixes(games: &[Game]) {
+    if cfg!(windows) {
+        return;
+    }
+    for dir in games.iter().filter_map(|g| game_user_dir(g, true)).map(|d| d.join("PortXR")) {
+        for name in ["defaults.cfg", "theme.txt", "vr-games.txt"] {
+            let _ = fs::remove_file(dir.join(name));
+        }
+        // Only when nothing else is in it (the game's own files there stay).
+        let _ = fs::remove_dir(&dir);
+    }
+}
+
 pub fn share_with_prefixes(games: &[Game]) {
     if cfg!(windows) {
         return;

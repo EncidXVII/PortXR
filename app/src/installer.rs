@@ -497,7 +497,7 @@ pub fn uninstall(game_dir: &Path) -> Result<(), Box<dyn Error>> {
     crate::proton::disable(game_dir).map_err(|why| match why {
         crate::proton::Why::Io(e) => format!("Couldn't undo the game's Wine prefix setting: {e}"),
         // Undoing never needs the prefix; a running game is what stops it.
-        _ => "The game is running. Close it, then remove VR again.".to_string(),
+        _ => "The game, or another game in the same Wine prefix, is running. Close it, then remove VR again.".to_string(),
     })?;
     for dir in &receipt.created_dirs {
         remove_dir(&games::native(game_dir, dir))?;
@@ -533,6 +533,8 @@ pub fn uninstall_all() -> Result<String, Box<dyn Error>> {
     if crate::proton::disable_all().is_err() {
         return Err("A game's Wine prefix still has PortXR's setting, so PortXR's settings were kept. Close your games and run this again.".into());
     }
+    // Linux: the copies of the VR menu's files in each game's Wine prefix.
+    games::clear_prefixes(&with_vr);
     let home = dirs::config_dir().ok_or("no settings folder on this system")?.join("PortXR");
     let scripts = clear_settings(&home)?;
     let kept = if scripts { format!(" Your game scripts stay in {}.", home.join("scripts").display()) } else { String::new() };

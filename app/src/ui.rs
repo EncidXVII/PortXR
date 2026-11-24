@@ -1875,7 +1875,9 @@ fn launch_options_note(g: &Game) -> String {
 fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install(&g.dir)?;
     configure(g, defaults)?;
-    Ok("VR added.".into())
+    // Linux: set now, so the game starts in VR however it is started (its launcher, or the VR menu's Library).
+    let next = games::wine_overrides(g).err().map(|why| format!(" {why}")).unwrap_or_default();
+    Ok(format!("VR added.{next}"))
 }
 
 fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
