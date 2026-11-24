@@ -211,10 +211,15 @@ impl Game {
         if self.app_id > 0 { Some(format!("steam://rungameid/{}", self.app_id)) } else { self.launcher.as_ref().map(|l| l.url.clone()) }
     }
 
+    /// Steam starts it: a Steam game, or one added by hand that Steam has as a non-Steam game.
+    pub fn in_steam(&self) -> bool {
+        self.app_id > 0 || self.launcher.as_ref().is_some_and(|l| l.url.starts_with("steam:"))
+    }
+
     /// The launcher that starts the game, as the page names it.
     pub fn launcher_name(&self) -> &'static str {
         match &self.launcher {
-            _ if self.app_id > 0 => "Steam",
+            _ if self.in_steam() => "Steam",
             Some(l) if l.url.starts_with("heroic:") => "Heroic",
             Some(_) => "Lutris",
             None => "its launcher",
@@ -227,7 +232,7 @@ impl Game {
         } else if cfg!(windows) {
             Command::new(&self.exe).current_dir(&self.dir).spawn().map(|_| ())
         } else {
-            Err(io::Error::other(format!("Outside Steam, Heroic and Lutris, start the game from its launcher with {WINE_DLL} set.")))
+            Err(io::Error::other(format!("Outside Steam, Heroic and Lutris, start the game with {WINE_DLL} set.")))
         }
     }
 }
@@ -753,6 +758,75 @@ fn steam_root() -> Option<PathBuf> {
         .find(|p| p.join("steamapps").is_dir())
 }
 
+/// A Steam shortcut (Add a Non-Steam Game): its app ID, the program it starts, and its launch options.
+struct Shortcut {
+    id: u32,
+    exe: String,
+    options: String,
+}
+
+/// The shortcuts in a shortcuts.vdf, Steam's binary key-value file: typed fields (0 opens a map, 1 a string, 2 a
+/// 32-bit number, 7 a 64-bit one, 8 ends a map), each named by a NUL-ended key; strings end with a NUL too.
+fn shortcuts(b: &[u8]) -> Vec<Shortcut> {
+    fn text(b: &[u8], p: &mut usize) -> Option<String> {
+        let len = b.get(*p..)?.iter().position(|&c| c == 0)?;
+        let s = String::from_utf8_lossy(&b[*p..*p + len]).into_owned();
+        *p += len + 1;
+        Some(s)
+    }
+    let empty = || Shortcut { id: 0, exe: String::new(), options: String::new() };
+    let (mut found, mut p, mut s) = (Vec::new(), 0, empty());
+    while let Some(&kind) = b.get(p) {
+        p += 1;
+        if kind == 8 {
+            // A map ends: a shortcut's tags, which come after its fields, or the shortcut itself.
+            let done = std::mem::replace(&mut s, empty());
+            if done.id != 0 && !done.exe.is_empty() {
+                found.push(done);
+            }
+            continue;
+        }
+        let Some(key) = text(b, &mut p) else { break };
+        match (kind, key.to_ascii_lowercase().as_str()) {
+            (0, _) => {}
+            (1, key) => {
+                let Some(v) = text(b, &mut p) else { break };
+                match key {
+                    "exe" => s.exe = v.trim_matches('"').to_string(),
+                    "launchoptions" => s.options = v,
+                    _ => {}
+                }
+            }
+            (2, key) => {
+                let Some(&[a, b2, c, d]) = b.get(p..p + 4) else { break };
+                if key == "appid" {
+                    s.id = u32::from_le_bytes([a, b2, c, d]);
+                }
+                p += 4;
+            }
+            (7, _) => p += 8,
+            _ => break,
+        }
+    }
+    found
+}
+
+/// Linux: the Steam shortcut that starts a game added by hand: its link, and its Proton prefix in Steam's compatdata
+/// under the shortcut's app ID. Each Steam account keeps its own shortcuts.vdf.
+fn steam_shortcut(dir: &Path) -> Option<Launcher> {
+    let steam = steam_root()?;
+    fs::read_dir(steam.join("userdata")).ok()?.flatten().find_map(|user| {
+        let config = user.path().join("config").join("shortcuts.vdf");
+        let s = shortcuts(&fs::read(&config).ok()?).into_iter().find(|s| under(Path::new(&s.exe), dir))?;
+        Some(Launcher {
+            url: format!("steam://rungameid/{}", (u64::from(s.id) << 32) | 0x0200_0000),
+            prefix: steam.join("steamapps").join("compatdata").join(s.id.to_string()),
+            plain_wine: None,
+            config,
+        })
+    })
+}
+
 /// Linux: the Wine prefix the game runs in, the folder holding its registry (user.reg): Steam's
 /// `steamapps/compatdata/<id>/pfx` beside the game's library, or the one its launcher set. Proton keeps the prefix in
 /// a `pfx` folder inside the one it is given; Wine uses the folder itself.
@@ -795,11 +869,15 @@ pub fn wine_overrides(g: &Game) -> Result<(), String> {
     let Some(pfx) = wine_prefix(g) else {
         return Err(match &g.launcher {
             Some(_) => format!("Set a Wine prefix for this game in {}, start it once, then press Play in VR.", g.launcher_name()),
-            None => format!("Start the game from its launcher with {WINE_DLL} set."),
+            None => format!("In Steam, Add a Non-Steam Game with it and set it to run with Proton, then press Play in VR. Or start it with {WINE_DLL} set."),
         });
     };
     let wine = if g.launcher.as_ref().is_some_and(|l| l.plain_wine.is_some()) { "Wine" } else { "Proton" };
     crate::proton::enable(&pfx, dll, &g.dir).map_err(|why| match why {
+        // A non-Steam game gets a prefix once Steam runs it with Proton.
+        crate::proton::Why::NoPrefix if g.app_id == 0 && g.in_steam() => {
+            "In Steam, set this game to run with Proton (Properties → Compatibility), start it once, close it, then press Play in VR.".into()
+        }
         crate::proton::Why::NoPrefix => format!("{wine} sets this game up on its first start. Start it once from {}, close it, then press Play in VR.", g.launcher_name()),
         crate::proton::Why::Running => "The game is running. Close it, then press Play in VR.".into(),
         crate::proton::Why::Io(e) => format!("Couldn't set up the game's Wine prefix: {e}"),
@@ -814,8 +892,14 @@ pub fn needs_launch_options(g: &Game) -> bool {
         return false;
     }
     if g.app_id == 0 {
+        let Some(l) = &g.launcher else { return false };
+        // A non-Steam game's launch options are in Steam's shortcuts file, with every other shortcut's.
+        if g.in_steam() {
+            let set = |s: &Shortcut| under(Path::new(&s.exe), &g.dir) && s.options.contains("PRESSURE_VESSEL_IMPORT_OPENXR");
+            return !fs::read(&l.config).is_ok_and(|b| shortcuts(&b).iter().any(set));
+        }
         // The launcher's settings file for the game.
-        return g.launcher.as_ref().is_some_and(|l| !fs::read_to_string(&l.config).is_ok_and(|t| t.contains("PRESSURE_VESSEL_IMPORT_OPENXR")));
+        return !fs::read_to_string(&l.config).is_ok_and(|t| t.contains("PRESSURE_VESSEL_IMPORT_OPENXR"));
     }
     // When it was read, and each app's launch options.
     type Saved = Option<(std::time::Instant, Vec<(u32, String)>)>;
@@ -891,9 +975,6 @@ fn wine_list(text: &str, drive_c: &Path) -> String {
     out
 }
 
-/// Linux: the in-game core reads the all-games defaults and the theme from %APPDATA%\PortXR inside the game's Proton
-/// prefix, and the VR menu changes them there. So each copy is kept in step with the app's, the newer one winning,
-/// for every game with VR whose prefix exists. The VR menu's game list goes there too, in Wine's paths.
 /// Linux: takes out the copies `share_with_prefixes` keeps in each game's Wine prefix (`--uninstall`).
 pub fn clear_prefixes(games: &[Game]) {
     if cfg!(windows) {
@@ -908,6 +989,9 @@ pub fn clear_prefixes(games: &[Game]) {
     }
 }
 
+/// Linux: the in-game core reads the all-games defaults and the theme from %APPDATA%\PortXR inside the game's Proton
+/// prefix, and the VR menu changes them there. So each copy is kept in step with the app's, the newer one winning,
+/// for every game with VR whose prefix exists. The VR menu's game list goes there too, in Wine's paths.
 pub fn share_with_prefixes(games: &[Game]) {
     if cfg!(windows) {
         return;
@@ -1474,6 +1558,9 @@ pub fn inspect(dir: &Path) -> Option<Game> {
         }
         apply_steam(&steam, std::slice::from_mut(&mut g));
     }
+    if !cfg!(windows) && g.app_id == 0 && g.launcher.is_none() {
+        g.launcher = steam_shortcut(&g.dir);
+    }
     Some(g)
 }
 
@@ -1497,6 +1584,10 @@ pub fn scan() -> Vec<Game> {
         g.last_played = last.max(ours.unwrap_or(0));
         g.app_id = id;
         g.launcher = launcher;
+        // Linux: a game added by hand that Steam starts as a non-Steam game, through Proton.
+        if !cfg!(windows) && g.added.is_some() && g.launcher.is_none() {
+            g.launcher = steam_shortcut(&g.dir);
+        }
         if let Some(name) = name {
             g.name = name;
         }
@@ -1562,6 +1653,21 @@ mod tests {
                     Lethal Company\tZ:\\home\\u\\.local\\share\\Steam\\steamapps\\common\\Lethal Company\tZ:\\home\\u\\c.jpg\tsteam://rungameid/1966720\n\
                     Old\tZ:\\home\\u\\old\n";
         assert_eq!(super::wine_list(text, Path::new("/home/u/Games/hk/drive_c")), want);
+    }
+
+    #[test]
+    fn steam_shortcuts() {
+        let mut b = b"\0shortcuts\0\x000\0\x02appid\0".to_vec();
+        b.extend(0xC000_0001u32.to_le_bytes());
+        b.extend(b"\x01AppName\0Hollow Knight\0\x01Exe\0\"/home/u/Games/hk/hollow_knight.exe\"\0");
+        b.extend(b"\x01LaunchOptions\0PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%\0\x02IsHidden\0\0\0\0\0");
+        b.extend(b"\x07LastPlayTime\x0012345678\x00tags\0\x010\0VR\0\x08\x08");
+        // A second shortcut, from before Steam wrote app IDs: skipped.
+        b.extend(b"\x001\0\x01Exe\0/usr/bin/x\0\x00tags\0\x08\x08\x08\x08");
+        let found = super::shortcuts(&b);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].id, found[0].exe.as_str()), (0xC000_0001, "/home/u/Games/hk/hollow_knight.exe"));
+        assert!(found[0].options.starts_with("PRESSURE_VESSEL"));
     }
 
     #[test]

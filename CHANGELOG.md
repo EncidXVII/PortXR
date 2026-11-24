@@ -15,6 +15,9 @@ Linux:
   Lutris, are listed, with the Wine prefix each runs in. **Play in VR** starts them through their launcher
   (`heroic://launch/...`, `lutris:rungame/...`). When the launcher runs a game with plain Wine, which gives games no
   OpenXR, the page says to pick a Proton-based runner such as GE-Proton.
+- Games added by hand that Steam runs as non-Steam games (Add a Non-Steam Game, set to Proton) are handled like
+  Steam's own: **Add VR** sets their Proton prefix, **Play in VR** starts them through Steam, and with WiVRn or
+  Monado the launch options go in the shortcut's. A game added by hand that no launcher runs gets those steps.
 - The VR menu's Library tab switches games under Proton (Experimental): each game's prefix gets the list of games
   with VR in Wine's paths, and the next game starts through Steam (`steam://rungameid/...`), Heroic or Lutris as the
   current one quits. The list gains a fourth field, the link; older readers ignore it, and Windows still switches

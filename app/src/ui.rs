@@ -985,10 +985,11 @@ impl App {
         // Linux with WiVRn or Monado: Steam keeps its launch options to itself while running, and the other launchers
         // their environment variables, so the player pastes them in.
         if playable && games::needs_launch_options(g) {
-            if g.app_id > 0 && tertiary(ui, "Copy launch options").clicked() {
+            if g.in_steam() && tertiary(ui, "Copy launch options").clicked() {
                 ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
-                self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
-            } else if g.app_id == 0 && tertiary(ui, "Copy variable").clicked() {
+                let tab = if g.app_id > 0 { "General" } else { "Shortcut" };
+                self.status = (format!("Copied. In Steam: the game's Properties → {tab} → Launch options, paste, then Play."), Tone::Good);
+            } else if !g.in_steam() && tertiary(ui, "Copy variable").clicked() {
                 ui.ctx().copy_text(games::OPENXR_ENV.into());
                 self.status = (format!("Copied. In {}, add it to the game's environment variables, then Play.", g.launcher_name()), Tone::Good);
             }
@@ -1230,7 +1231,8 @@ fn warning(g: &Game) -> (String, Tone) {
         (Compat::Blocked, _) if g.blocker == Some("Multiplayer only") => ("Multiplayer only: mods online can get accounts banned. Only playing offline? Add VR anyway.".into(), Tone::Bad),
         (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so PortXR stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
         (Compat::NativeVr, _) => ("Has its own VR mode: start it in VR from Steam. Add VR anyway to try PortXR instead.".into(), Tone::Info),
-        (Compat::LinuxBuild, _) => ("Steam installed the Linux version. In Steam: Properties → Compatibility → force Proton, then come back.".into(), Tone::Info),
+        (Compat::LinuxBuild, _) if g.app_id > 0 => ("Steam installed the Linux version. In Steam: Properties → Compatibility → force Proton, then come back.".into(), Tone::Info),
+        (Compat::LinuxBuild, _) => ("This is the game's Linux version. PortXR goes into its Windows version, run with Proton.".into(), Tone::Info),
         (Compat::Supported, _) if g.launcher.as_ref().is_some_and(|l| l.plain_wine.is_some()) => (format!(
             "{} runs this game with {}, which gives games no OpenXR. Pick a Proton-based runner for it there, such as GE-Proton.",
             g.launcher_name(), g.launcher.as_ref().and_then(|l| l.plain_wine.as_deref()).unwrap_or("Wine")), Tone::Info),
@@ -1865,7 +1867,7 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
 /// launcher's environment variables).
 fn launch_options_note(g: &Game) -> String {
     let runtime = games::openxr_runtime().unwrap_or_default();
-    if g.app_id > 0 {
+    if g.in_steam() {
         format!("{runtime} needs these in the game's Steam launch options: {}", games::LAUNCH_OPTIONS)
     } else {
         format!("{runtime} needs {} in the game's environment variables in {}.", games::OPENXR_ENV, g.launcher_name())
@@ -1945,6 +1947,10 @@ fn play_theater(g: &Game) -> Result<String, Box<dyn Error>> {
 // Godot opens VR itself as it starts, and gets none from a runtime that is still starting (SteamVR from cold): the
 // Theater host wakes the runtime first (PortXRTheater.exe --wake, seconds), then the game is launched.
 fn play_godot(g: &Game) -> Result<String, Box<dyn Error>> {
+    // Linux: with no launcher to start it, launch() fails here and says what to do.
+    if !cfg!(windows) && g.launch_url().is_none() {
+        g.launch()?;
+    }
     let host = std::env::current_exe()?.with_file_name("theater").join("PortXRTheater.exe");
     let game = g.clone();
     std::thread::spawn(move || {
