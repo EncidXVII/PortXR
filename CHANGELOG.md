@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-11-24
 
 Linux:
 - No more pasting `WINEDLLOVERRIDES` into Steam's launch options: **Play in VR** sets the game's Proton prefix to
