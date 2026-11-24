@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 - 2026-11-24
 
 - About has its own tab in the top bar, beside Library and Settings, instead of being the last section of
   Settings.

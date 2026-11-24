@@ -29,8 +29,8 @@ back to one commit.
    version's `CHANGELOG.md` section. The app's update check reads GitHub releases. Publishing is outward-facing: only
    on an explicit go-ahead.
    ```
-   git tag -a v0.6.0 -m "PortXR 0.6.0"; git push origin main v0.6.0
-   gh release create v0.6.0 release\PortXR-0.6.0.zip release\SHA256SUMS.txt --title "PortXR 0.6.0" --notes-file notes.md
+   git tag -a v0.6.1 -m "PortXR 0.6.1"; git push origin main v0.6.1
+   gh release create v0.6.1 release\PortXR-0.6.1.zip release\SHA256SUMS.txt --title "PortXR 0.6.1" --notes-file notes.md
    ```
 4. In `flake.nix`, set `version` and the Linux tarball's `hash` (its SHA-256 in SRI form: `nix hash convert
    --hash-algo sha256 <hex>`), then push: the Nix workflow builds it.
