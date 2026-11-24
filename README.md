@@ -80,11 +80,13 @@ and run `./PortXR`. Older Godot and Unreal games, which play on the VR screen on
 On NixOS or with Nix: `nix run github:EncidXVII/PortXR`, or `nix profile install github:EncidXVII/PortXR` to keep it.
 
 - **Headset:** WiVRn (standalone headsets) or Monado (wired) work best; SteamVR for Linux works too. With WiVRn or Monado, set xrizer or OpenComposite as the OpenVR runtime: Proton gives games OpenXR only through one. Your runtime's guide shows how, and the game page says when it is missing.
-- **Launch options:** Proton only loads PortXR with these in the game's Steam launch options (Properties → General). The game page shows them with a **Copy launch options** button until Steam has saved them:
-  `WINEDLLOVERRIDES="winhttp,dwmapi=n,b" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
+- **Wine prefix:** **Play in VR** (and **Add VR anyway**) sets the game's Proton prefix to load PortXR from the game folder (a DLL override in its `pfx/user.reg`, the original kept beside it), and **Remove VR** takes it out again. Start a new game once first, so Proton sets its prefix up; the game page says when, and when to close a running game first.
+- **Launch options:** only with WiVRn or Monado, which Steam's Linux Runtime passes to a game only with this in its Steam launch options (Properties → General). The game page shows it with a **Copy launch options** button until Steam has saved it:
+  `PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`
 - **Flatpak or Snap Steam:** found like the native one. With Flatpak Steam and WiVRn or Monado, give Steam access to the runtime as your runtime's guide shows.
 - **Linux versions:** where a game has its own Linux build (Unity, Unreal or Godot), Steam installs that one, and the library marks it **Linux build**. Force Proton for it (Properties → Compatibility), let Steam download the Windows version, and it is ready.
-- **Steam only:** games from other stores run outside Steam's Proton; add their folder and start them from their launcher (Heroic, Lutris) with `WINEDLLOVERRIDES="winhttp,dwmapi=n,b"` set.
+- **Heroic and Lutris (Experimental):** Epic, GOG and Amazon games installed through Heroic, and Windows games in Lutris, are listed too, each with its own Wine prefix set up as above, and **Play in VR** starts them through their launcher. VR needs a Proton-based runner such as GE-Proton (plain Wine gives games no OpenXR); the game page says when to pick one. With WiVRn or Monado, add `PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1` to the game's environment variables in the launcher. Games from anywhere else: add their folder and start them with `WINEDLLOVERRIDES="winhttp,dwmapi=n,b"` set.
+- **Switching games in VR (Experimental):** the VR menu's Library tab starts another game with VR through Steam, Heroic or Lutris as the current one quits.
 
 ## Controls
 

@@ -5,6 +5,8 @@
 mod catalogue;
 mod games;
 mod installer;
+mod launchers;
+mod proton;
 mod settings;
 mod ui;
 
@@ -119,6 +121,7 @@ fn cli(cmd: &str, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 return Err("VR isn't added to this game.".into());
             }
             installer::update(dir)?;
+            games::wine_overrides(&g)?;
             g.launch()?;
             games::mark_played(dir);
             Ok(())

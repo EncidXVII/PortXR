@@ -60,6 +60,22 @@ pub struct Game {
     pub store: &'static str,
     /// Unix seconds: Steam's own record, or the last Play in VR from this app, whichever is later.
     pub last_played: u64,
+    /// Linux, games Heroic or Lutris installed: how that launcher runs it.
+    #[serde(default)]
+    pub launcher: Option<Launcher>,
+}
+
+/// How a launcher other than Steam starts a game on Linux, and the Wine prefix it runs the game in.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Launcher {
+    /// The launcher's own link that starts the game (heroic://launch/..., lutris:rungame/...).
+    pub url: String,
+    /// The prefix folder the launcher set (Proton keeps the Wine prefix in a `pfx` folder inside it).
+    pub prefix: PathBuf,
+    /// The launcher's runner, when it is not Proton-based: plain Wine gives games no OpenXR.
+    pub plain_wine: Option<String>,
+    /// The launcher's settings file for the game, which holds its environment variables.
+    pub config: PathBuf,
 }
 
 fn unity() -> String {
@@ -190,13 +206,28 @@ impl Game {
         native(&self.dir, rel)
     }
 
+    /// The link that starts the game through its launcher: Steam's, Heroic's or Lutris's.
+    pub fn launch_url(&self) -> Option<String> {
+        if self.app_id > 0 { Some(format!("steam://rungameid/{}", self.app_id)) } else { self.launcher.as_ref().map(|l| l.url.clone()) }
+    }
+
+    /// The launcher that starts the game, as the page names it.
+    pub fn launcher_name(&self) -> &'static str {
+        match &self.launcher {
+            _ if self.app_id > 0 => "Steam",
+            Some(l) if l.url.starts_with("heroic:") => "Heroic",
+            Some(_) => "Lutris",
+            None => "its launcher",
+        }
+    }
+
     pub fn launch(&self) -> io::Result<()> {
-        if self.app_id > 0 {
-            open(format!("steam://rungameid/{}", self.app_id))
+        if let Some(url) = self.launch_url() {
+            open(url)
         } else if cfg!(windows) {
             Command::new(&self.exe).current_dir(&self.dir).spawn().map(|_| ())
         } else {
-            Err(io::Error::other(format!("Outside Steam, start the game from its launcher (Heroic, Lutris) with {WINE_DLL} set.")))
+            Err(io::Error::other(format!("Outside Steam, Heroic and Lutris, start the game from its launcher with {WINE_DLL} set.")))
         }
     }
 }
@@ -216,11 +247,14 @@ pub fn edit(file: &Path) -> io::Result<()> {
     if cfg!(windows) { Command::new("notepad").arg(file).spawn().map(|_| ()) } else { open(file) }
 }
 
-/// Proton loads the Windows mod loader only with this override; with it, Monado and WiVRn reach the game too.
-/// Proton loads the game folder's own winhttp.dll (Unity's mod loader) and dwmapi.dll (the Unreal core) only when told;
-/// a game without one keeps Wine's. Godot games load PortXR themselves and need only the OpenXR runtime passed in.
+/// Wine loads the game folder's own winhttp.dll (Unity's mod loader) and dwmapi.dll (the Unreal core) only when told;
+/// a game without one keeps Wine's. PortXR tells the prefix of each game it knows (see `wine_overrides`); a game
+/// started some other way needs this in its environment. Godot games load PortXR themselves.
 pub const WINE_DLL: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\"";
-pub const LAUNCH_OPTIONS: &str = "WINEDLLOVERRIDES=\"winhttp,dwmapi=n,b\" PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
+/// With WiVRn or Monado, Steam's Linux Runtime hands the game the OpenXR runtime only with this in its environment,
+/// which no prefix setting can give.
+pub const OPENXR_ENV: &str = "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1";
+pub const LAUNCH_OPTIONS: &str = "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%";
 
 // The labels are a handful of short strings, read once per start.
 fn leak<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
@@ -357,6 +391,7 @@ pub fn detect(root: &Path) -> Option<Game> {
         added: None,
         store: "",
         last_played: 0,
+        launcher: None,
         dir,
         exe,
     })
@@ -416,6 +451,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         added: None,
         store: "",
         last_played: 0,
+        launcher: None,
         dir: root.to_path_buf(),
         exe,
     };
@@ -568,15 +604,16 @@ pub fn remove_folder(dir: &Path) -> io::Result<()> {
     fs::write(manual_list(), kept)
 }
 
-/// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
+/// Install folders other launchers record. Linux: Heroic's (Epic, GOG, Amazon) and Lutris's games, with the Wine prefix
+/// each runs in.
 #[cfg(not(windows))]
-fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
-    // On Linux, PortXR works through Proton: Steam games, and folders added by hand.
-    Vec::new()
+fn other_stores() -> Vec<crate::launchers::Other> {
+    crate::launchers::heroic().into_iter().chain(crate::launchers::lutris()).collect()
 }
 
+/// Install folders other launchers record: Epic Games manifests and GOG Galaxy's registry entries.
 #[cfg(windows)]
-fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
+fn other_stores() -> Vec<crate::launchers::Other> {
     let mut found = Vec::new();
     let manifests = PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into()))
         .join(r"Epic\EpicGamesLauncher\Data\Manifests");
@@ -584,14 +621,14 @@ fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
         let Ok(json) = fs::read_to_string(&item).map(|t| serde_json::from_str::<serde_json::Value>(&t)) else { continue };
         let Ok(json) = json else { continue };
         if let Some(dir) = json["InstallLocation"].as_str() {
-            found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from), "Epic Games"));
+            found.push((PathBuf::from(dir), json["DisplayName"].as_str().map(String::from), "Epic Games", None));
         }
     }
     let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
     let gog = [r"SOFTWARE\WOW6432Node\GOG.com\Games", r"SOFTWARE\GOG.com\Games"].map(|k| hklm.open_subkey(k));
     for key in gog.iter().flatten().flat_map(|k| k.enum_keys().flatten().filter_map(|id| k.open_subkey(id).ok()).collect::<Vec<_>>()) {
         if let Ok(dir) = key.get_value::<String, _>("path") {
-            found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok(), "GOG"));
+            found.push((PathBuf::from(dir), key.get_value::<String, _>("gameName").ok(), "GOG", None));
         }
     }
     // Everything else (itch, Amazon, Xbox, DRM-free copies, unregistered Steam libraries): each folder in the usual
@@ -610,7 +647,7 @@ fn other_stores() -> Vec<(PathBuf, Option<String>, &'static str)> {
     }
     for root in roots {
         for dir in fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
-            found.push((dir, None, "On disk"));
+            found.push((dir, None, "On disk", None));
         }
     }
     found
@@ -716,25 +753,69 @@ fn steam_root() -> Option<PathBuf> {
         .find(|p| p.join("steamapps").is_dir())
 }
 
-/// The game's user folder as the game sees it (`%APPDATA%` with `roaming`, else `LocalLow`): on Linux, inside the
-/// game's Proton prefix next to its Steam library (`steamapps/compatdata/<id>/pfx`).
-fn game_user_dir(g: &Game, roaming: bool) -> Option<PathBuf> {
+/// Linux: the Wine prefix the game runs in, the folder holding its registry (user.reg): Steam's
+/// `steamapps/compatdata/<id>/pfx` beside the game's library, or the one its launcher set. Proton keeps the prefix in
+/// a `pfx` folder inside the one it is given; Wine uses the folder itself.
+pub fn wine_prefix(g: &Game) -> Option<PathBuf> {
     if cfg!(windows) {
-        return if roaming { dirs::config_dir() } else { Some(dirs::data_local_dir()?.parent()?.join("LocalLow")) };
+        return None;
+    }
+    if let Some(l) = &g.launcher {
+        return Some(if l.prefix.join("user.reg").exists() { l.prefix.clone() } else { l.prefix.join("pfx") });
     }
     if g.app_id == 0 {
         return None;
     }
     let steamapps = g.dir.ancestors().find(|a| a.file_name().is_some_and(|n| n == "steamapps"))?;
-    let users = steamapps.join("compatdata").join(g.app_id.to_string()).join("pfx/drive_c/users/steamuser/AppData");
-    Some(users.join(if roaming { "Roaming" } else { "LocalLow" }))
+    Some(steamapps.join("compatdata").join(g.app_id.to_string()).join("pfx"))
 }
 
-/// Linux: Steam's saved launch options for the game lack the loader override, so Proton would start it without
-/// PortXR. Asked every frame by the game page, so Steam's file is read at most every two seconds.
+/// The game's user folder as the game sees it (`%APPDATA%` with `roaming`, else `LocalLow`): on Linux, inside the
+/// game's Wine prefix, under Proton's steamuser (or, with plain Wine, the login name).
+fn game_user_dir(g: &Game, roaming: bool) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return if roaming { dirs::config_dir() } else { Some(dirs::data_local_dir()?.parent()?.join("LocalLow")) };
+    }
+    let users = wine_prefix(g)?.join("drive_c/users");
+    let login = std::env::var("USER").unwrap_or_default();
+    let user = if !login.is_empty() && !users.join("steamuser").exists() && users.join(&login).is_dir() { login } else { "steamuser".into() };
+    Some(users.join(user).join("AppData").join(if roaming { "Roaming" } else { "LocalLow" }))
+}
+
+/// The DLL the game's prefix must load from the game folder rather than Wine's own: Unity's mod loader is winhttp,
+/// the Unreal core dwmapi. Godot games load PortXR themselves.
+fn override_dll(g: &Game) -> Option<&'static str> {
+    if g.unreal_vr() { Some("dwmapi") } else if g.unity() { Some("winhttp") } else { None }
+}
+
+/// Linux: tells the game's Wine prefix to load PortXR's loader from the game folder (Add VR and Play in VR). The Err
+/// says plainly what the player does next: start the game once so the prefix exists, or close it first.
+pub fn wine_overrides(g: &Game) -> Result<(), String> {
+    let Some(dll) = override_dll(g).filter(|_| !cfg!(windows)) else { return Ok(()) };
+    let Some(pfx) = wine_prefix(g) else {
+        return Err(match &g.launcher {
+            Some(_) => format!("Set a Wine prefix for this game in {}, start it once, then press Play in VR.", g.launcher_name()),
+            None => format!("Start the game from its launcher with {WINE_DLL} set."),
+        });
+    };
+    let wine = if g.launcher.as_ref().is_some_and(|l| l.plain_wine.is_some()) { "Wine" } else { "Proton" };
+    crate::proton::enable(&pfx, dll, &g.dir).map_err(|why| match why {
+        crate::proton::Why::NoPrefix => format!("{wine} sets this game up on its first start. Start it once from {}, close it, then press Play in VR.", g.launcher_name()),
+        crate::proton::Why::Running => "The game is running. Close it, then press Play in VR.".into(),
+        crate::proton::Why::Io(e) => format!("Couldn't set up the game's Wine prefix: {e}"),
+    })
+}
+
+/// Linux with WiVRn or Monado: the game's launch options (Steam) or environment variables (Heroic, Lutris) lack
+/// OPENXR_ENV, so the game would start flat. Asked every frame by the game page, so Steam's settings (every account's)
+/// are read at most every two seconds; a launcher's file holds one game.
 pub fn needs_launch_options(g: &Game) -> bool {
-    if cfg!(windows) || g.app_id == 0 {
+    if cfg!(windows) || !openxr_runtime().is_some_and(|r| matches!(r.as_str(), "Monado" | "WiVRn")) {
         return false;
+    }
+    if g.app_id == 0 {
+        // The launcher's settings file for the game.
+        return g.launcher.as_ref().is_some_and(|l| !fs::read_to_string(&l.config).is_ok_and(|t| t.contains("PRESSURE_VESSEL_IMPORT_OPENXR")));
     }
     // When it was read, and each app's launch options.
     type Saved = Option<(std::time::Instant, Vec<(u32, String)>)>;
@@ -744,8 +825,7 @@ pub fn needs_launch_options(g: &Game) -> bool {
         let options = steam_root().map(|s| localconfig_values(&s, "LaunchOptions")).unwrap_or_default();
         *saved = Some((std::time::Instant::now(), options));
     }
-    let needed = if g.unreal_vr() { "dwmapi" } else if g.unity() { "winhttp" } else { "PRESSURE_VESSEL_IMPORT_OPENXR" };
-    !saved.as_ref().unwrap().1.iter().any(|(id, v)| *id == g.app_id && v.contains(needed))
+    !saved.as_ref().unwrap().1.iter().any(|(id, v)| *id == g.app_id && v.contains("PRESSURE_VESSEL_IMPORT_OPENXR"))
 }
 
 fn played_list() -> PathBuf {
@@ -760,37 +840,76 @@ pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
     fs::metadata(file).and_then(|m| m.modified()).ok()
 }
 
+fn vr_list_path() -> PathBuf {
+    dirs::config_dir().unwrap_or_default().join("PortXR").join("vr-games.txt")
+}
+
 /// The games with VR added, for the VR menu's Library tab: the app's path on the first line ("app<TAB><exe>"), then
-/// one "name<TAB>folder" line per game, most recently played first. Written on every scan and change; a running game reads it when the tab opens.
+/// one "name<TAB>folder<TAB>cover<TAB>link" line per game, most recently played first. The link starts the game
+/// through its launcher (Steam, Heroic, Lutris), for games under Wine, which can't start the app. Written on every
+/// scan and change; a running game reads it when the tab opens.
 pub fn write_vr_list(games: &[Game]) {
-    share_with_prefixes(games);
     let mut text = format!("app\t{}\n", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
     let mut vr: Vec<&Game> = games.iter().filter(|g| g.installed() && g.usable()).collect();
     vr.sort_by(|a, b| b.last_played.cmp(&a.last_played).then_with(|| a.name.cmp(&b.name)));
     for g in vr {
         // The cover (Steam's cached art) is optional: the VR menu shows the initial without one.
         let cover = g.cover.as_ref().map(|c| c.display().to_string()).unwrap_or_default();
-        text += &format!("{}\t{}\t{}\n", g.name.replace('\t', " "), g.dir.display(), cover);
+        text += &format!("{}\t{}\t{}\t{}\n", g.name.replace('\t', " "), g.dir.display(), cover, g.launch_url().unwrap_or_default());
     }
-    let path = dirs::config_dir().unwrap_or_default().join("PortXR").join("vr-games.txt");
-    if fs::read_to_string(&path).is_ok_and(|old| old == text) {
-        return;
+    let path = vr_list_path();
+    if !fs::read_to_string(&path).is_ok_and(|old| old == text) {
+        let _ = fs::create_dir_all(path.parent().unwrap());
+        let _ = fs::write(path, text);
     }
-    let _ = fs::create_dir_all(path.parent().unwrap());
-    let _ = fs::write(path, text);
+    share_with_prefixes(games);
+}
+
+/// A Linux path as a game in the prefix whose drive C is `drive_c` sees it: C:\ inside that drive, Z:\ (Wine's drive
+/// for the whole file system) anywhere else.
+fn wine_path(path: &str, drive_c: &Path) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    match Path::new(path).strip_prefix(drive_c) {
+        Ok(rel) => format!("C:\\{}", rel.to_string_lossy().replace('/', "\\")),
+        Err(_) => format!("Z:{}", path.replace('/', "\\")),
+    }
+}
+
+/// The VR menu's list as a game in a Wine prefix reads it: folders and covers as Wine paths, and no app line (the
+/// Linux app can't be started from inside Wine; the menu starts games by their links instead).
+fn wine_list(text: &str, drive_c: &Path) -> String {
+    let mut out = String::new();
+    for line in text.lines().filter(|l| !l.starts_with("app\t")) {
+        let mut f: Vec<String> = line.split('\t').map(String::from).collect();
+        for p in f.iter_mut().skip(1).take(2) {
+            *p = wine_path(p, drive_c);
+        }
+        out += &(f.join("\t") + "\n");
+    }
+    out
 }
 
 /// Linux: the in-game core reads the all-games defaults and the theme from %APPDATA%\PortXR inside the game's Proton
 /// prefix, and the VR menu changes them there. So each copy is kept in step with the app's, the newer one winning,
-/// for every game with VR whose prefix exists.
+/// for every game with VR whose prefix exists. The VR menu's game list goes there too, in Wine's paths.
 pub fn share_with_prefixes(games: &[Game]) {
     if cfg!(windows) {
         return;
     }
     let app = dirs::config_dir().unwrap_or_default().join("PortXR");
     let changed = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let list = fs::read_to_string(vr_list_path()).unwrap_or_default();
     for g in games.iter().filter(|g| g.installed()) {
         let Some(prefix) = game_user_dir(g, true).filter(|d| d.is_dir()).map(|d| d.join("PortXR")) else { continue };
+        if let Some(pfx) = wine_prefix(g) {
+            let text = wine_list(&list, &pfx.join("drive_c"));
+            let to = prefix.join("vr-games.txt");
+            if !fs::read_to_string(&to).is_ok_and(|old| old == text) {
+                let _ = fs::create_dir_all(&prefix).and_then(|_| fs::write(to, text));
+            }
+        }
         for name in ["defaults.cfg", "theme.txt"] {
             let (ours, theirs) = (app.join(name), prefix.join(name));
             let (from, to) = match (changed(&ours), changed(&theirs)) {
@@ -855,11 +974,11 @@ pub fn import_script(g: &Game, file: &Path) -> io::Result<PathBuf> {
 
 /// Writes a script into the game's scripts folder under this name (imported, or from the catalogue).
 pub fn save_script(g: &Game, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
-    // Linux: the scripts live in the game's Proton prefix, which Proton makes on the first start; making its folders
+    // Linux: the scripts live in the game's Wine prefix, which Proton makes on the first start; making its folders
     // first would leave Proton a half-made prefix.
-    if let Some(pfx) = game_user_dir(g, true).filter(|_| !cfg!(windows)).and_then(|d| d.ancestors().nth(5).map(Path::to_path_buf))
+    if let Some(pfx) = wine_prefix(g)
         && !pfx.join("system.reg").exists() {
-            return Err(io::Error::other("Start the game once through Steam first, so Proton sets up its Windows folder."));
+            return Err(io::Error::other(format!("Start the game once from {} first, so it sets up its Windows folder.", g.launcher_name())));
         }
     let dir = scripts_dir(g);
     fs::create_dir_all(&dir)?;
@@ -1245,7 +1364,7 @@ pub fn steam_install(app_id: u32) -> io::Result<()> {
     open(format!("steam://install/{app_id}"))
 }
 
-type Found = (PathBuf, u32, Option<String>, &'static str, u64);
+type Found = (PathBuf, u32, Option<String>, &'static str, u64, Option<Launcher>);
 
 /// Every Steam install on this PC: its folder and its appmanifest text.
 fn steam_manifests(steam: &Path) -> Vec<(PathBuf, String)> {
@@ -1289,7 +1408,7 @@ fn steam_installs(steam: &Path) -> Vec<Found> {
         .map(|(dir, text)| {
             let id = vdf_values(&text, "appid").next().and_then(|v| v.parse().ok()).unwrap_or(0);
             let last = vdf_values(&text, "LastPlayed").next().and_then(|v| v.parse().ok()).unwrap_or(0);
-            (dir, id, vdf_values(&text, "name").next(), "Steam", last)
+            (dir, id, vdf_values(&text, "name").next(), "Steam", last, None)
         })
         .collect()
 }
@@ -1331,6 +1450,10 @@ fn apply_steam(steam: &Path, games: &mut [Game]) {
 /// One game folder, checked as the library checks it: its files, and Steam's word if Steam installed it.
 pub fn inspect(dir: &Path) -> Option<Game> {
     let mut g = detect(dir).or_else(|| detect_other(dir))?;
+    // Linux: a game Heroic or Lutris runs, with its prefix and link.
+    if !cfg!(windows) {
+        g.launcher = other_stores().into_iter().find(|(root, ..)| under(&g.dir, root)).and_then(|(.., l)| l);
+    }
     if let Some(steam) = steam_root() {
         if let Some((_, id, ..)) = steam_installs(&steam).into_iter().find(|(root, ..)| under(&g.dir, root)) {
             g.app_id = id;
@@ -1343,13 +1466,13 @@ pub fn inspect(dir: &Path) -> Option<Game> {
 pub fn scan() -> Vec<Game> {
     let steam = steam_root();
     let mut found: Vec<Found> = steam.as_deref().map(steam_installs).unwrap_or_default();
-    found.extend(other_stores().into_iter().map(|(dir, name, store)| (dir, 0, name, store, 0)));
+    found.extend(other_stores().into_iter().map(|(dir, name, store, launcher)| (dir, 0, name, store, 0, launcher)));
     let stores = found.len();
-    found.extend(manual().into_iter().map(|dir| (dir, 0, None, "Added by you", 0)));
+    found.extend(manual().into_iter().map(|dir| (dir, 0, None, "Added by you", 0, None)));
     let played = fs::read_to_string(played_list()).unwrap_or_default();
 
     let mut games: Vec<Game> = Vec::new();
-    for (i, (dir, id, name, store, last)) in found.into_iter().enumerate() {
+    for (i, (dir, id, name, store, last, launcher)) in found.into_iter().enumerate() {
         let Some(mut g) = detect(&dir).or_else(|| if store == "On disk" { None } else { detect_other(&dir) }) else { continue };
         if games.iter().any(|other| other.dir == g.dir) {
             continue;
@@ -1359,6 +1482,7 @@ pub fn scan() -> Vec<Game> {
         let ours = played.lines().filter_map(|l| l.split_once('\t')).filter(|(_, d)| Path::new(d) == g.dir).filter_map(|(t, _)| t.parse().ok()).max();
         g.last_played = last.max(ours.unwrap_or(0));
         g.app_id = id;
+        g.launcher = launcher;
         if let Some(name) = name {
             g.name = name;
         }
@@ -1412,6 +1536,19 @@ fn player_log(g: &Game) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::save_engine;
+    use std::path::Path;
+
+    #[test]
+    fn prefix_list_has_wine_paths() {
+        let text = "app\t/opt/PortXR/PortXR\n\
+                    Hollow Knight\t/home/u/Games/hk/drive_c/Games/Hollow Knight\t\tlutris:rungame/hollow-knight\n\
+                    Lethal Company\t/home/u/.local/share/Steam/steamapps/common/Lethal Company\t/home/u/c.jpg\tsteam://rungameid/1966720\n\
+                    Old\t/home/u/old\n";
+        let want = "Hollow Knight\tC:\\Games\\Hollow Knight\t\tlutris:rungame/hollow-knight\n\
+                    Lethal Company\tZ:\\home\\u\\.local\\share\\Steam\\steamapps\\common\\Lethal Company\tZ:\\home\\u\\c.jpg\tsteam://rungameid/1966720\n\
+                    Old\tZ:\\home\\u\\old\n";
+        assert_eq!(super::wine_list(text, Path::new("/home/u/Games/hk/drive_c")), want);
+    }
 
     #[test]
     fn anti_cheat_list_is_built_in() {

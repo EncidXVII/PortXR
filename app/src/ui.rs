@@ -982,10 +982,16 @@ impl App {
         if let Some(e) = entry {
             self.get_files(ui, g, e);
         }
-        // Linux: Steam keeps its launch options to itself while running, so the player pastes them in.
-        if playable && games::needs_launch_options(g) && tertiary(ui, "Copy launch options").clicked() {
-            ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
-            self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
+        // Linux with WiVRn or Monado: Steam keeps its launch options to itself while running, and the other launchers
+        // their environment variables, so the player pastes them in.
+        if playable && games::needs_launch_options(g) {
+            if g.app_id > 0 && tertiary(ui, "Copy launch options").clicked() {
+                ui.ctx().copy_text(games::LAUNCH_OPTIONS.into());
+                self.status = ("Copied. In Steam: the game's Properties → General → Launch options, paste, then Play.".into(), Tone::Good);
+            } else if g.app_id == 0 && tertiary(ui, "Copy variable").clicked() {
+                ui.ctx().copy_text(games::OPENXR_ENV.into());
+                self.status = (format!("Copied. In {}, add it to the game's environment variables, then Play.", g.launcher_name()), Tone::Good);
+            }
         }
         // A game PortXR would leave alone, for players who want to try anyway: the caution first, then a confirm.
         if let Some(caution) = g.caution().filter(|_| !g.installed()) {
@@ -1225,7 +1231,10 @@ fn warning(g: &Game) -> (String, Tone) {
         (Compat::Blocked, _) => (format!("{} found. Mods in anti-cheat games can get accounts banned, so PortXR stays out.", g.blocker.unwrap_or("Anti-cheat")), Tone::Bad),
         (Compat::NativeVr, _) => ("Has its own VR mode: start it in VR from Steam. Add VR anyway to try PortXR instead.".into(), Tone::Info),
         (Compat::LinuxBuild, _) => ("Steam installed the Linux version. In Steam: Properties → Compatibility → force Proton, then come back.".into(), Tone::Info),
-        (Compat::Supported, _) if games::needs_launch_options(g) => (format!("Proton needs these Steam launch options to load PortXR: {}", games::LAUNCH_OPTIONS), Tone::Info),
+        (Compat::Supported, _) if g.launcher.as_ref().is_some_and(|l| l.plain_wine.is_some()) => (format!(
+            "{} runs this game with {}, which gives games no OpenXR. Pick a Proton-based runner for it there, such as GE-Proton.",
+            g.launcher_name(), g.launcher.as_ref().and_then(|l| l.plain_wine.as_deref()).unwrap_or("Wine")), Tone::Info),
+        (Compat::Supported, _) if games::needs_launch_options(g) => (format!("To reach the headset, {}", launch_options_note(g)), Tone::Info),
         (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity code trimming, which usually stops the mod loader. Add VR anyway to try.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. PortXR adds itself alongside; other mods may interfere."), Tone::Info),
@@ -1852,6 +1861,17 @@ fn cover_image(ui: &mut Ui, cover: &Option<PathBuf>, name: &str, rect: Rect) {
 
 // ---- actions and storage ----------------------------------------------------------------------------------------
 
+/// What a game under Proton needs with WiVRn or Monado, and where it goes (Steam's launch options, or the other
+/// launcher's environment variables).
+fn launch_options_note(g: &Game) -> String {
+    let runtime = games::openxr_runtime().unwrap_or_default();
+    if g.app_id > 0 {
+        format!("{runtime} needs these in the game's Steam launch options: {}", games::LAUNCH_OPTIONS)
+    } else {
+        format!("{runtime} needs {} in the game's environment variables in {}.", games::OPENXR_ENV, g.launcher_name())
+    }
+}
+
 fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install(&g.dir)?;
     configure(g, defaults)?;
@@ -1861,7 +1881,9 @@ fn install(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
 fn install_anyway(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     installer::install_anyway(&g.dir)?;
     configure(g, defaults)?;
-    Ok("VR added anyway. Remove VR undoes it.".into())
+    // Linux: Play in VR sets the prefix up again, so what is still to do comes as a note.
+    let next = games::wine_overrides(g).err().map(|why| format!(" {why}")).unwrap_or_default();
+    Ok(format!("VR added anyway. Remove VR undoes it.{next}"))
 }
 
 fn configure(g: &Game, defaults: &str) -> Result<(), Box<dyn Error>> {
@@ -1888,6 +1910,8 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     } else {
         installer::update(&g.dir).map_err(|e| format!("Couldn't update the plugin (is the game still running?): {e}"))?;
     }
+    // Linux: the game's Wine prefix loads PortXR's loader from the game folder, set before every start.
+    games::wine_overrides(g)?;
     // Godot 4.0 to 4.2 (the engine's own OpenXR) and Unreal (which looks for the headset as it starts) need the runtime
     // up before the game starts.
     if (g.godot_vr() && !g.godot_core()) || g.unreal_vr() {
@@ -1898,7 +1922,7 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     games::mark_played(&g.dir);
     // Steam may hold freshly pasted launch options in memory until it exits, so this only reminds.
     if games::needs_launch_options(g) {
-        return Ok(format!("Launching. If the game starts flat, its Steam launch options are missing: {}", games::LAUNCH_OPTIONS));
+        return Ok(format!("Launching. If the game starts flat, {}", launch_options_note(g)));
     }
     Ok("Launching.".into())
 }

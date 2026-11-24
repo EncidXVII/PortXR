@@ -3,6 +3,22 @@
 ## Unreleased
 
 Linux:
+- No more pasting `WINEDLLOVERRIDES` into Steam's launch options: **Play in VR** sets the game's Proton prefix to
+  load PortXR from the game folder (`"winhttp"` or `"dwmapi"` as `native,builtin` under
+  `HKCU\Software\Wine\DllOverrides` in its `pfx/user.reg`, the original file kept beside it), and **Remove VR** and
+  `--uninstall` take it out again. A running game's prefix is never edited: the page says to close the game first,
+  or to start a new game once so Proton sets its prefix up.
+- Launch options are now asked for only with WiVRn or Monado, and hold only
+  `PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`, which Steam's Linux Runtime needs to pass those runtimes
+  to a game. This applies to Godot games too, which asked for it with every runtime.
+- Heroic and Lutris games (Experimental): Epic, GOG and Amazon games installed through Heroic, and Windows games in
+  Lutris, are listed, with the Wine prefix each runs in. **Play in VR** starts them through their launcher
+  (`heroic://launch/...`, `lutris:rungame/...`). When the launcher runs a game with plain Wine, which gives games no
+  OpenXR, the page says to pick a Proton-based runner such as GE-Proton.
+- The VR menu's Library tab switches games under Proton (Experimental): each game's prefix gets the list of games
+  with VR in Wine's paths, and the next game starts through Steam (`steam://rungameid/...`), Heroic or Lutris as the
+  current one quits. The list gains a fourth field, the link; older readers ignore it, and Windows still switches
+  through PortXR.exe.
 - The in-game VR menu now gets the all-games defaults and the theme: the app keeps them in step with each game's
   Proton prefix, where the menu reads and changes them.
 - With WiVRn or Monado, a game's page says when xrizer or OpenComposite is missing as the OpenVR runtime (Proton

@@ -5,6 +5,7 @@
 #include "canvas.h"
 #include "common.h"
 #include "settings.h"
+#include <shellapi.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -180,6 +181,7 @@ struct Entry {
     std::string name;
     std::wstring dir;
     std::wstring cover;
+    std::wstring link;  // starts the game through its launcher (steam://, heroic://, lutris:); used under Wine
 };
 
 std::wstring wide(const std::string& s) {
@@ -187,6 +189,33 @@ std::wstring wide(const std::string& s) {
     std::wstring w(n, 0);
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), w.data(), n);
     return w;
+}
+
+// Running under Wine (Proton on Linux): the PortXR app is a Linux program, out of reach from here.
+bool under_wine() {
+    static const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
+    return wine;
+}
+
+// Under Wine, the next game starts by its launcher's link. Proton's prefix hands steam:// to its Steam stub, which
+// passes it to Steam outside; other links go through winebrowser to the desktop's handler.
+bool open_link(const std::wstring& link) {
+    using ShellExecuteExFn = BOOL(WINAPI*)(SHELLEXECUTEINFOW*);
+    HMODULE shell = LoadLibraryW(L"shell32.dll");
+    auto run = shell ? reinterpret_cast<ShellExecuteExFn>(reinterpret_cast<void*>(GetProcAddress(shell, "ShellExecuteExW"))) : nullptr;
+    SHELLEXECUTEINFOW sei{sizeof(sei)};
+    sei.fMask = SEE_MASK_FLAG_NO_UI;
+    sei.lpVerb = L"open";
+    sei.lpFile = link.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+    if (run && run(&sei)) return true;
+    std::wstring cmd = L"winebrowser.exe \"" + link + L"\"";
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
 }
 
 std::wstring folder(std::wstring p) {
@@ -1004,12 +1033,16 @@ private:
                     appPath = p;
                 continue;
             }
-            Entry e{f[0], wide(f[1]), f.size() > 2 ? wide(f[2]) : L""};
+            // Later fields are optional, so lists written by older versions still read.
+            Entry e{f[0], wide(f[1]), f.size() > 2 ? wide(f[2]) : L"", f.size() > 3 ? wide(f[3]) : L""};
             // The running game's folder is the listed one, or inside it (Unreal runs from <Project>\Binaries\Win64).
             std::wstring listed = folder(e.dir);
             if (here == listed || here.rfind(listed + L"\\", 0) == 0) current = e, haveCurrent = true;
             else others.push_back(e);
         }
+        // Under Wine, only games with a link can be started.
+        if (appPath.empty() && under_wine())
+            others.erase(std::remove_if(others.begin(), others.end(), [](const Entry& e) { return e.link.empty(); }), others.end());
     }
 
     const canvas::Image* cover(const std::wstring& path) {
@@ -1064,12 +1097,14 @@ private:
         ui.gap(12);
         float w = (W - 2 * Pad - (LibraryCards - 1) * CardGap) / LibraryCards;
         Rect shelf = ui.take(0, w * 1.5f + 52);
-        if (appPath.empty() || others.empty()) {
+        bool noApp = appPath.empty() && !under_wine();
+        if (noApp || others.empty()) {
             round(shelf, Surface, CellRadius);
-            bool noApp = appPath.empty();
             text({shelf.x, shelf.cy() - 40, shelf.w, 40}, noApp ? "Switching games needs PortXR.exe" : "No other games with VR yet", centredLabel());
             text({shelf.x, shelf.cy() + 4, shelf.w, 36},
-                 noApp ? "Open it once on this PC, then your VR games show up here." : "Add VR to another game in PortXR.exe and it shows up here.",
+                 noApp ? "Open it once on this PC, then your VR games show up here."
+                       : appPath.empty() ? "Add VR to another game in PortXR and it shows up here."
+                                         : "Add VR to another game in PortXR.exe and it shows up here.",
                  centredMuted());
             return;
         }
@@ -1103,7 +1138,7 @@ private:
         Rect quit{card.x + card.w - 16 - 240, card.cy() - Row / 2, 240, Row};
         bool pressedQuit = asking ? cell_(quit, "QUIT NOW", cellOn(), Danger, true) : cell_(quit, "QUIT GAME", cell(), HoverFill, false);
         if (!pressedQuit) return;
-        if (asking) leave(L"");
+        if (asking) leave(nullptr);
         else confirming = QuitConfirm;
     }
 
@@ -1133,15 +1168,22 @@ private:
         if (!clicked(r)) return;
         prx_haptic_pulse(1, 0.35f, 0.02f);
         dirty = true;
-        if (asking) leave(e.dir);
+        if (asking) leave(&e);
         else confirming = i;
     }
 
-    // Quits the game; with `next`, PortXR.exe starts that game folder once this process has ended.
-    void leave(const std::wstring& next) {
+    // Quits the game; with `next`, PortXR.exe starts that game folder once this process has ended. Under Wine the
+    // game's launcher starts it by its link instead, as this one quits.
+    void leave(const Entry* next) {
         confirming = NoConfirm;
-        if (!next.empty()) {
-            std::wstring dir = next;
+        if (next && appPath.empty()) {
+            if (!open_link(next->link)) {
+                prx_log("menu: could not open the link to switch games (%lu)", GetLastError());
+                return;
+            }
+            prx_log("menu: switching to another game through its launcher");
+        } else if (next) {
+            std::wstring dir = next->dir;
             while (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
             std::wstring cmd = L"\"" + appPath + L"\" play \"" + dir + L"\" " + std::to_wstring(GetCurrentProcessId());
             STARTUPINFOW si{sizeof(si)};
