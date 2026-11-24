@@ -14,7 +14,7 @@
   outputs =
     { self, nixpkgs }:
     let
-      version = "0.6.1";
+      version = "0.7.0";
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       meta = {
@@ -33,7 +33,7 @@
         inherit version meta;
         src = pkgs.fetchurl {
           url = "https://github.com/EncidXVII/PortXR/releases/download/v${version}/PortXR-${version}-linux.tar.gz";
-          hash = "sha256-Y01BfCRrB032nk7ajhfD5RdpWijpc7B5NXkMJTVs5yc=";
+          hash = "sha256-ZAzIH5dFwv0H/o5iHyO9pcosVEpmPabR4kzOAvLjkao=";
         };
         # The tarball has no top folder.
         sourceRoot = "source";
