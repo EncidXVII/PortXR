@@ -45,9 +45,9 @@ back to one commit.
    - Description: `Free, open-source VR mod for Unity games: play flat PC games in 6DOF VR with motion controls, head
      and hand aim. Meta Quest, Index, Vive, Pico, any OpenXR headset.`
    - Website: leave empty, or the latest release page.
-   - Topics (20 at most): `vr`, `virtual-reality`, `vr-mod`, `flat2vr`, `openxr`, `steamvr`, `unity`, `unity3d`,
-     `bepinex`, `il2cpp`, `mod`, `modding`, `game-mod`, `meta-quest`, `oculus-quest`, `valve-index`, `6dof`,
-     `motion-controls`, `rust`, `egui`.
+   - Topics (20 at most, most searched first; no competitor names): `vr`, `virtual-reality`, `pcvr`, `steamvr`,
+     `openxr`, `flat2vr`, `vr-mod`, `unity-mod`, `game-mod`, `modding`, `unity`, `unreal-engine`, `godot`, `bepinex`,
+     `il2cpp`, `6dof`, `motion-controls`, `meta-quest`, `valve-index`, `linux-gaming`.
    - Tick "Releases" and untick "Packages" and "Deployments" so the sidebar shows only what matters.
 3. **Settings → General → Social preview**: upload `docs/images/social-preview.png` (the card shown when the repository
    link is shared). Features: Issues on, Discussions on (categories: Q&A, Game reports, Show and tell), Wiki off.
