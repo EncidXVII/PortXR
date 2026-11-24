@@ -119,12 +119,12 @@ impl Game {
             Compat::Blocked
         } else if self.native_vr {
             Compat::NativeVr
+        } else if self.linux_build {
+            Compat::LinuxBuild
         } else if self.godot_vr() || self.unreal_vr() {
             Compat::Supported
         } else if !self.unity() {
             Compat::Theater
-        } else if self.linux_build {
-            Compat::LinuxBuild
         } else if self.x86 {
             Compat::X86
         } else if self.stripped {
@@ -369,7 +369,11 @@ pub fn detect_other(root: &Path) -> Option<Game> {
     collect_exes(root, 3, &mut exes);
     // The Win64 one is the game; another -Shipping exe can be its launcher (WARDOGS).
     let ends = |p: &PathBuf, s: &str| p.to_string_lossy().ends_with(s);
-    let shipping = exes.iter().find(|p| ends(p, "-Win64-Shipping.exe")).or_else(|| exes.iter().find(|p| ends(p, "-Shipping.exe"))).cloned();
+    let shipping = exes
+        .iter()
+        .find(|p| ends(p, "-Win64-Shipping.exe"))
+        .or_else(|| exes.iter().find(|p| ends(p, "-Shipping.exe") || ends(p, "-Linux-Shipping")))
+        .cloned();
     let godot = exes.iter().find(|p| p.with_extension("pck").exists() || ends_with_pck(p)).cloned();
     // Shallowest first, then largest: the game rather than a tool in a subfolder.
     let depth = |p: &PathBuf| p.strip_prefix(root).map(|r| r.components().count()).unwrap_or(9);
@@ -391,7 +395,8 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         }
     }
     let version = if engine == "Godot" { godot_version(&exe).unwrap_or_default() } else { String::new() };
-    let no_d3d12 = version.starts_with("4.") && !fs::read(&exe).is_ok_and(|b| b.windows(17).any(|w| w == b"D3D12CreateDevice"));
+    let linux_build = is_linux_binary(&exe);
+    let no_d3d12 = !linux_build && version.starts_with("4.") && !fs::read(&exe).is_ok_and(|b| b.windows(17).any(|w| w == b"D3D12CreateDevice"));
     let game = Game {
         name: root.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         engine: engine.into(),
@@ -400,7 +405,7 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         il2cpp: false,
         x86: false,
         stripped: false,
-        linux_build: false,
+        linux_build,
         native_vr: false,
         no_d3d12,
         unreal_exe: shipping.filter(|p| engine == "Unreal" && ends(p, "-Win64-Shipping.exe")),
@@ -414,11 +419,19 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         dir: root.to_path_buf(),
         exe,
     };
-    // Linux: the VR screen captures windows through Windows, so only the games PortXR goes inside.
-    (cfg!(windows) || game.godot_core() || game.unreal_vr()).then_some(game)
+    // Linux: the VR screen captures windows through Windows, so only the games PortXR goes inside. A Linux build of
+    // one is listed too, so the page can say to force Proton for it.
+    (cfg!(windows) || game.godot_core() || game.unreal_vr() || (linux_build && game.engine == "Unreal")).then_some(game)
 }
 
-// Windows exes up to `depth` folders down, minus installers, crash reporters, anti-cheat and developer tools.
+/// A Linux build's game binary: Godot's `.x86_64` export, Unreal's `<Project>-Linux-Shipping`.
+fn is_linux_binary(p: &Path) -> bool {
+    let name = p.file_name().unwrap_or_default().to_string_lossy();
+    name.ends_with(".x86_64") || name.ends_with("-Linux-Shipping")
+}
+
+// Windows exes up to `depth` folders down, minus installers, crash reporters, anti-cheat and developer tools. On Linux
+// also a Linux build's binary, which Steam installs where a game has one.
 fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
     const NOT_GAME: [&str; 16] = ["unins", "setup", "redist", "vc_", "dxsetup", "crash", "dotnet", "directx", "ue4prereq",
                                    "ueprereq", "cef", "launcherpatcher", "anticheat", "notification", "diag", "vconsole"];
@@ -431,14 +444,14 @@ fn collect_exes(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
             if !["_commonredist", "redist", "directx", "support", "engine"].contains(&name.as_str()) {
                 dirs.push(p);
             }
-        } else if name.ends_with(".exe") && !NOT_GAME.iter().any(|n| name.contains(n)) {
+        } else if (name.ends_with(".exe") || (cfg!(unix) && is_linux_binary(&p))) && !NOT_GAME.iter().any(|n| name.contains(n)) {
             out.push(p);
         }
     }
     for d in dirs {
         if depth > 0 {
             collect_exes(&d, depth - 1, out);
-        } else if dir.ends_with("Binaries") && d.ends_with("Win64") {
+        } else if dir.ends_with("Binaries") && (d.ends_with("Win64") || (cfg!(unix) && d.ends_with("Linux"))) {
             // Unreal's game exe, one folder past the rest (Marvel Rivals: MarvelGame\Marvel\Binaries\Win64).
             collect_exes(&d, 0, out);
         }
@@ -642,13 +655,34 @@ fn active_runtime_json() -> Option<PathBuf> {
     key.get_value::<String, _>("ActiveRuntime").ok().map(PathBuf::from).filter(|p| p.is_file())
 }
 
+// Where the OpenXR loader looks, in its order: the user's config folder, then each of XDG_CONFIG_DIRS (/etc/xdg when
+// unset), then /etc; in each, the file for this CPU before the plain one.
 #[cfg(not(windows))]
 fn active_runtime_json() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("XR_RUNTIME_JSON") {
         return Some(PathBuf::from(p));
     }
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
-    config.into_iter().chain([PathBuf::from("/etc/xdg")]).map(|d| d.join("openxr/1/active_runtime.json")).find(|p| p.is_file())
+    let set = |v: &str| std::env::var(v).ok().filter(|s| !s.is_empty());
+    let home = set("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+    let system = set("XDG_CONFIG_DIRS").unwrap_or_else(|| "/etc/xdg".into());
+    let arch = format!("openxr/1/active_runtime.{}.json", std::env::consts::ARCH);
+    home.into_iter()
+        .chain(system.split(':').filter(|d| !d.is_empty()).map(PathBuf::from))
+        .chain([PathBuf::from("/etc")])
+        .flat_map(|d| [d.join(&arch), d.join("openxr/1/active_runtime.json")])
+        .find(|p| p.is_file())
+}
+
+/// Linux: Monado or WiVRn is the runtime, but no OpenVR bridge (xrizer, OpenComposite) is set as the OpenVR runtime.
+/// Proton offers OpenXR to a game only through an OpenVR runtime, so the game would start flat.
+pub fn needs_openvr_bridge(runtime: &str) -> bool {
+    if cfg!(windows) || !matches!(runtime, "Monado" | "WiVRn") {
+        return false;
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+    let paths = config.and_then(|d| fs::read_to_string(d.join("openvr/openvrpaths.vrpath")).ok()).and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    let first = paths.as_ref().and_then(|v| v["runtime"].get(0)).and_then(|r| r.as_str()).unwrap_or_default().to_lowercase();
+    first.is_empty() || first.contains("steamvr")
 }
 
 // Known runtimes by their install path (their manifests name themselves inconsistently), else the manifest's name.
@@ -672,11 +706,11 @@ fn steam_root() -> Option<PathBuf> {
     key.get_value::<String, _>("SteamPath").ok().map(PathBuf::from)
 }
 
-// The native package, the old ~/.steam link, and the Flatpak.
+// The native package, the old ~/.steam link, the Flatpak and the Snap.
 #[cfg(not(windows))]
 fn steam_root() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    [".local/share/Steam", ".steam/steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam"]
+    [".local/share/Steam", ".steam/steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam", "snap/steam/common/.local/share/Steam"]
         .iter()
         .map(|rel| home.join(rel))
         .find(|p| p.join("steamapps").is_dir())
@@ -729,6 +763,7 @@ pub fn last_vr(g: &Game) -> Option<std::time::SystemTime> {
 /// The games with VR added, for the VR menu's Library tab: the app's path on the first line ("app<TAB><exe>"), then
 /// one "name<TAB>folder" line per game, most recently played first. Written on every scan and change; a running game reads it when the tab opens.
 pub fn write_vr_list(games: &[Game]) {
+    share_with_prefixes(games);
     let mut text = format!("app\t{}\n", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default());
     let mut vr: Vec<&Game> = games.iter().filter(|g| g.installed() && g.usable()).collect();
     vr.sort_by(|a, b| b.last_played.cmp(&a.last_played).then_with(|| a.name.cmp(&b.name)));
@@ -743,6 +778,34 @@ pub fn write_vr_list(games: &[Game]) {
     }
     let _ = fs::create_dir_all(path.parent().unwrap());
     let _ = fs::write(path, text);
+}
+
+/// Linux: the in-game core reads the all-games defaults and the theme from %APPDATA%\PortXR inside the game's Proton
+/// prefix, and the VR menu changes them there. So each copy is kept in step with the app's, the newer one winning,
+/// for every game with VR whose prefix exists.
+pub fn share_with_prefixes(games: &[Game]) {
+    if cfg!(windows) {
+        return;
+    }
+    let app = dirs::config_dir().unwrap_or_default().join("PortXR");
+    let changed = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    for g in games.iter().filter(|g| g.installed()) {
+        let Some(prefix) = game_user_dir(g, true).filter(|d| d.is_dir()).map(|d| d.join("PortXR")) else { continue };
+        for name in ["defaults.cfg", "theme.txt"] {
+            let (ours, theirs) = (app.join(name), prefix.join(name));
+            let (from, to) = match (changed(&ours), changed(&theirs)) {
+                (Some(a), Some(b)) if b > a => (&theirs, &ours),
+                (Some(_), _) => (&ours, &theirs),
+                (None, Some(_)) => (&theirs, &ours),
+                (None, None) => continue,
+            };
+            let Ok(text) = fs::read(from) else { continue };
+            if fs::read(to).is_ok_and(|old| old == text) {
+                continue;
+            }
+            let _ = fs::create_dir_all(to.parent().unwrap()).and_then(|_| fs::write(to, text));
+        }
+    }
 }
 
 pub fn mark_played(dir: &Path) {
@@ -1187,7 +1250,7 @@ type Found = (PathBuf, u32, Option<String>, &'static str, u64);
 /// Every Steam install on this PC: its folder and its appmanifest text.
 fn steam_manifests(steam: &Path) -> Vec<(PathBuf, String)> {
     let vdf = fs::read_to_string(steam.join("config").join("libraryfolders.vdf")).unwrap_or_default();
-    let mut roots: Vec<PathBuf> = vdf_values(&vdf, "path").map(PathBuf::from).collect();
+    let mut roots: Vec<PathBuf> = vdf_values(&vdf, "path").map(|p| library_path(steam, PathBuf::from(p))).collect();
     if roots.is_empty() {
         roots.push(steam.to_path_buf());
     }
@@ -1203,6 +1266,20 @@ fn steam_manifests(steam: &Path) -> Vec<(PathBuf, String)> {
         }
     }
     found
+}
+
+/// Flatpak Steam's home folder, under the real one: inside its sandbox it is the home folder.
+const FLATPAK_STEAM_HOME: &str = ".var/app/com.valvesoftware.Steam";
+
+/// A Steam library as Steam wrote it down. Flatpak Steam writes paths as its sandbox sees them, where its own folder
+/// under ~/.var is the home folder, so a library path in the home folder is looked for there first.
+fn library_path(steam: &Path, p: PathBuf) -> PathBuf {
+    let Some(home) = dirs::home_dir().filter(|_| cfg!(unix)) else { return p };
+    let sandbox = home.join(FLATPAK_STEAM_HOME);
+    match p.strip_prefix(&home) {
+        Ok(rel) if steam.starts_with(&sandbox) && !rel.starts_with(".var") && sandbox.join(rel).exists() => sandbox.join(rel),
+        _ => p,
+    }
 }
 
 /// Every Steam install on this PC: folder, app ID, name, store, last played.

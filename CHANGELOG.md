@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Linux:
+- The in-game VR menu now gets the all-games defaults and the theme: the app keeps them in step with each game's
+  Proton prefix, where the menu reads and changes them.
+- With WiVRn or Monado, a game's page says when xrizer or OpenComposite is missing as the OpenVR runtime (Proton
+  gives games OpenXR only through one), instead of "Starts in VR".
+- The OpenXR runtime is found where the OpenXR loader looks for it: the file for this CPU
+  (`active_runtime.x86_64.json`), XDG_CONFIG_DIRS and /etc. With none, the page names SteamVR, WiVRn and Monado
+  instead of Windows-only apps.
+- Linux builds of Unreal and Godot games are listed as **Linux build**, with the step to force Proton, instead of
+  being left out.
+- Flatpak Steam's libraries are found where the sandbox keeps them, and Snap Steam is found.
+
 ## 0.6.1 - 2026-11-24
 
 - About has its own tab in the top bar, beside Library and Settings, instead of being the last section of

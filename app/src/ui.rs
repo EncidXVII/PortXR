@@ -680,7 +680,9 @@ impl App {
                     let last = games::last_vr(&g).map(|t| format!(" Last played in VR {}.", ago(t))).unwrap_or_default();
                     match games::openxr_runtime() {
                         Some(name) if g.compat() == Compat::Theater => status_line(ui, &format!("Plays on the VR screen through {name}. Controllers work as keyboard and mouse.{last}"), Tone::Info),
+                        Some(name) if games::needs_openvr_bridge(&name) => status_line(ui, &format!("{name} needs xrizer or OpenComposite set as the OpenVR runtime: Proton gives games OpenXR only through one. {name}'s guide shows how."), Tone::Bad),
                         Some(name) => status_line(ui, &format!("Starts in VR through {name}. Put your headset on first.{last}"), Tone::Info),
+                        None if cfg!(unix) => status_line(ui, "No VR runtime found. Start SteamVR, or set up WiVRn or Monado.", Tone::Bad),
                         None => status_line(ui, "No VR runtime found. Start SteamVR, Virtual Desktop or Meta Quest Link.", Tone::Bad),
                     }
                 }
@@ -1891,6 +1893,7 @@ fn play(g: &Game, defaults: &str) -> Result<String, Box<dyn Error>> {
     if (g.godot_vr() && !g.godot_core()) || g.unreal_vr() {
         return play_godot(g);
     }
+    games::share_with_prefixes(std::slice::from_ref(g));
     g.launch()?;
     games::mark_played(&g.dir);
     // Steam may hold freshly pasted launch options in memory until it exits, so this only reminds.
