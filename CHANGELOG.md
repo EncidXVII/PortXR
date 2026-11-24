@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- About has its own tab in the top bar, beside Library and Settings, instead of being the last section of
+  Settings.
+
 ## 0.6.0 - 2026-11-23
 
 ### The game catalogue in the app

@@ -160,6 +160,7 @@ enum Page {
     Library,
     Game(usize),
     Settings,
+    About,
 }
 
 struct App {
@@ -878,7 +879,28 @@ impl App {
         {
             self.report(Err(e.into()));
         }
-        about(ui);
+    }
+
+    // What PortXR is, where to get help, who made it, the licence. Links open in the browser.
+    fn about_page(&mut self, ui: &mut Ui) {
+        ui.set_max_width(ui.available_width().min(PAGE_W));
+        ui.label(RichText::new("ABOUT.").font(display(TITLE)).color(INK));
+        ui.label(RichText::new(format!("PortXR {} plays flat Unity, Unreal Engine and Godot games in VR.", env!("CARGO_PKG_VERSION"))).color(INK2));
+        section_break(ui);
+        eyebrow(ui, "01", "Help");
+        ui.add_space(16.0);
+        ui.label(RichText::new("Export logs from the game's page and attach the zip to your report.").color(INK2));
+        links(ui, &[("Report a problem", format!("https://github.com/{REPO}/issues/new/choose")), ("Guide", "https://everyvr.net/portxr".into())]);
+        section_break(ui);
+        eyebrow(ui, "02", "Made by");
+        ui.add_space(16.0);
+        ui.label(RichText::new("EncidXVII").color(INK2));
+        links(ui, &[("GitHub", "https://github.com/EncidXVII".into()), ("X", "https://x.com/EncidXVII".into()), ("Threads", "https://www.threads.com/@encidxvii".into())]);
+        section_break(ui);
+        eyebrow(ui, "03", "Licence");
+        ui.add_space(16.0);
+        ui.label(RichText::new("Free and open source under GPL-3.0.").color(INK2));
+        links(ui, &[("Licence", format!("https://github.com/{REPO}/blob/main/LICENSE"))]);
     }
 
     fn advanced_section(&mut self, ui: &mut Ui, game: bool) {
@@ -1221,13 +1243,17 @@ impl eframe::App for App {
                 ui.label(RichText::new("PORTXR").font(display(BRAND)).color(INK));
                 ui.add_space(32.0);
                 ui.spacing_mut().item_spacing.x = 24.0;
-                if nav(ui, "Library", self.page != Page::Settings).clicked() && self.page != Page::Library {
+                if nav(ui, "Library", matches!(self.page, Page::Library | Page::Game(_))).clicked() && self.page != Page::Library {
                     self.back_to = None;
                     self.back();
                 }
                 if nav(ui, "Settings", self.page == Page::Settings).on_hover_text("Settings for all games").clicked() && self.page != Page::Settings {
                     self.back_to = if let Page::Game(i) = self.page { Some(i) } else { None };
                     self.page = Page::Settings;
+                }
+                if nav(ui, "About", self.page == Page::About).clicked() && self.page != Page::About {
+                    self.back_to = None;
+                    self.page = Page::About;
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 24.0;
@@ -1242,10 +1268,10 @@ impl eframe::App for App {
             });
         });
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ui, |ui| {
-            // Each page keeps its own scroll position; a game page or Settings opens at the top.
+            // Each page keeps its own scroll position; a game page, Settings or About opens at the top.
             let entered = self.shown_page != Some(self.page);
             self.shown_page = Some(self.page);
-            let salt = match self.page { Page::Library => 0, Page::Game(_) => 1, Page::Settings => 2 };
+            let salt = match self.page { Page::Library => 0, Page::Game(_) => 1, Page::Settings => 2, Page::About => 3 };
             let mut area = egui::ScrollArea::vertical().id_salt(salt).auto_shrink(false);
             if entered && self.page != Page::Library {
                 area = area.vertical_scroll_offset(0.0);
@@ -1255,6 +1281,7 @@ impl eframe::App for App {
                     Page::Library => self.library(ui),
                     Page::Game(i) => self.game_page(ui, i),
                     Page::Settings => self.settings_page(ui),
+                    Page::About => self.about_page(ui),
                 })
             })
         });
@@ -1368,32 +1395,16 @@ fn section_break(ui: &mut Ui) {
     ui.add_space(24.0);
 }
 
-// Settings' last section: what this is, where to report a problem, who made it. Links open in the browser.
-fn about(ui: &mut Ui) {
-    let links = |ui: &mut Ui, links: &[(&str, String)]| {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 24.0;
-            for (text, url) in links {
-                if tertiary(ui, &format!("{text} ↗")).clicked() {
-                    let _ = games::open(url);
-                }
+// A row of quiet links, each opening in the browser.
+fn links(ui: &mut Ui, links: &[(&str, String)]) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 24.0;
+        for (text, url) in links {
+            if tertiary(ui, &format!("{text} ↗")).clicked() {
+                let _ = games::open(url);
             }
-        });
-    };
-    section_break(ui);
-    eyebrow(ui, "05", "About");
-    ui.add_space(16.0);
-    ui.label(RichText::new(format!("PORTXR {}", env!("CARGO_PKG_VERSION"))).font(mono(LABEL)).color(INK).extra_letter_spacing(TRACK));
-    ui.label(RichText::new("Plays flat Unity, Unreal Engine and Godot games in VR.").color(INK2));
-    ui.add_space(12.0);
-    links(ui, &[("Report a problem", format!("https://github.com/{REPO}/issues/new/choose")), ("Guide", "https://everyvr.net/portxr".into())]);
-    ui.label(RichText::new("Export logs from the game's page and attach the zip to your report.").color(INK3));
-    ui.add_space(16.0);
-    ui.label(RichText::new("Made by EncidXVII").color(INK2));
-    links(ui, &[("GitHub", "https://github.com/EncidXVII".into()), ("X", "https://x.com/EncidXVII".into()), ("Threads", "https://www.threads.com/@encidxvii".into())]);
-    ui.add_space(16.0);
-    ui.label(RichText::new("Free and open source under GPL-3.0.").color(INK2));
-    links(ui, &[("Licence", format!("https://github.com/{REPO}/blob/main/LICENSE"))]);
+        }
+    });
 }
 
 // One line of feedback under the thing it is about: ink2 info, lime success, danger error.
