@@ -89,7 +89,7 @@ fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
         return Err("This game was built with Unity's code trimming, which removes engine code the mod loader needs. It isn't supported yet.".into());
     }
     if game.x86 {
-        return Err("32-bit game: no OpenXR runtime supports 32-bit apps.".into());
+        return Err("32-bit game: PortXR is built for 64-bit games only.".into());
     }
     if game.other_loader == Some("MelonLoader") {
         return Err("MelonLoader is installed; remove it first, the two loaders conflict.".into());

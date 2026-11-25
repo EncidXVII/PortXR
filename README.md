@@ -150,7 +150,7 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
   shows the game's window in VR (Windows' window capture) and turns the controllers into keyboard and mouse, with a
   laser pointer that clicks wherever the game shows its cursor. Nothing is added to the game or its folder; double-tap
   the left menu button to bring the screen in front. Anti-cheat and online-only games are refused here too.
-- Not supported: Vulkan and OpenGL games, 32-bit games (no OpenXR runtime supports them). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them. Multiplayer-only games without anti-cheat, games with their own VR mode and trimmed games have **Add VR anyway**, after a caution.
+- Not supported: Vulkan and OpenGL games, 32-bit games (PortXR's parts are built for 64-bit games only). Anti-cheat games (EasyAntiCheat, BattlEye) are refused on purpose. Mono games built with Unity's code trimming (rare; off by default) are marked as not supported: the mod loader cannot start in them. Multiplayer-only games without anti-cheat, games with their own VR mode and trimmed games have **Add VR anyway**, after a caution.
 - See [COMPAT.md](COMPAT.md).
 
 ## Status and help wanted
@@ -163,7 +163,7 @@ PortXR is in early access (0.7). Where each part stands, and what moves it forwa
 | **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script | Write one for a game you own ([SCRIPTING.md](SCRIPTING.md)) and send it to the [catalogue](https://github.com/EncidXVII/PortXR-catalogue/blob/main/CONTRIBUTING.md) |
 | **Unreal Engine games** | Full VR on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; experimental, requires more testing | Reports from your headset with any UE 4.22 to 5.6 game |
 | **Linux (Proton)** | Experimental, requires more testing | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
-| **Not built yet** | Vulkan and OpenGL games. 32-bit games cannot work: no OpenXR runtime supports them | A report naming the Vulkan or OpenGL games you miss most |
+| **Not built yet** | Vulkan and OpenGL games. 32-bit games are refused: PortXR's parts are built for 64-bit games only | A report naming the Vulkan or OpenGL games you miss most |
 | **Code signing** | Builds are not signed yet: Windows warns on first run, and some antivirus tools flag the mod loader's `winhttp.dll` in game folders | Nothing: every release has a SHA-256 checksum |
 
 How to send any of these: [CONTRIBUTING.md](CONTRIBUTING.md) and the tester's guide, [TESTING.md](TESTING.md).

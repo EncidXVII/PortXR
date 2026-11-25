@@ -1237,7 +1237,7 @@ fn warning(g: &Game) -> (String, Tone) {
             "{} runs this game with {}, which gives games no OpenXR. Pick a Proton-based runner for it there, such as GE-Proton.",
             g.launcher_name(), g.launcher.as_ref().and_then(|l| l.plain_wine.as_deref()).unwrap_or("Wine")), Tone::Info),
         (Compat::Supported, _) if games::needs_launch_options(g) => (format!("To reach the headset, {}", launch_options_note(g)), Tone::Info),
-        (Compat::X86, _) => ("32-bit game: no VR runtime supports 32-bit apps.".into(), Tone::Info),
+        (Compat::X86, _) => ("32-bit game: PortXR is built for 64-bit games only.".into(), Tone::Info),
         (Compat::Stripped, _) => ("Built with Unity code trimming, which usually stops the mod loader. Add VR anyway to try.".into(), Tone::Info),
         (_, Some(l)) if !g.installed() => (format!("{l} is already installed. PortXR adds itself alongside; other mods may interfere."), Tone::Info),
         _ => (String::new(), Tone::Info),
