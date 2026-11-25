@@ -32,12 +32,12 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 |---|---|
 | **What it is** | A VR mod for flat PC games: it goes inside a Unity, Unreal Engine or Godot game and renders it in stereo for your headset, with motion controls |
 | **Use it for** | Playing non-VR games you already own in VR: full VR at real scale, the game in 3D on a big screen, or flat on a VR cinema screen |
-| **Engines** | Unity (Mono and IL2CPP), Unreal Engine 4.22 and newer, Godot 4; Direct3D 11 and 12 |
+| **Engines** | Unity (Mono and IL2CPP), Unreal Engine 4.22 to 5.6, Godot 4; Direct3D 11 and 12 |
 | **Platforms** | Windows 10 and 11, 64-bit; Linux through Steam's Proton (experimental) |
 | **Headsets** | Any PC VR headset with an OpenXR runtime: Meta Quest 2 / 3 / Pro (Link, Air Link, Virtual Desktop), Valve Index, HTC Vive, Pico, Windows Mixed Reality |
 | **Safe to try** | One click to add VR, one click to remove it: the game folder goes back byte for byte. Single-player only; anti-cheat games are refused |
 | **Price** | Free. No account, no telemetry |
-| **Status** | Early access (0.6): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
+| **Status** | Early access (0.7): Unity, Unreal Engine and Godot covered; Linux and Unreal Engine are experimental |
 | **License** | Open source, `GPL-3.0-only`, © 2026 EncidXVII |
 
 ## Highlights
@@ -61,7 +61,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 - Windows 10 or 11, 64-bit, or Linux with Steam's Proton (see [Linux](#linux)).
 - A PC VR headset and an OpenXR runtime: SteamVR, Virtual Desktop, Meta Quest Link, WiVRn or Monado.
-- A 64-bit Unity, Unreal Engine (4.22+) or Godot 4 game that renders with Direct3D 11 or 12 (most of them on Windows). See [What works today](#what-works-today).
+- A 64-bit Unity, Unreal Engine (4.22 to 5.6) or Godot 4 game that renders with Direct3D 11 or 12 (most of them on Windows). See [What works today](#what-works-today).
 
 ## Use it in 3 steps
 
@@ -155,7 +155,7 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
 
 ## Status and help wanted
 
-PortXR is in early access (0.6). Where each part stands, and what moves it forward:
+PortXR is in early access (0.7). Where each part stands, and what moves it forward:
 
 | Area | Where it stands | What helps |
 |---|---|---|
@@ -186,14 +186,14 @@ Reality, Bigscreen Beyond), Virtual Desktop, Meta Quest Link, WiVRn and Monado o
 for single-player games only.
 
 **Does it change my game files?** It adds its files to the game folder (BepInEx and the plugin in Unity games, a
-`PortXR` folder in Godot and Unreal games) and records every file.
+`PortXR` folder in Godot games, a `dwmapi.dll` beside the Shipping exe in Unreal games) and records every file.
 **Remove VR** restores the folder exactly; nothing else on your PC changes.
 
 **My game starts flat. What now?** Start your VR runtime first (SteamVR, Virtual Desktop or Quest Link) and put the
 headset on. The game page names the runtime PortXR will use and says what to check if VR does not start. Still
 flat? **Export logs** and open an issue.
 
-**Does it work with Unreal, Godot or other engines?** Unity, Godot 4 and Unreal 4.22+ games get full VR; older Unreal and
+**Does it work with Unreal, Godot or other engines?** Unity, Godot 4 and Unreal 4.22 to 5.6 games get full VR; older Unreal and
 Godot 3 games play flat on the VR screen. Games in other engines aren't listed.
 
 **How is it different from a game's own VR mode?** PortXR adds VR to games that have none. Games with their own VR
