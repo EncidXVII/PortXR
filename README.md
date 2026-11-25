@@ -50,7 +50,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
   your hand, and its crosshair sits on what you aim at.
 - **Three ways to play.** Full VR (stand in the game), 3D screen (the game in 3D inside a big screen, like a 3D
   monitor) and VR screen (the flat game on a big screen, curved on Virtual Desktop and Meta).
-- **Three engines, one VR.** Unity 2018.4 to Unity 6 (Mono and IL2CPP, built-in, URP and HDRP), Unreal Engine 4.22 to
+- **Three engines, one VR.** Unity 2018.2 to Unity 6 (Mono and IL2CPP, built-in, URP and HDRP), Unreal Engine 4.22 to
   5.6 and Godot 4, on Direct3D 11 and 12, all with the same controls, menu and settings.
 - **A game catalogue.** The [PortXR catalogue](https://github.com/EncidXVII/PortXR-catalogue) rates how each game plays in each display mode, from
   players' reports, and holds the script or settings that fix a game. A game's page in the app shows its rating, and
@@ -113,7 +113,7 @@ Something wrong? Select the game in PortXR.exe and press **Export logs**. It sav
 
 ## What works today
 
-- Direct3D 11 games from Unity 2018.4 to Unity 6: Mono (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
+- Direct3D 11 games from Unity 2018.2 to Unity 6: Mono (both .NET 3.5 and 4.x runtimes) and IL2CPP games (BepInEx 6), URP with its post-processing.
 - Direct3D 12 games as well, with the same features.
 - The game's URP, HDRP or Post Processing v2 camera settings are copied to the eyes, so bloom, tonemapping and the rest show up in VR. Temporal AA is swapped for SMAA (it smears in stereo).
 - The game window keeps showing the left eye.
@@ -159,7 +159,7 @@ PortXR is in early access (0.7). Where each part stands, and what moves it forwa
 
 | Area | Where it stands | What helps |
 |---|---|---|
-| **Game library** | Engine support is wide (Unity 2018.4 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. [COMPAT.md](COMPAT.md) lists the checked games | A [game report](https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml) in the catalogue: play a game for 10 to 15 minutes and say how it went, also when it just worked. Every report counts toward that game's rating. **How did it run?** on a game's page in the app opens the form with the game filled in |
+| **Game library** | Engine support is wide (Unity 2018.2 to Unity 6, Unreal Engine 4.22 to 5.6, Godot 4), but each game brings its own cameras, UI and effects. [COMPAT.md](COMPAT.md) lists the checked games | A [game report](https://github.com/EncidXVII/PortXR-catalogue/issues/new?template=game-report.yml) in the catalogue: play a game for 10 to 15 minutes and say how it went, also when it just worked. Every report counts toward that game's rating. **How did it run?** on a game's page in the app opens the form with the game filled in |
 | **Per-game scripts** | A game that needs a fix (the wrong camera, a helmet in the view, an effect that breaks stereo) gets it from a short Lua script | Write one for a game you own ([SCRIPTING.md](SCRIPTING.md)) and send it to the [catalogue](https://github.com/EncidXVII/PortXR-catalogue/blob/main/CONTRIBUTING.md) |
 | **Unreal Engine games** | Full VR on UE 4.26, 4.27, 5.0, 5.4 and 5.5 games; experimental, requires more testing | Reports from your headset with any UE 4.22 to 5.6 game |
 | **Linux (Proton)** | Experimental, requires more testing | Reports with your distro, headset runtime (WiVRn, Monado or SteamVR) and the game |
