@@ -3,7 +3,7 @@
   <img src="app/assets/brand/portxr-mark-ink.svg" width="72" alt="PortXR logo">
 </picture>
 
-# PortXR: play flat PC games in VR (Unity, Unreal Engine and Godot)
+# PortXR: VR mod for flat PC games (Unity, Unreal Engine and Godot)
 
 [![Latest release](https://img.shields.io/github/v/release/EncidXVII/PortXR?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/PortXR/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/EncidXVII/PortXR/total?color=c6ff1a&labelColor=0a0a0a)](https://github.com/EncidXVII/PortXR/releases)
@@ -18,7 +18,7 @@ Reality and others through SteamVR, on Windows and on Linux through Proton.
 
 **[Download the latest release](https://github.com/EncidXVII/PortXR/releases/latest)** · [Guides and help on everyvr.net](https://everyvr.net/portxr) · [Discord](https://discord.gg/WkzGQwu2kz) · [Game catalogue](https://github.com/EncidXVII/PortXR-catalogue) · [Compatibility](COMPAT.md) · [FAQ](#faq) · [Game scripts](SCRIPTING.md) · [Contributing](CONTRIBUTING.md)
 
-> **Status: early access (0.6).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
+> **Status: early access (0.7).** Unity, Unreal Engine and Godot games are covered. Every game has its own cameras,
 > UI and effects, so game reports and per-game scripts are what grow the library. Linux and Unreal Engine support
 > are experimental: see [Status and help wanted](#status-and-help-wanted).
 
