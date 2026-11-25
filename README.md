@@ -268,6 +268,24 @@ PortXR is an independent project, not affiliated with or endorsed by Unity Techn
 
 Bug reports, game reports and per-game scripts are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md). Changes per version: [CHANGELOG.md](CHANGELOG.md).
 
+## How it compares
+
+Other ways to play flat PC games in VR, checked 25 November 2026:
+
+| Tool | Price | Engines | Motion controls | Source |
+|---|---|---|---|---|
+| **PortXR** | Free | Unity, Unreal Engine 4.22 to 5.6, Godot 4 | Yes | Open, GPL-3.0 |
+| [UEVR](https://github.com/praydog/UEVR) | Free | Unreal Engine 4.8 to 5.4 | Head tracking in most games; full controls through per-game profiles | Public, all rights reserved |
+| [UEVRDeluxe](https://github.com/oduis/UEVRDeluxe) | Free, non-commercial | Unreal Engine, through UEVR | As UEVR | All rights reserved |
+| [Rai Pal](https://github.com/Raicuparta/rai-pal) | Free | Installs UEVR and UUVR for the games it finds | Depends on the mod | Open, GPL-3.0 |
+| [UUVR](https://github.com/Raicuparta/uuvr) | Free | Unity 2018.4 and newer, Mono | Head tracking; a gamepad for controls | Open, GPL-3.0 |
+| [UGVR](https://github.com/teddybear082/UGVR) | Free | Godot 4 | VR hands; controls act as a gamepad | Open, MIT |
+| [vorpX](https://www.vorpx.com/) | Paid | Direct3D 9 to 12 games from its own list | Mostly a 3D view with head tracking | Closed |
+
+UEVR has the largest set of per-game profiles, made by the Flat2VR community. PortXR covers Unity, Unreal Engine and
+Godot in one app, with motion controls and one-click install and removal. Its Unreal Engine support and Linux build
+are experimental.
+
 ## More PC VR tools from the same author
 
 Four free, open-source tools for PC VR by [EncidXVII](https://github.com/EncidXVII), with one look and one way of working. Guides, downloads and news for all four: [everyvr.net](https://everyvr.net).
