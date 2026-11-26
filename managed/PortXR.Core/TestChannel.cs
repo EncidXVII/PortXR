@@ -98,8 +98,19 @@ namespace PortXR
                 // The left hand raised in front of the face, the back of the wrist toward the eyes.
                 if (Wrist)
                 {
-                    c.aimL = Xr.ToPose(origin + yaw * new Vector3(-0.05f, -0.22f, 0.33f), yaw * Quaternion.Euler(-20, -90, 0));
+                    var hand = origin + yaw * new Vector3(-0.05f, -0.22f, 0.33f);
+                    var rot = yaw * Quaternion.Euler(-20, -90, 0);
+                    c.aimL = Xr.ToPose(hand, rot);
                     c.aimValidL = 1;
+                    // The right hand points at the watch: it lights only under the right hand's beam. The watch sits
+                    // where the core's update_watch puts it, its offset with z flipped into Unity's space.
+                    if (AimOffset == null)
+                    {
+                        var watch = hand + rot * new Vector3(-0.035f, 0.01f, -0.12f);
+                        var from = origin + yaw * new Vector3(0.2f, -0.35f, 0.15f);
+                        c.aimR = Xr.ToPose(from, Quaternion.LookRotation(watch - from));
+                        c.aimValidR = 1;
+                    }
                 }
                 fake = new[] { c };
             }

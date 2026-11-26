@@ -680,7 +680,7 @@ def gate_beam(g):
         else:
             with open(theme, "w", encoding="utf-8") as fh:
                 fh.write(kept)
-        time.sleep(3.5)  # later gates (the lit watch) see the player's theme again, not Sky
+        time.sleep(3.5)  # later gates (the lit watch) see the default accent again, not Sky
     check("15 laser beam", lime(on) > lime(before) + 1000,
           f"lime pixels {lime(before)} -> {lime(on)}, pointer {hovering}")
     blue = int(mask(sky, (92, 200, 255), 45).sum())
@@ -688,8 +688,8 @@ def gate_beam(g):
 
 
 def gate_wrist(g):
-    """Wrist glance: the left hand raised with the back of the wrist to the eyes lights the watch, and frames keep
-    coming meanwhile (a stripped math call once froze them on IL2CPP games)."""
+    """Wrist glance: the left hand raised with the back of the wrist to the eyes, and the right hand's beam on it,
+    lights the watch, and frames keep coming meanwhile (a stripped math call once froze them on IL2CPP games)."""
     g.cmd("wrist 1")
     try:
         time.sleep(0.5)
@@ -801,6 +801,12 @@ def main():
     window_args, hmd_window = placement(args.secondary)
 
     before = tree_hash(build)
+    # Gates look for the default lime accent (beam, screen handles, lit watch). The theme is one file for every game
+    # and the app, so the run uses the default and puts back whatever the player had.
+    theme = os.path.join(os.environ["APPDATA"], "PortXR", "theme.txt")
+    kept = open(theme, encoding="utf-8").read() if os.path.exists(theme) else None
+    if kept is not None:
+        os.remove(theme)
     subprocess.run([APP, "install", build], check=True)
     try:
         with steamvr.null_driver(hmd_window), windows.keep_on(hmd_window, test_processes(exe), not args.input):
@@ -845,6 +851,9 @@ def main():
         if os.path.exists(log):
             shutil.copy2(log, os.path.join(OUT, f"LogOutput-{args.fixture}.log"))  # uninstall deletes it
         subprocess.run([APP, "uninstall", build], check=True)
+        if kept is not None:
+            with open(theme, "w", encoding="utf-8") as fh:
+                fh.write(kept)
     check("install round trip", tree_hash(build) == before, "game folder byte-identical after uninstall")
     with open(os.path.join(OUT, "results.json"), "w") as f:
         json.dump(RESULTS, f, indent=2)
