@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 - 2026-11-26
+
+- **Remove VR** is back on each game's page beside **Play in VR** and **Button layout**, as a red link, instead of
+  at the bottom in the troubleshooting row, where it no longer looked like a button. The second press is a filled red
+  **Confirm: remove VR** button, as with **Add VR anyway**.
+- 32-bit games are refused because PortXR's parts are built for 64-bit games only. The old message said no VR
+  runtime supports 32-bit apps, but SteamVR now ships a 32-bit OpenXR runtime.
+
 ## 0.7.0 - 2026-11-24
 
 Linux:
