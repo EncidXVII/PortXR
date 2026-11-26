@@ -13,7 +13,7 @@ Every fixture row also passes gate 12: SteamVR is killed mid-game, the game goes
 | Fixture F4 | 2022.3 | Mono, D3D12, built-in | A | harness gates | UI grab and mirror at Present |
 | Fixture F5 | 2022.3 | IL2CPP, D3D11, URP + Bloom | A | harness gates | post-processing copied through IL2CPP reflection |
 | Fixture F6 | 2022.3 | Mono, D3D11, built-in, Input System | A | harness gates | Gamepad mode reaches the Input System |
-| Fixture F7 | 6.3 | IL2CPP, D3D12, URP | A | harness gates | onBeforeRender stripped: eyes placed in LateUpdate |
+| Fixture F7 | 6.3 | IL2CPP, D3D12, URP | A | harness gates | onBeforeRender stripped: eyes placed in LateUpdate. Known issue for 0.7.1: on the test PC since 15 Nov 2026 the GPU device is lost when the VR swapchains are made, with 0.7.1 and with code from before 15 Nov alike; the game alone runs |
 | Fixture F8 | 6.3 | Mono, D3D11, built-in | A | harness gates | |
 | Fixture F9 | 2022.3 | Mono with code trimming | Fail | app detection | Mod loader cannot start (trimmed engine and class libraries); refused with a clear message |
 | Fixture F10 | 2022.3 | Mono, D3D11, HDRP + Bloom | A | harness gates | HDRP camera settings reach the eyes |
