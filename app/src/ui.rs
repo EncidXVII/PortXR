@@ -790,8 +790,7 @@ impl App {
         }
     }
 
-    // What only matters when something goes wrong, quiet and last: where the game is, what it is built with, its logs,
-    // and taking VR out again.
+    // What only matters when something goes wrong, quiet and last: where the game is, what it is built with, its logs.
     fn troubleshooting(&mut self, ui: &mut Ui, g: &Game) {
         section_break(ui);
         eyebrow(ui, "", "Troubleshooting");
@@ -829,19 +828,6 @@ impl App {
                         Err(e) => self.status = (e.to_string(), Tone::Bad),
                     }
                 }
-            // Puts the game folder back as it was; a second press confirms.
-            if g.installed() {
-                let label = if self.confirm_uninstall { "Confirm: remove VR" } else { "Remove VR" };
-                let text = RichText::new(label.to_uppercase()).font(mono(LABEL)).color(DANGER_INK).extra_letter_spacing(TRACK);
-                if ui.add(egui::Button::new(text).frame(false)).clicked() {
-                    if self.confirm_uninstall {
-                        self.report(uninstall(g));
-                        self.cfg = load_cfg(g);
-                        games::write_vr_list(&self.games);
-                    }
-                    self.confirm_uninstall = !self.confirm_uninstall;
-                }
-            }
         });
     }
 
@@ -1017,6 +1003,18 @@ impl App {
         if playable && g.core_vr() && tertiary(ui, "Button layout").clicked() {
             self.buttons = true;
             self.scroll_to_buttons = true;
+        }
+        // Puts the game folder back as it was: a red link with the others, then a filled button for the second press.
+        if g.installed() {
+            let r = if self.confirm_uninstall { destructive(ui, "Confirm: remove VR", true) } else { link(ui, "Remove VR", DANGER_INK) };
+            if r.clicked() {
+                if self.confirm_uninstall {
+                    self.report(uninstall(g));
+                    self.cfg = load_cfg(g);
+                    games::write_vr_list(&self.games);
+                }
+                self.confirm_uninstall = !self.confirm_uninstall;
+            }
         }
     }
 
@@ -1510,11 +1508,15 @@ fn nav(ui: &mut Ui, text: &str, active: bool) -> egui::Response {
 
 // Quiet text action for occasional things: no box, underlined on hover.
 fn tertiary(ui: &mut Ui, text: &str) -> egui::Response {
+    link(ui, text, INK2)
+}
+
+fn link(ui: &mut Ui, text: &str, ink: Color32) -> egui::Response {
     let old = std::mem::replace(&mut ui.spacing_mut().button_padding, vec2(0.0, 0.0));
-    let r = ui.add(egui::Button::new(button_text(text, INK2)).frame(false).min_size(vec2(0.0, CONTROL_H)));
+    let r = ui.add(egui::Button::new(button_text(text, ink)).frame(false).min_size(vec2(0.0, CONTROL_H)));
     ui.spacing_mut().button_padding = old;
     if r.hovered() {
-        ui.painter().hline(r.rect.x_range(), r.rect.center().y + 9.0, Stroke::new(1.0, INK2));
+        ui.painter().hline(r.rect.x_range(), r.rect.center().y + 9.0, Stroke::new(1.0, ink));
     }
     focus_ring(ui, &r);
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
