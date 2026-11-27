@@ -1693,7 +1693,8 @@ fn rating_link(ui: &mut Ui, e: &catalogue::Entry) {
     paint_rating(ui.painter(), rect.min, rating, Some(mode));
     let modes: Vec<String> = catalogue::MODES.iter().filter_map(|m| e.ratings.get(*m).map(|r| format!("{m}: {r}"))).collect();
     let tip = format!("Game catalogue: {}. {} {}. Click for details.", modes.join(", "), e.reports, if e.reports == 1 { "report" } else { "reports" });
-    if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+    // Only a catalogue page is opened: the address comes from a downloaded list and goes to the system's opener.
+    if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && e.url.starts_with("https://everyvr.net/portxr/catalogue/") {
         let _ = games::open(&e.url);
     }
 }

@@ -34,7 +34,32 @@ namespace PortXR
         {
             public string Name;
             public Script Lua;
+            public MoonSharp.Interpreter.Coroutine Runner;
             public bool Failed;
+        }
+
+        // A script's code runs inside one coroutine kept for the script, which MoonSharp hands back every so many
+        // instructions: that is where a script running over a second (an endless loop) is stopped, so it can't freeze
+        // the game. One coroutine per script and not per call, because each new one allocates its own stacks.
+        const string RunnerSource = "local yield = coroutine.yield return function() local f, a = yield() while true do f(a) f, a = yield() end end";
+
+        static MoonSharp.Interpreter.Coroutine Runner(Script lua)
+        {
+            var co = lua.CreateCoroutine(lua.DoString(RunnerSource)).Coroutine;
+            co.AutoYieldCounter = 10000;
+            co.Resume();
+            return co;
+        }
+
+        static void Run(Loaded s, DynValue function, DynValue arg)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            s.Runner.Resume(function, arg);
+            while (s.Runner.State == CoroutineState.ForceSuspended)
+            {
+                if (clock.ElapsedMilliseconds > 1000) throw new ScriptRuntimeException("ran for over a second (an endless loop?) and was stopped");
+                s.Runner.Resume();
+            }
         }
 
         // Eye offset a script set, metres in the player's frame (x right, y up, z forward).
@@ -92,7 +117,8 @@ namespace PortXR
                 s.Lua.Globals["portxr"] = Api(s.Lua);
                 try
                 {
-                    s.Lua.DoString(File.ReadAllText(file), null, s.Name);
+                    s.Runner = Runner(s.Lua);
+                    Run(s, s.Lua.LoadString(File.ReadAllText(file), null, s.Name), DynValue.Nil);
                     scripts.Add(s);
                     Plugin.Log.LogInfo($"Script {s.Name} loaded");
                 }
@@ -112,7 +138,7 @@ namespace PortXR
                 if (f.Type != DataType.Function) continue;
                 try
                 {
-                    s.Lua.Call(f, arg);
+                    Run(s, f, arg);
                 }
                 catch (Exception ex)
                 {

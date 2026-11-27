@@ -1136,7 +1136,18 @@ void on_present(IDXGISwapChain* sc) {
     if (g_window) GetClientRect(g_window, &rc);
     if (!g_test.empty()) return test_capture(sc);
     drain_log();
-    if (g_dead || prx_state() < StateInstance) return;
+    if (g_dead || prx_state() < StateInstance) {
+        // The headset went away (SteamVR quit, the session was lost): the engine's own copy into the window comes
+        // back, with its vsync, or the window would stay without the game's picture until the game is closed.
+        if (g_vr) {
+            std::lock_guard lock(g_frameMutex);
+            g_vr = g_located = false;
+            gpu_no_vsync = false;
+            gpu_clear_presented = false;
+            note("Unreal: VR stopped, the game continues flat");
+        }
+        return;
+    }
     {
         std::lock_guard lock(g_frameMutex);
         bool stereo = g_framed;

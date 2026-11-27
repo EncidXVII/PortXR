@@ -73,6 +73,9 @@ pub fn install_anyway(game_dir: &Path) -> Result<(), Box<dyn Error>> {
 
 fn install_with(game_dir: &Path, force: bool) -> Result<(), Box<dyn Error>> {
     let game = checked(game_dir, force)?;
+    if game.x86 && game.godot_vr() {
+        return Err("32-bit game: PortXR is built for 64-bit games only.".into());
+    }
     if game.godot_vr() {
         return install_godot(&game);
     }

@@ -137,6 +137,8 @@ impl Game {
             Compat::NativeVr
         } else if self.linux_build {
             Compat::LinuxBuild
+        } else if self.x86 && self.godot_vr() {
+            Compat::X86
         } else if self.godot_vr() || self.unreal_vr() {
             Compat::Supported
         } else if !self.unity() {
@@ -443,7 +445,8 @@ pub fn detect_other(root: &Path) -> Option<Game> {
         // For Godot, its engine version (from the game's pack): Godot 4 games get full VR.
         unity: version,
         il2cpp: false,
-        x86: false,
+        // Godot only: an Unreal folder's first exe can be a small launcher, which says nothing about the game.
+        x86: engine == "Godot" && is_x86(&exe).unwrap_or(false),
         stripped: false,
         linux_build,
         native_vr: false,

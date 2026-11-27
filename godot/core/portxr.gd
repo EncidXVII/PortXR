@@ -17,6 +17,7 @@ var _log_file: FileAccess  # PortXR/portxr.log, which the app opens (Open log)
 var _views: Array[SubViewport] = []
 var _cams: Array[Camera3D] = []
 var _attached := false
+var _stopped := false
 var _placed := false
 var _frames := 0
 var _eye_size := Vector2i.ZERO
@@ -110,10 +111,24 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if core == null:
 		return
+	var root := get_tree().root
+	# The headset went away (SteamVR quit, the session was lost): the window gets the game's own picture back, or it
+	# would show only the 2D UI until the game is closed.
+	if core.state() < 0:
+		if not _stopped:
+			_stopped = true
+			_placed = false
+			root.disable_3d = false
+			root.transparent_bg = false
+			_show_picture(null)
+			for v in _views:
+				v.render_target_update_mode = SubViewport.UPDATE_DISABLED
+			_say("VR stopped: the game continues flat")
+		_log()
+		return
 	_frames += 1
 	if _attached:
 		core.begin()
-	var root := get_tree().root
 	_game = _game_camera(root)
 	# Theater: the game draws its own flat picture, which the core puts on the screen; otherwise the window keeps only
 	# the 2D UI and the game's own 3D picture leaves it.
