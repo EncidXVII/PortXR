@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.2 - 2026-11-28
+
+- Unity games: a script that runs for over a second (an endless loop) is stopped and switched off, as it already was
+  in Godot and Unreal games. It froze the game.
+- Godot and Unreal games: when the headset goes away (SteamVR quits, the session is lost), the game's own picture
+  comes back in its window and the game continues flat. The window kept only the 2D UI, or no picture, until the
+  game was closed. VR starts again with the game's next start.
+- 32-bit Godot games are refused before anything is added, as 32-bit Unity games are. They were listed as Full VR,
+  and VR could never load in them.
+- The rating beside a game opens only its page in the game catalogue.
+
 ## 0.7.1 - 2026-11-26
 
 - **Remove VR** is back on each game's page beside **Play in VR** and **Button layout**, as a red link, instead of
